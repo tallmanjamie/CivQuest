@@ -2,9 +2,7 @@
 // ============================================
 // FIRESTORE PATH CONFIGURATION
 // ============================================
-// This file defines paths for both legacy and new Firestore structures.
-// During migration, both are supported. After migration, legacy paths
-// will be deprecated.
+// Phase 0 migration is COMPLETE. Using new unified paths.
 
 // NEW PATHS (Unified Platform - Phase 1+)
 export const PATHS = {
@@ -20,13 +18,16 @@ export const PATHS = {
   admins: 'admins',
   admin: (uid) => `admins/${uid}`,
   
-  // Archives (notification history)
-  archives: 'archives',
-  orgArchive: (orgId) => `archives/${orgId}`,
-  orgNotifications: (orgId) => `archives/${orgId}/notifications`
+  // Logs collection (notification history)
+  // After running migrate:logs script, this points to new top-level collection
+  logs: 'logs',
+  
+  // Invitations
+  invitations: 'invitations',
+  invitation: (email) => `invitations/${email.toLowerCase()}`
 };
 
-// LEGACY PATHS (Pre-Phase 1 - for backward compatibility)
+// LEGACY PATHS (Pre-Phase 1 - kept for reference only)
 export const LEGACY_PATHS = {
   root: 'artifacts/civquest_notifications',
   configuration: 'artifacts/civquest_notifications/configuration',
@@ -36,17 +37,28 @@ export const LEGACY_PATHS = {
   orgAdmins: 'artifacts/civquest_notifications/org_admins',
   orgAdmin: (email) => `artifacts/civquest_notifications/org_admins/${email}`,
   invitations: 'artifacts/civquest_notifications/invitations',
-  invitation: (email) => `artifacts/civquest_notifications/invitations/${email}`
+  invitation: (email) => `artifacts/civquest_notifications/invitations/${email.toLowerCase()}`,
+  logs: 'artifacts/civquest_notifications/public/data/logs'
 };
 
-// Feature flag to toggle between legacy and new paths
-// Set to true once migration is complete and verified
+// Feature flag - NOW USING NEW PATHS
 export const USE_NEW_PATHS = true;
 
 // Helper to get the appropriate path based on feature flag
 export const getPath = (pathType, ...args) => {
-  if (USE_NEW_PATHS) {
-    return PATHS[pathType]?.(...args) || PATHS[pathType];
+  const paths = USE_NEW_PATHS ? PATHS : LEGACY_PATHS;
+  const pathFn = paths[pathType];
+  
+  if (typeof pathFn === 'function') {
+    return pathFn(...args);
   }
-  return LEGACY_PATHS[pathType]?.(...args) || LEGACY_PATHS[pathType];
+  return pathFn;
+};
+
+// Export both for explicit usage during transition
+export default {
+  PATHS,
+  LEGACY_PATHS,
+  USE_NEW_PATHS,
+  getPath
 };

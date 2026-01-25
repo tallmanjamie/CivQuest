@@ -76,6 +76,17 @@ export function subscribeToUser(uid, callback) {
 }
 
 /**
+ * Update last login timestamp
+ */
+export async function updateLastLogin(uid, email) {
+  const docRef = doc(db, PATHS.user(uid));
+  await setDoc(docRef, { 
+    lastLogin: serverTimestamp(), 
+    email: email 
+  }, { merge: true });
+}
+
+/**
  * Disable user account
  */
 export async function disableUser(uid) {
@@ -85,3 +96,38 @@ export async function disableUser(uid) {
     subscriptions: {}
   });
 }
+
+/**
+ * Link ArcGIS account to user
+ */
+export async function linkArcGISAccount(uid, arcgisData) {
+  const docRef = doc(db, PATHS.user(uid));
+  await updateDoc(docRef, {
+    linkedArcGISUsername: arcgisData.username,
+    arcgisProfile: {
+      username: arcgisData.username,
+      fullName: arcgisData.fullName || '',
+      email: arcgisData.email,
+      orgId: arcgisData.orgId || null,
+      linkedAt: new Date().toISOString()
+    },
+    ...(arcgisData.organization && {
+      arcgisOrganization: {
+        id: arcgisData.organization.id,
+        name: arcgisData.organization.name,
+        urlKey: arcgisData.organization.urlKey || null
+      }
+    })
+  });
+}
+
+export default {
+  getUser,
+  createUser,
+  updateUserSubscriptions,
+  toggleSubscription,
+  subscribeToUser,
+  updateLastLogin,
+  disableUser,
+  linkArcGISAccount
+};

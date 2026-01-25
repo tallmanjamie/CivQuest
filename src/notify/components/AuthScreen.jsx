@@ -1,5 +1,5 @@
 // src/notify/components/AuthScreen.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { auth, db } from '@shared/services/firebase';
 import { PATHS } from '@shared/services/paths';
 import {
@@ -10,12 +10,26 @@ import {
 import {
   doc,
   setDoc,
+  getDoc,
+  updateDoc,
   serverTimestamp
 } from "firebase/firestore";
 import { useToast } from '@shared/components/Toast';
-import { Mail, Lock, Loader2, Rss } from 'lucide-react';
+import { sendWelcomeEmail } from '@shared/services/email';
+import { 
+  initiateArcGISLogin, 
+  getOAuthRedirectUri 
+} from '@shared/services/arcgis-auth';
+import { processInvitationSubscriptions } from '@shared/services/invitations';
+import { Mail, Lock, Loader2, Rss, Globe } from 'lucide-react';
 
-export default function AuthScreen({ targetSubscription, targetOrganization, isEmbed }) {
+export default function AuthScreen({ 
+  targetSubscription, 
+  targetOrganization, 
+  isEmbed,
+  oauthError,
+  setOauthError
+}) {
   const [isLogin, setIsLogin] = useState(!isEmbed);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,11 +37,19 @@ export default function AuthScreen({ targetSubscription, targetOrganization, isE
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
+  // Show OAuth error if present
+  useEffect(() => {
+    if (oauthError) {
+      setError(oauthError);
+    }
+  }, [oauthError]);
+
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-
+    setOauthError?.(null);
+    
     try {
       let userUid;
       if (isLogin) {
@@ -36,29 +58,59 @@ export default function AuthScreen({ targetSubscription, targetOrganization, isE
       } else {
         const cred = await createUserWithEmailAndPassword(auth, email, password);
         userUid = cred.user.uid;
-
+        
         try {
           await sendEmailVerification(cred.user);
         } catch (emailErr) {
           console.warn("Could not send verification email:", emailErr);
         }
 
-        // Create user document in NEW path
+        // Send welcome email via Brevo
+        try {
+          await sendWelcomeEmail(email);
+        } catch (emailErr) {
+          console.warn("Could not send welcome email:", emailErr);
+        }
+
         await setDoc(doc(db, PATHS.user(userUid)), {
           email: email,
           createdAt: serverTimestamp(),
           subscriptions: {},
           disabled: false
         }, { merge: true });
+      }
 
-        // If there's a target subscription, auto-subscribe
-        if (targetSubscription) {
+      // Check for invitation by email and apply subscriptions
+      const inviteRef = doc(db, PATHS.invitation(email.toLowerCase()));
+      const inviteSnap = await getDoc(inviteRef);
+      
+      if (inviteSnap.exists()) {
+        const inviteData = inviteSnap.data();
+        const subscriptionsToApply = processInvitationSubscriptions(inviteData);
+
+        if (Object.keys(subscriptionsToApply).length > 0) {
           await setDoc(doc(db, PATHS.user(userUid)), {
-            subscriptions: {
-              [targetSubscription.key]: true
-            }
+            subscriptions: subscriptionsToApply,
+            email: email,
+            disabled: false
           }, { merge: true });
+
+          // Mark invitation as claimed
+          await updateDoc(inviteRef, {
+            status: 'claimed',
+            claimedAt: serverTimestamp(),
+            claimedBy: userUid
+          });
         }
+      } else if (targetSubscription && userUid) {
+        // Fallback: URL-based subscription (for direct links)
+        await setDoc(doc(db, PATHS.user(userUid)), {
+          subscriptions: {
+            [targetSubscription.key]: true
+          },
+          email: email,
+          disabled: false
+        }, { merge: true });
       }
 
       toast.success(isLogin ? 'Signed in successfully!' : 'Account created!');
@@ -104,24 +156,52 @@ export default function AuthScreen({ targetSubscription, targetOrganization, isE
         )}
       </div>
 
-      <form onSubmit={handleAuth} className="space-y-4">
-        {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            {error}
-          </div>
-        )}
+      {/* ArcGIS Sign In/Sign Up Button */}
+      <div className="mb-6">
+        <button
+          type="button"
+          onClick={() => {
+            const redirectUri = getOAuthRedirectUri();
+            initiateArcGISLogin(redirectUri, isLogin ? 'signin' : 'signup');
+          }}
+          className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#0079C1] text-white rounded-lg font-medium hover:bg-[#006699] transition-colors"
+        >
+          <Globe className="w-5 h-5" />
+          {isLogin ? 'Sign in with ArcGIS' : 'Sign up with ArcGIS'}
+        </button>
+        <p className="text-xs text-slate-500 text-center mt-2">
+          Use your ArcGIS Online or Enterprise account
+        </p>
+      </div>
 
+      {/* Divider */}
+      <div className="relative my-6">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-slate-200"></div>
+        </div>
+        <div className="relative flex justify-center text-sm">
+          <span className="px-4 bg-white text-slate-500">or continue with email</span>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleAuth} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#004E7C] focus:border-transparent"
               placeholder="you@example.com"
               required
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#004E7C] focus:border-transparent"
             />
           </div>
         </div>
@@ -129,14 +209,14 @@ export default function AuthScreen({ targetSubscription, targetOrganization, isE
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#004E7C] focus:border-transparent"
               placeholder="••••••••"
               required
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#004E7C] focus:border-transparent"
             />
           </div>
         </div>
@@ -144,23 +224,43 @@ export default function AuthScreen({ targetSubscription, targetOrganization, isE
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 bg-[#004E7C] text-white font-semibold rounded-lg hover:bg-[#003B5C] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          className="w-full py-2 px-4 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003d61] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {loading ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            isLogin ? 'Sign In' : 'Create Account'
-          )}
+          {loading && <Loader2 className="w-5 h-5 animate-spin" />}
+          {isLogin ? 'Sign In' : 'Create Account'}
         </button>
       </form>
 
-      <div className="mt-6 text-center">
-        <button
-          onClick={() => setIsLogin(!isLogin)}
-          className="text-sm text-[#004E7C] hover:underline"
-        >
-          {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
-        </button>
+      <div className="mt-6 text-center text-sm text-slate-600">
+        {isLogin ? (
+          <>
+            Don't have an account?{' '}
+            <button
+              onClick={() => {
+                setIsLogin(false);
+                setError('');
+                setOauthError?.(null);
+              }}
+              className="text-[#004E7C] font-medium hover:underline"
+            >
+              Sign up
+            </button>
+          </>
+        ) : (
+          <>
+            Already have an account?{' '}
+            <button
+              onClick={() => {
+                setIsLogin(true);
+                setError('');
+                setOauthError?.(null);
+              }}
+              className="text-[#004E7C] font-medium hover:underline"
+            >
+              Sign in
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

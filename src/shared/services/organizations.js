@@ -7,8 +7,10 @@ import {
   getDoc, 
   getDocs, 
   onSnapshot,
-  query,
-  where 
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 
 /**
@@ -85,3 +87,71 @@ export async function getOrganizationAtlasConfig(orgId) {
   const org = await getOrganization(orgId);
   return org?.atlasConfig || null;
 }
+
+/**
+ * Create a new organization
+ */
+export async function createOrganization(orgId, data) {
+  const docRef = doc(db, PATHS.organization(orgId));
+  await setDoc(docRef, {
+    ...data,
+    createdAt: serverTimestamp()
+  });
+}
+
+/**
+ * Update an organization
+ */
+export async function updateOrganization(orgId, data) {
+  const docRef = doc(db, PATHS.organization(orgId));
+  await updateDoc(docRef, data);
+}
+
+/**
+ * Delete an organization
+ */
+export async function deleteOrganization(orgId) {
+  const docRef = doc(db, PATHS.organization(orgId));
+  await deleteDoc(docRef);
+}
+
+/**
+ * Format notifications for display
+ * @param {Array} notifications - Array of notification configs
+ * @param {string} orgId - Organization ID for key construction
+ */
+export function formatNotificationsForDisplay(notifications = [], orgId = '') {
+  return notifications.map(n => {
+    let scheduleText = n.type;
+    if (n.type === 'monthly') {
+      scheduleText = `Monthly on day ${n.runDay}`;
+    } else if (n.type === 'weekly') {
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      scheduleText = `Weekly on ${days[n.runDay] || 'Scheduled Day'}`;
+    } else if (n.type === 'daily') {
+      scheduleText = "Daily";
+    }
+
+    return {
+      id: n.id,
+      key: orgId ? `${orgId}_${n.id}` : n.id, // Key construction matches Admin/Backend logic
+      name: n.name,
+      schedule: scheduleText,
+      description: n.description,
+      access: n.access || 'public' // Default to public if not set
+    };
+  });
+}
+
+export default {
+  getAllOrganizations,
+  getOrganization,
+  subscribeToOrganization,
+  subscribeToAllOrganizations,
+  getOrganizationNotifications,
+  getOrganizationAtlasConfig,
+  createOrganization,
+  updateOrganization,
+  deleteOrganization,
+  formatNotificationsForDisplay
+};

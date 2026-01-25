@@ -1,10 +1,104 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/x-icon" href="https://geoplan.nyc3.digitaloceanspaces.com/CivQuest/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>civquest</title>
+    <title>CivQuest</title>
+    
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Inter font for clean UI -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- ArcGIS Maps SDK for JavaScript -->
+    <link rel="stylesheet" href="https://js.arcgis.com/4.28/esri/themes/light/main.css">
+    <script src="https://js.arcgis.com/4.28/"></script>
+    
+    <style>
+      * {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+      
+      /* Custom scrollbar for consistency */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f5f9;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+      
+      /* Animation keyframes for Tailwind animate-in */
+      @keyframes animate-in {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      
+      @keyframes slide-in-from-bottom {
+        from {
+          transform: translateY(8px);
+        }
+        to {
+          transform: translateY(0);
+        }
+      }
+      
+      @keyframes slide-in-from-right {
+        from {
+          transform: translateX(100%);
+        }
+        to {
+          transform: translateX(0);
+        }
+      }
+      
+      @keyframes zoom-in {
+        from {
+          transform: scale(0.95);
+        }
+        to {
+          transform: scale(1);
+        }
+      }
+      
+      .animate-in {
+        animation: animate-in 0.3s ease-out forwards;
+      }
+      
+      .fade-in {
+        animation: animate-in 0.3s ease-out forwards;
+      }
+      
+      .slide-in-from-bottom-2 {
+        animation: slide-in-from-bottom 0.3s ease-out forwards;
+      }
+      
+      .slide-in-from-right-full {
+        animation: slide-in-from-right 0.3s ease-out forwards;
+      }
+      
+      .slide-in-from-right-4 {
+        animation: slide-in-from-right 0.2s ease-out forwards;
+      }
+      
+      .zoom-in-95 {
+        animation: zoom-in 0.2s ease-out forwards;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

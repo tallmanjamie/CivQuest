@@ -1,59 +1,90 @@
 // src/main.jsx
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ToastProvider } from '@shared/components/Toast';
+import './index.css';
+import NotifyApp from './notify/NotifyApp';
+// Admin components to be loaded dynamically
+// import SuperAdminApp from './admin/SuperAdminApp';
+// import OrgAdminApp from './admin/OrgAdminApp';
+// Atlas components (Phase 3)
+// import AtlasApp from './atlas/AtlasApp';
 
-// Module imports
-import NotifyApp from '@notify/NotifyApp';
-import AtlasApp from '@atlas/AtlasApp';
-import AdminApp from '@admin/AdminApp';
+// Define Global Configuration for ArcGIS Proxy
+window.ARCGIS_PROXY_URL = 'https://notify.civ.quest';
 
-// Subdomain detection
-function getSubdomain() {
+// Get subdomain and path for routing
+const getRouteInfo = () => {
   const hostname = window.location.hostname;
+  const path = window.location.pathname;
   
-  // Local development overrides
-  const params = new URLSearchParams(window.location.search);
-  const moduleOverride = params.get('module');
-  if (moduleOverride) {
-    return moduleOverride; // ?module=notify, ?module=atlas, ?module=admin
+  // Parse subdomain
+  const parts = hostname.split('.');
+  let subdomain = null;
+  
+  // Check for subdomain patterns:
+  // - notify.civ.quest -> subdomain = 'notify'
+  // - atlas.civ.quest -> subdomain = 'atlas'
+  // - admin.civ.quest -> subdomain = 'admin'
+  // - localhost -> check path
+  // - civ.quest (root) -> no subdomain
+  if (hostname.includes('localhost') || hostname === '127.0.0.1') {
+    // Local development: use path-based routing
+    subdomain = null;
+  } else if (parts.length > 2) {
+    subdomain = parts[0];
   }
   
-  // Production subdomain detection
-  if (hostname.startsWith('notify.')) return 'notify';
-  if (hostname.startsWith('atlas.')) return 'atlas';
-  if (hostname.startsWith('admin.')) return 'admin';
-  
-  // Legacy path-based routing (for backward compatibility)
-  const path = window.location.pathname;
-  if (path.startsWith('/admin')) return 'admin';
-  if (path.startsWith('/atlas')) return 'atlas';
-  
-  // Default to notify
-  return 'notify';
-}
+  return { subdomain, path };
+};
 
-// Module selection
-function getModule(subdomain) {
+// Route component selection
+const getAppComponent = () => {
+  const { subdomain, path } = getRouteInfo();
+  
+  // Path-based routing (development and admin routes)
+  if (path.startsWith('/admin')) {
+    // Super admin portal - lazy load when implemented
+    // return SuperAdminApp;
+    console.warn('Super Admin not yet migrated - showing Notify');
+    return NotifyApp;
+  }
+  
+  if (path.startsWith('/org-admin')) {
+    // Organization admin portal - lazy load when implemented
+    // return OrgAdminApp;
+    console.warn('Org Admin not yet migrated - showing Notify');
+    return NotifyApp;
+  }
+  
+  // Test routes for development
+  if (path.startsWith('/test-editor') || path.startsWith('/test-spatial')) {
+    console.warn('Test routes not yet migrated - showing Notify');
+    return NotifyApp;
+  }
+  
+  // Subdomain-based routing (production)
   switch (subdomain) {
-    case 'atlas':
-      return AtlasApp;
-    case 'admin':
-      return AdminApp;
     case 'notify':
+      return NotifyApp;
+    case 'atlas':
+      // return AtlasApp;
+      console.warn('Atlas not yet implemented - showing Notify');
+      return NotifyApp;
+    case 'admin':
+      // return SuperAdminApp;
+      console.warn('Admin subdomain not yet migrated - showing Notify');
+      return NotifyApp;
     default:
+      // Default to Notify for now
       return NotifyApp;
   }
-}
+};
 
-const subdomain = getSubdomain();
-const AppModule = getModule(subdomain);
+// Get the app to render
+const AppComponent = getAppComponent();
 
-// Global configuration
-window.CIVQUEST_MODULE = subdomain;
-
+// Render without StrictMode to avoid double-mounting issues with ArcGIS JS API
+// The map gets destroyed mid-init on the first mount, then fails on the second mount
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <ToastProvider>
-    <AppModule />
-  </ToastProvider>
+  <AppComponent />
 );
