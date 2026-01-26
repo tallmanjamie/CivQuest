@@ -1,6 +1,11 @@
 // src/atlas/components/Header.jsx
 // CivQuest Atlas - Header Component
-// Application header with branding and user menu (mode switcher moved to SearchToolbar)
+// Application header with branding and user menu
+//
+// CHANGES:
+// - Removed map picker dropdown (moved to MapView top-left controls)
+// - Header now only contains branding and user menu
+// - Uses themeColors utility for proper dynamic theming
 
 import React, { useState } from 'react';
 import { 
@@ -12,10 +17,12 @@ import {
   Settings
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
+import { getThemeColors } from '../utils/themeColors';
 
 /**
  * Header Component
- * Displays branding, map selector, and user menu
+ * Displays branding and user menu
+ * Map picker has been moved to MapView component (top-left corner of map)
  */
 export default function Header({ 
   config, 
@@ -30,19 +37,20 @@ export default function Header({
     isAuthenticated, 
     signIn, 
     signOut,
-    activeMap,
-    availableMaps,
-    setActiveMap
+    activeMap
   } = useAtlas();
 
-  const [showMapPicker, setShowMapPicker] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
+  // Get theme colors from utility - this properly handles dynamic colors
   const themeColor = config?.ui?.themeColor || 'sky';
-  const headerClass = config?.ui?.headerClass || `bg-${themeColor}-700`;
+  const colors = getThemeColors(themeColor);
 
   return (
-    <header className={`${headerClass} text-white p-2 shadow-lg z-30 sticky top-0 flex-shrink-0`}>
+    <header 
+      className="text-white p-2 shadow-lg z-30 sticky top-0 flex-shrink-0"
+      style={{ backgroundColor: colors.bg700 }}
+    >
       <div className="w-full flex justify-between items-center">
         {/* Left: Logo & Title */}
         <div className="flex items-center gap-2 overflow-hidden">
@@ -57,48 +65,16 @@ export default function Header({
             <h1 className="text-sm md:text-xl font-bold leading-tight truncate">
               {config?.ui?.headerTitle || 'CivQuest Atlas'}
             </h1>
-            <span className="text-[10px] md:text-sm opacity-90 block md:inline">
-              {config?.ui?.headerSubtitle || ''}
-            </span>
+            {config?.ui?.headerSubtitle && (
+              <span className="text-[10px] md:text-sm opacity-90 block md:inline">
+                {config.ui.headerSubtitle}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Right: Map Picker & User Menu (Desktop) */}
+        {/* Right: User Menu (Desktop) */}
         <div className="hidden md:flex items-center gap-3">
-          {/* Map Picker (if multiple maps available) */}
-          {availableMaps?.length > 1 && (
-            <div className="relative">
-              <button
-                onClick={() => setShowMapPicker(!showMapPicker)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition"
-              >
-                <span className="truncate max-w-[150px]">{activeMap?.name || 'Select Map'}</span>
-                <ChevronDown className={`w-4 h-4 transition-transform ${showMapPicker ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {showMapPicker && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowMapPicker(false)} />
-                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 max-h-80 overflow-y-auto">
-                    {availableMaps.map((map, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => { setActiveMap(idx); setShowMapPicker(false); }}
-                        className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-100 ${
-                          activeMap?.name === map.name 
-                            ? `bg-${themeColor}-50 text-${themeColor}-700 font-medium`
-                            : 'text-slate-700'
-                        }`}
-                      >
-                        {map.name}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
           {/* User Menu */}
           <div className="relative">
             {isAuthenticated && arcgisUser ? (
@@ -124,13 +100,15 @@ export default function Header({
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
                     <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50">
-                      <div className="px-4 py-3 border-b border-slate-100">
-                        <p className="text-sm font-medium text-slate-800">{arcgisUser.fullName || arcgisUser.username}</p>
+                      <div className="px-4 py-2 border-b border-slate-100">
+                        <p className="text-sm font-medium text-slate-800 truncate">
+                          {arcgisUser.fullName || arcgisUser.username}
+                        </p>
                         <p className="text-xs text-slate-500 truncate">{arcgisUser.email}</p>
                       </div>
                       <button
                         onClick={() => { signOut(); setShowUserMenu(false); }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2"
                       >
                         <LogOut className="w-4 h-4" />
                         Sign Out
@@ -145,7 +123,7 @@ export default function Header({
                 className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition"
               >
                 <LogIn className="w-4 h-4" />
-                <span className="hidden lg:inline">Sign In</span>
+                <span className="hidden sm:inline">Sign In</span>
               </button>
             )}
           </div>

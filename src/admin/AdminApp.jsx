@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { initializeApp } from "firebase/app";
+import LicenseManagement from './components/LicenseManagement';
 import { 
   getAuth, 
   signInWithEmailAndPassword,
@@ -448,6 +449,7 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
   // System-level items (super_admin only)
   const systemItems = [
     { id: 'organizations', label: 'Organizations', icon: Building2 },
+	{ id: 'licensing', label: 'Licensing', icon: Shield },  // <-- Add this line
     { id: 'orgadmins', label: 'Org Admins', icon: UserPlus },
   ];
 
@@ -760,6 +762,16 @@ function SuperAdminDashboard({ user }) {
           return <OrganizationManagement />;
         case 'orgadmins':
           return <OrgAdminManagement />;
+        case 'licensing':
+          return (
+            <LicenseManagement
+              db={db}
+              addToast={addToast}
+              confirm={confirm}
+              adminEmail={user.email}
+              accentColor="#004E7C"
+            />
+          );
         default:
           return null;
       }

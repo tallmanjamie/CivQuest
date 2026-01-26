@@ -1,6 +1,10 @@
 // src/atlas/AtlasApp.jsx
 // CivQuest Atlas - Main Application Component
 // Unified mapping and property search platform
+//
+// UPDATED: Now uses themeColors utility for proper dynamic theming
+// Tailwind can't handle dynamic class names like `bg-${color}-600`
+// So we use inline styles with the theme utility
 
 import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import { 
@@ -36,6 +40,9 @@ import WelcomeScreen from './components/WelcomeScreen';
 import LoadingScreen from './components/LoadingScreen';
 import ErrorScreen from './components/ErrorScreen';
 import OrgSelector from './components/OrgSelector';
+
+// Theme utility for proper dynamic theming
+import { getThemeColors, getThemeCssVars } from './utils/themeColors';
 
 // Create context for sharing state across components
 export const AtlasContext = createContext(null);
@@ -77,7 +84,9 @@ function SearchToolbar({
   const [showMenu, setShowMenu] = useState(false);
   const inputRef = useRef(null);
   
+  // Get theme colors from config
   const themeColor = config?.ui?.themeColor || 'sky';
+  const colors = getThemeColors(themeColor);
   const isBottom = position === 'bottom';
   
   const handleSubmit = (e) => {
@@ -110,9 +119,10 @@ function SearchToolbar({
                 onClick={() => onModeChange(m.id)}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-all ${
                   isActive 
-                    ? `bg-white text-${themeColor}-700 shadow-sm`
+                    ? 'bg-white shadow-sm'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
+                style={isActive ? { color: colors.text700 } : {}}
                 title={m.label}
               >
                 <Icon className="w-4 h-4" />
@@ -142,7 +152,10 @@ function SearchToolbar({
                 onClick={() => { onShowAdvanced?.(); setShowMenu(false); }}
                 className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
               >
-                <div className={`w-8 h-8 rounded-full bg-${themeColor}-100 text-${themeColor}-600 flex items-center justify-center`}>
+                <div 
+                  className="w-8 h-8 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: colors.bg100, color: colors.text600 }}
+                >
                   <Filter className="w-4 h-4" />
                 </div>
                 <div>
@@ -154,19 +167,22 @@ function SearchToolbar({
                 onClick={() => { onShowHistory?.(); setShowMenu(false); }}
                 className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
               >
-                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                <div 
+                  className="w-8 h-8 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: colors.bg100, color: colors.text600 }}
+                >
                   <Clock className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="block text-sm font-semibold text-slate-700">History</span>
-                  <span className="block text-xs text-slate-400">View previous searches</span>
+                  <span className="block text-sm font-semibold text-slate-700">Search History</span>
+                  <span className="block text-xs text-slate-400">View recent searches</span>
                 </div>
               </button>
             </div>
           </>
         )}
         
-        {/* Input Field */}
+        {/* Search Input */}
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -175,21 +191,25 @@ function SearchToolbar({
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={activeMap?.searchPlaceholder || config?.ui?.searchPlaceholder || 'Ask about properties...'}
-            className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm"
-            disabled={isSearching}
+            placeholder={activeMap?.searchPlaceholder || config?.ui?.searchPlaceholder || "Search properties..."}
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:bg-white transition"
+            style={{ 
+              '--tw-ring-color': colors.bg500,
+              borderColor: inputValue ? colors.border300 : undefined
+            }}
           />
         </div>
         
-        {/* Search Button */}
+        {/* Submit Button */}
         <button
           onClick={handleSubmit}
-          disabled={isSearching || !inputValue.trim()}
-          className={`p-2 rounded-lg flex-shrink-0 transition-colors ${
-            inputValue.trim() && !isSearching
-              ? `bg-${themeColor}-600 text-white hover:bg-${themeColor}-700` 
+          disabled={!inputValue.trim() || isSearching}
+          className={`p-2 rounded-lg transition-colors ${
+            inputValue.trim() 
+              ? 'text-white hover:opacity-90' 
               : 'bg-slate-100 text-slate-400'
           }`}
+          style={inputValue.trim() ? { backgroundColor: colors.bg600 } : {}}
           title="Search"
         >
           {isSearching ? (
@@ -234,8 +254,12 @@ export default function AtlasApp() {
   const enabledModes = activeMap?.enabledModes || ['chat', 'map', 'table'];
   
   // Determine search bar position from config (default: 'top')
-  // Can be set in atlasConfig.ui.searchBarPosition = 'top' | 'bottom'
   const searchBarPosition = config?.ui?.searchBarPosition || 'top';
+  
+  // Get theme colors
+  const themeColor = config?.ui?.themeColor || 'sky';
+  const colors = getThemeColors(themeColor);
+  const cssVars = getThemeCssVars(themeColor);
   
   // Set initial mode based on config
   useEffect(() => {
@@ -300,7 +324,7 @@ export default function AtlasApp() {
     }
   }, []);
   
-  // Context value
+  // Context value - includes theme colors for child components
   const contextValue = {
     // Config
     config,
@@ -310,6 +334,10 @@ export default function AtlasApp() {
     activeMapIndex,
     setActiveMap,
     availableMaps,
+    
+    // Theme colors (for child components)
+    themeColor,
+    colors,
     
     // Auth
     arcgisUser,
@@ -331,28 +359,22 @@ export default function AtlasApp() {
     setSearchLocation,
     isSearching,
     setIsSearching,
-    handleSearch,
     
     // Actions
     zoomToFeature,
     highlightFeature,
     
-    // History/Advanced
-    showHistory,
-    setShowHistory,
-    showAdvanced,
-    setShowAdvanced,
-    
     // Refs
     mapViewRef,
     tableViewRef,
-    chatViewRef
+    chatViewRef,
+    
+    // UI State
+    showHistory,
+    setShowHistory,
+    showAdvanced,
+    setShowAdvanced
   };
-  
-  // Show org selector if no org specified
-  if (!configLoading && !orgId) {
-    return <OrgSelector onSelect={setOrgId} />;
-  }
   
   // Loading state
   if (configLoading || authLoading) {
@@ -380,9 +402,8 @@ export default function AtlasApp() {
   // No config loaded
   if (!config) {
     return (
-      <ErrorScreen 
-        title="No Configuration"
-        message="Unable to load Atlas configuration."
+      <OrgSelector 
+        onSelect={(newOrgId) => setOrgId(newOrgId)}
       />
     );
   }
@@ -408,9 +429,6 @@ export default function AtlasApp() {
     );
   }
   
-  // Theme color from config
-  const themeColor = config.ui?.themeColor || 'sky';
-  
   // Search toolbar component (rendered in both positions conditionally)
   const searchToolbar = (
     <SearchToolbar
@@ -430,7 +448,8 @@ export default function AtlasApp() {
   
   return (
     <AtlasContext.Provider value={contextValue}>
-      <div className="h-dvh flex flex-col bg-slate-100 font-sans">
+      {/* Apply CSS variables for theme colors */}
+      <div className="h-dvh flex flex-col bg-slate-100 font-sans" style={cssVars}>
         {/* Header */}
         <Header 
           config={config}
@@ -488,6 +507,7 @@ export default function AtlasApp() {
             arcgisUser={arcgisUser}
             onSignIn={signIn}
             onSignOut={signOut}
+            colors={colors}
           />
         )}
         
@@ -510,9 +530,7 @@ export default function AtlasApp() {
 /**
  * Mobile Menu Component
  */
-function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisUser, onSignIn, onSignOut }) {
-  const themeColor = config?.ui?.themeColor || 'sky';
-  
+function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisUser, onSignIn, onSignOut, colors }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose}>
       <div 
@@ -520,7 +538,10 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
         onClick={(e) => e.stopPropagation()}
       >
         {/* Menu Header */}
-        <div className={`p-4 bg-${themeColor}-700 text-white flex justify-between items-center`}>
+        <div 
+          className="p-4 text-white flex justify-between items-center"
+          style={{ backgroundColor: colors.bg700 }}
+        >
           <span className="font-semibold">Menu</span>
           <button onClick={onClose} className="p-1 hover:bg-white/20 rounded">
             <X className="w-5 h-5" />
@@ -540,12 +561,13 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
                   onClick={() => { onModeChange(m.id); onClose(); }}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition ${
                     isActive 
-                      ? `bg-${themeColor}-50 text-${themeColor}-700`
-                      : 'text-slate-600 hover:bg-slate-50'
+                      ? 'font-medium'
+                      : 'text-slate-600 hover:bg-slate-100'
                   }`}
+                  style={isActive ? { backgroundColor: colors.bg50, color: colors.text700 } : {}}
                 >
                   <Icon className="w-5 h-5" />
-                  <span className="font-medium">{m.label}</span>
+                  {m.label}
                 </button>
               );
             })}
@@ -554,41 +576,42 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
         
         {/* User Section */}
         <div className="p-4">
-          <h3 className="text-xs font-semibold text-slate-500 uppercase mb-2">Account</h3>
           {arcgisUser ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 px-3 py-2 bg-slate-50 rounded-lg">
-                <div className="w-8 h-8 bg-slate-300 rounded-full flex items-center justify-center">
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <div 
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: colors.bg100 }}
+                >
                   {arcgisUser.thumbnailUrl ? (
-                    <img src={arcgisUser.thumbnailUrl} alt="" className="w-8 h-8 rounded-full" />
+                    <img src={arcgisUser.thumbnailUrl} alt="" className="w-10 h-10 rounded-full" />
                   ) : (
-                    <span className="text-sm font-medium text-slate-600">
-                      {arcgisUser.fullName?.charAt(0) || arcgisUser.username?.charAt(0) || '?'}
+                    <span className="text-lg font-semibold" style={{ color: colors.text600 }}>
+                      {arcgisUser.fullName?.[0] || arcgisUser.username?.[0] || '?'}
                     </span>
                   )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-700 truncate">
-                    {arcgisUser.fullName || arcgisUser.username}
-                  </p>
-                  <p className="text-xs text-slate-500 truncate">{arcgisUser.email}</p>
+                <div>
+                  <p className="font-medium text-slate-800">{arcgisUser.fullName || arcgisUser.username}</p>
+                  <p className="text-xs text-slate-500">{arcgisUser.email}</p>
                 </div>
               </div>
               <button
                 onClick={() => { onSignOut(); onClose(); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                className="w-full py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center justify-center gap-2"
               >
                 <LogOut className="w-4 h-4" />
-                <span className="text-sm font-medium">Sign Out</span>
+                Sign Out
               </button>
             </div>
           ) : (
             <button
               onClick={() => { onSignIn(); onClose(); }}
-              className={`w-full flex items-center gap-2 px-3 py-2 bg-${themeColor}-600 text-white rounded-lg hover:bg-${themeColor}-700`}
+              className="w-full py-2 text-white rounded-lg flex items-center justify-center gap-2"
+              style={{ backgroundColor: colors.bg600 }}
             >
               <LogIn className="w-4 h-4" />
-              <span className="text-sm font-medium">Sign in with ArcGIS</span>
+              Sign in with ArcGIS
             </button>
           )}
         </div>

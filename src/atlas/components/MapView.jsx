@@ -2,6 +2,15 @@
 // CivQuest Atlas - Map View Component
 // ArcGIS WebMap integration with results layer and tools
 // Uses @arcgis/core ES modules (same pattern as SpatialFilter.jsx)
+//
+// CHANGES:
+// - Moved map dropdown from header to top-left of map
+// - Moved basemap picker to top-left, below map dropdown
+// - Moved zoom/home controls to bottom-right
+// - Multi-result searches display as pushpins with underlying geometry
+// - Clicking a feature zooms to it
+// - Added feature click handler for zoom-to-feature behavior
+// - Uses themeColors utility for proper dynamic theming
 
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { 
@@ -12,9 +21,12 @@ import {
   Maximize2, 
   Minimize2,
   X,
-  Loader2
+  Loader2,
+  ChevronDown,
+  MapPin
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
+import { getThemeColors, COLOR_PALETTE } from '../utils/themeColors';
 
 // ArcGIS ES Modules - Import directly from @arcgis/core
 import WebMap from '@arcgis/core/WebMap';
@@ -29,6 +41,7 @@ import Extent from '@arcgis/core/geometry/Extent';
 import SimpleMarkerSymbol from '@arcgis/core/symbols/SimpleMarkerSymbol';
 import SimpleFillSymbol from '@arcgis/core/symbols/SimpleFillSymbol';
 import SimpleLineSymbol from '@arcgis/core/symbols/SimpleLineSymbol';
+import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol';
 import Basemap from '@arcgis/core/Basemap';
 import ScaleBar from '@arcgis/core/widgets/ScaleBar';
 import * as reactiveUtils from '@arcgis/core/core/reactiveUtils';
@@ -36,6 +49,7 @@ import * as reactiveUtils from '@arcgis/core/core/reactiveUtils';
 // Layer IDs
 const RESULTS_LAYER_ID = 'atlas-results-layer';
 const HIGHLIGHT_LAYER_ID = 'atlas-highlight-layer';
+const PUSHPIN_LAYER_ID = 'atlas-pushpin-layer';
 
 /**
  * MapView Component
@@ -46,10 +60,15 @@ const MapView = forwardRef(function MapView(props, ref) {
   const {
     config,
     activeMap,
+    activeMapIndex,
+    setActiveMap,
+    availableMaps,
     searchResults,
     searchLocation,
     updateSearchResults,
-    isSearching
+    isSearching,
+    zoomToFeature: contextZoomToFeature,
+    highlightFeature: contextHighlightFeature
   } = useAtlas();
 
   // Refs
@@ -58,6 +77,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const mapRef = useRef(null);
   const graphicsLayerRef = useRef(null);
   const highlightLayerRef = useRef(null);
+  const pushpinLayerRef = useRef(null);
   const mountedRef = useRef(true);
   const initStartedRef = useRef(false);
 
@@ -65,6 +85,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showBasemapPicker, setShowBasemapPicker] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false);
   const [activeBasemap, setActiveBasemap] = useState('default');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSidePanel, setShowSidePanel] = useState(false);
@@ -150,8 +171,16 @@ const MapView = forwardRef(function MapView(props, ref) {
           listMode: 'hide'
         });
 
+        // NEW: Pushpin layer for multi-result display
+        const pushpinLayer = new GraphicsLayer({
+          id: PUSHPIN_LAYER_ID,
+          title: 'Result Markers',
+          listMode: 'hide'
+        });
+
         graphicsLayerRef.current = graphicsLayer;
         highlightLayerRef.current = highlightLayer;
+        pushpinLayerRef.current = pushpinLayer;
 
         // Check if still mounted
         if (!mountedRef.current || !containerRef.current) {
@@ -194,8 +223,8 @@ const MapView = forwardRef(function MapView(props, ref) {
 
         console.log('[MapView] Map loaded, adding layers...');
 
-        // Add graphics layers after map loads
-        webMap.addMany([graphicsLayer, highlightLayer]);
+        // Add graphics layers after map loads (pushpin layer on top)
+        webMap.addMany([graphicsLayer, highlightLayer, pushpinLayer]);
 
         // Apply saved extent
         if (initialExtent) {
@@ -221,90 +250,158 @@ const MapView = forwardRef(function MapView(props, ref) {
           }
         );
 
+        // Handle graphic clicks for zoom-to-feature
+        view.on('click', async (event) => {
+          try {
+            const response = await view.hitTest(event);
+            const graphicHits = response.results.filter(
+              r => r.graphic && 
+                   (r.graphic.layer === graphicsLayerRef.current || 
+                    r.graphic.layer === pushpinLayerRef.current)
+            );
+            
+            if (graphicHits.length > 0) {
+              const clickedGraphic = graphicHits[0].graphic;
+              const featureIndex = clickedGraphic.attributes?._index;
+              
+              if (featureIndex !== undefined && searchResults?.features) {
+                const feature = searchResults.features[featureIndex];
+                if (feature) {
+                  // Zoom to the feature
+                  zoomToFeature(feature);
+                  // Show side panel with details
+                  setSelectedFeature(feature);
+                  setShowSidePanel(true);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('[MapView] Click handler error:', err);
+          }
+        });
+
         console.log('[MapView] Map initialization complete');
         setMapReady(true);
         setIsLoading(false);
 
       } catch (err) {
-        console.error('[MapView] Initialization error:', err);
-        if (mountedRef.current) {
-          setError(err.message || 'Failed to load map');
-          setIsLoading(false);
-        }
+        console.error('[MapView] Map initialization error:', err);
+        setError(err.message || 'Failed to load map');
+        setIsLoading(false);
       }
     };
 
     initializeMap();
 
-    // Cleanup function
+    // Cleanup
     return () => {
-      console.log('[MapView] Cleanup running...');
       mountedRef.current = false;
-      
       if (viewRef.current) {
-        try {
-          viewRef.current.destroy();
-        } catch (e) {
-          console.warn('[MapView] Error destroying view:', e);
-        }
+        viewRef.current.destroy();
         viewRef.current = null;
-        mapRef.current = null;
-        graphicsLayerRef.current = null;
-        highlightLayerRef.current = null;
       }
-      
+      mapRef.current = null;
+      graphicsLayerRef.current = null;
+      highlightLayerRef.current = null;
+      pushpinLayerRef.current = null;
       initStartedRef.current = false;
-      setMapReady(false);
     };
-  }, [activeMap?.webMap?.itemId, activeMap?.webMap?.portalUrl, getExtentStorageKey]);
+  }, [activeMap?.webMap?.itemId, getExtentStorageKey]);
+
+  /**
+   * Get center point from geometry
+   */
+  const getGeometryCenter = useCallback((geometry) => {
+    if (!geometry) return null;
+    
+    if (geometry.x !== undefined && geometry.y !== undefined) {
+      return { x: geometry.x, y: geometry.y };
+    }
+    
+    if (geometry.rings && geometry.rings.length > 0) {
+      const ring = geometry.rings[0];
+      let sumX = 0, sumY = 0;
+      for (const point of ring) {
+        sumX += point[0];
+        sumY += point[1];
+      }
+      return { x: sumX / ring.length, y: sumY / ring.length };
+    }
+    
+    if (geometry.extent) {
+      return { x: geometry.extent.center.x, y: geometry.extent.center.y };
+    }
+    
+    return null;
+  }, []);
 
   /**
    * Render search results on map
+   * For multiple results: show pushpins at center AND underlying geometry
+   * For single result: show just the geometry
    */
   const renderResults = useCallback((features) => {
     if (!graphicsLayerRef.current || !mapReady) return;
 
+    // Clear existing graphics
+    graphicsLayerRef.current.removeAll();
+    if (pushpinLayerRef.current) {
+      pushpinLayerRef.current.removeAll();
+    }
+    if (highlightLayerRef.current) {
+      highlightLayerRef.current.removeAll();
+    }
+
+    if (!features || features.length === 0) return;
+
+    console.log('[MapView] Rendering', features.length, 'results');
+
     const themeColor = config?.ui?.themeColor || 'sky';
     
-    // Color mapping for Tailwind colors
-    const colorMap = {
-      sky: [14, 165, 233],
-      blue: [59, 130, 246],
-      indigo: [99, 102, 241],
-      emerald: [16, 185, 129],
-      green: [34, 197, 94],
-      amber: [245, 158, 11],
-      red: [239, 68, 68]
+    // Get RGB values from the COLOR_PALETTE utility
+    const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
+    const hex500 = palette[500];
+    // Convert hex to RGB
+    const hexToRgb = (hex) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? [
+        parseInt(result[1], 16),
+        parseInt(result[2], 16),
+        parseInt(result[3], 16)
+      ] : [14, 165, 233]; // Default sky-500
     };
-    
-    const [r, g, b] = colorMap[themeColor] || colorMap.sky;
+    const [r, g, b] = hexToRgb(hex500);
 
-    graphicsLayerRef.current.removeAll();
+    const isMultiResult = features.length > 1;
 
-    const graphics = features.map((feature, idx) => {
+    // Create graphics for each feature
+    const geometryGraphics = features.map((feature, idx) => {
+      if (!feature.geometry) return null;
+
       let geometry;
-      
-      if (feature.geometry?.rings) {
+      if (feature.geometry.rings) {
         geometry = new Polygon({
           rings: feature.geometry.rings,
           spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
         });
-      } else if (feature.geometry?.x !== undefined) {
+      } else if (feature.geometry.x !== undefined) {
         geometry = new Point({
           x: feature.geometry.x,
           y: feature.geometry.y,
           spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
         });
-      } else {
-        return null;
       }
 
-      const symbol = feature.geometry?.rings
+      if (!geometry) return null;
+
+      // For multi-results, use a more subtle geometry style
+      // For single result, use the full highlight style
+      const symbol = feature.geometry.rings
         ? new SimpleFillSymbol({
-            color: [r, g, b, 0.2],
+            color: isMultiResult ? [r, g, b, 0.15] : [r, g, b, 0.2],
             outline: new SimpleLineSymbol({
               color: [r, g, b],
-              width: 2
+              width: isMultiResult ? 1.5 : 2
             })
           })
         : new SimpleMarkerSymbol({
@@ -335,13 +432,48 @@ const MapView = forwardRef(function MapView(props, ref) {
       });
     }).filter(Boolean);
 
-    graphicsLayerRef.current.addMany(graphics);
+    graphicsLayerRef.current.addMany(geometryGraphics);
+
+    // For multi-result searches, add pushpin markers at the center of each feature
+    if (isMultiResult && pushpinLayerRef.current) {
+      const pushpinGraphics = features.map((feature, idx) => {
+        if (!feature.geometry) return null;
+
+        const center = getGeometryCenter(feature.geometry);
+        if (!center) return null;
+
+        const pushpinPoint = new Point({
+          x: center.x,
+          y: center.y,
+          spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+        });
+
+        // Create a pushpin-style marker
+        const pushpinSymbol = new SimpleMarkerSymbol({
+          style: 'circle',
+          color: [r, g, b],
+          size: 14,
+          outline: {
+            color: [255, 255, 255],
+            width: 2
+          }
+        });
+
+        return new Graphic({
+          geometry: pushpinPoint,
+          symbol: pushpinSymbol,
+          attributes: { ...feature.attributes, _index: idx }
+        });
+      }).filter(Boolean);
+
+      pushpinLayerRef.current.addMany(pushpinGraphics);
+    }
 
     // Zoom to results
-    if (viewRef.current && graphics.length > 0) {
-      viewRef.current.goTo(graphics, { padding: 50 });
+    if (viewRef.current && geometryGraphics.length > 0) {
+      viewRef.current.goTo(geometryGraphics, { padding: 50 });
     }
-  }, [config?.ui?.themeColor, mapReady]);
+  }, [config?.ui?.themeColor, mapReady, getGeometryCenter]);
 
   /**
    * Highlight a single feature
@@ -398,10 +530,13 @@ const MapView = forwardRef(function MapView(props, ref) {
     highlightFeature(feature);
 
     if (feature.geometry) {
+      // Determine appropriate zoom level based on geometry type
+      const targetZoom = feature.geometry.rings ? undefined : 18;
+      
       viewRef.current.goTo(
         {
           target: feature.geometry,
-          zoom: feature.geometry.rings ? undefined : 18
+          zoom: targetZoom
         },
         { duration: 500 }
       );
@@ -417,6 +552,9 @@ const MapView = forwardRef(function MapView(props, ref) {
     }
     if (highlightLayerRef.current) {
       highlightLayerRef.current.removeAll();
+    }
+    if (pushpinLayerRef.current) {
+      pushpinLayerRef.current.removeAll();
     }
     setSelectedFeature(null);
     setShowSidePanel(false);
@@ -488,6 +626,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   }, [searchResults, renderResults, mapReady]);
 
   const themeColor = config?.ui?.themeColor || 'sky';
+  const colors = getThemeColors(themeColor);
   const basemaps = config?.basemaps || [];
 
   return (
@@ -499,7 +638,7 @@ const MapView = forwardRef(function MapView(props, ref) {
       {isLoading && (
         <div className="absolute inset-0 bg-slate-100 flex items-center justify-center z-20">
           <div className="text-center">
-            <Loader2 className={`w-8 h-8 text-${themeColor}-600 animate-spin mx-auto mb-2`} />
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" style={{ color: colors.text600 }} />
             <p className="text-sm text-slate-600">Loading map...</p>
           </div>
         </div>
@@ -518,10 +657,134 @@ const MapView = forwardRef(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Map Controls - All on the map */}
+      {/* TOP LEFT CONTROLS: Map Picker & Basemaps */}
       {mapReady && !isLoading && !error && (
-        <div className="absolute top-4 right-4 flex flex-col gap-2 z-20">
-          {/* Zoom Controls */}
+        <div className="absolute top-4 left-4 flex flex-col gap-2 z-20">
+          {/* Map Picker Dropdown (if multiple maps available) */}
+          {availableMaps?.length > 1 && (
+            <div className="relative">
+              <button
+                onClick={() => { setShowMapPicker(!showMapPicker); setShowBasemapPicker(false); }}
+                className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg hover:bg-slate-50 transition text-sm font-medium text-slate-700 min-w-[160px]"
+              >
+                <MapPin className="w-4 h-4 text-slate-500" />
+                <span className="truncate flex-1 text-left">{activeMap?.name || 'Select Map'}</span>
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showMapPicker ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {showMapPicker && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowMapPicker(false)} />
+                  <div className="absolute left-0 top-full mt-1 w-64 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-40 max-h-80 overflow-y-auto">
+                    <div className="px-3 py-2 border-b border-slate-100">
+                      <span className="text-xs font-semibold text-slate-500 uppercase">Available Maps</span>
+                    </div>
+                    {availableMaps.map((map, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => { setActiveMap(idx); setShowMapPicker(false); }}
+                        className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-100 flex items-center gap-2 ${
+                          activeMap?.name === map.name ? 'font-medium' : 'text-slate-700'
+                        }`}
+                        style={activeMap?.name === map.name ? { backgroundColor: colors.bg50, color: colors.text700 } : {}}
+                      >
+                        {activeMap?.name === map.name && (
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colors.bg500 }} />
+                        )}
+                        <span className={activeMap?.name === map.name ? '' : 'ml-4'}>{map.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Basemap Picker */}
+          {basemaps.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => { setShowBasemapPicker(!showBasemapPicker); setShowMapPicker(false); }}
+                className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg hover:bg-slate-50 transition text-sm font-medium text-slate-700 ${
+                  showBasemapPicker ? 'ring-2 ring-sky-500' : ''
+                }`}
+              >
+                <Layers className="w-4 h-4 text-slate-500" />
+                <span>Basemap</span>
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showBasemapPicker ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showBasemapPicker && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowBasemapPicker(false)} />
+                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1 max-h-80 overflow-y-auto z-40">
+                    <div className="px-3 py-2 border-b border-slate-100">
+                      <span className="text-xs font-semibold text-slate-500 uppercase">Basemaps</span>
+                    </div>
+                    {basemaps.map((bm) => (
+                      <button
+                        key={bm.id}
+                        onClick={() => changeBasemap(bm)}
+                        className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-100 flex items-center gap-2 ${
+                          activeBasemap === bm.id ? 'bg-sky-50 text-sky-700 font-medium' : 'text-slate-700'
+                        }`}
+                      >
+                        {activeBasemap === bm.id && (
+                          <div className="w-2 h-2 rounded-full bg-sky-500" />
+                        )}
+                        <span className={activeBasemap === bm.id ? '' : 'ml-4'}>{bm.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TOP RIGHT: Results count and fullscreen */}
+      {mapReady && !isLoading && !error && (
+        <div className="absolute top-4 right-4 flex items-center gap-2 z-20">
+          {/* Results Count Badge */}
+          {searchResults?.features?.length > 0 && (
+            <div 
+              className="text-white px-3 py-1.5 rounded-full text-sm font-medium shadow-lg"
+              style={{ backgroundColor: colors.bg600 }}
+            >
+              {searchResults.features.length} result{searchResults.features.length !== 1 ? 's' : ''}
+            </div>
+          )}
+
+          {/* Clear Results Button */}
+          {searchResults?.features?.length > 0 && (
+            <button
+              onClick={clearResults}
+              className="bg-white text-slate-600 px-3 py-1.5 rounded-full text-sm font-medium shadow-lg hover:bg-slate-100 flex items-center gap-1"
+            >
+              <X className="w-4 h-4" />
+              Clear
+            </button>
+          )}
+
+          {/* Fullscreen Toggle */}
+          <button
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            className="p-2 bg-white rounded-lg shadow-lg hover:bg-slate-100"
+            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="w-5 h-5 text-slate-600" />
+            ) : (
+              <Maximize2 className="w-5 h-5 text-slate-600" />
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* BOTTOM RIGHT: Zoom Controls */}
+      {mapReady && !isLoading && !error && (
+        <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20">
           <div className="flex flex-col bg-white rounded-lg shadow-lg overflow-hidden">
             <button
               onClick={zoomIn}
@@ -545,84 +808,16 @@ const MapView = forwardRef(function MapView(props, ref) {
               <Home className="w-5 h-5 text-slate-600" />
             </button>
           </div>
-
-          {/* Basemap Picker */}
-          {basemaps.length > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => setShowBasemapPicker(!showBasemapPicker)}
-                className={`p-2 bg-white rounded-lg shadow-lg hover:bg-slate-100 transition ${
-                  showBasemapPicker ? 'ring-2 ring-sky-500' : ''
-                }`}
-                title="Change Basemap"
-              >
-                <Layers className="w-5 h-5 text-slate-600" />
-              </button>
-
-              {showBasemapPicker && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setShowBasemapPicker(false)} />
-                  <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1 max-h-80 overflow-y-auto z-40">
-                    <div className="px-3 py-2 border-b border-slate-100">
-                      <span className="text-xs font-semibold text-slate-500 uppercase">Basemaps</span>
-                    </div>
-                    {basemaps.map((bm) => (
-                      <button
-                        key={bm.id}
-                        onClick={() => changeBasemap(bm)}
-                        className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-100 flex items-center gap-2 ${
-                          activeBasemap === bm.id ? 'bg-sky-50 text-sky-700 font-medium' : 'text-slate-700'
-                        }`}
-                      >
-                        {activeBasemap === bm.id && (
-                          <div className="w-2 h-2 rounded-full bg-sky-500" />
-                        )}
-                        <span className={activeBasemap === bm.id ? '' : 'ml-4'}>{bm.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Fullscreen Toggle */}
-          <button
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-2 bg-white rounded-lg shadow-lg hover:bg-slate-100"
-            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-          >
-            {isFullscreen ? (
-              <Minimize2 className="w-5 h-5 text-slate-600" />
-            ) : (
-              <Maximize2 className="w-5 h-5 text-slate-600" />
-            )}
-          </button>
         </div>
-      )}
-
-      {/* Results Count Badge */}
-      {searchResults?.features?.length > 0 && mapReady && !isLoading && (
-        <div className={`absolute top-4 left-4 bg-${themeColor}-600 text-white px-3 py-1.5 rounded-full text-sm font-medium shadow-lg z-20`}>
-          {searchResults.features.length} result{searchResults.features.length !== 1 ? 's' : ''}
-        </div>
-      )}
-
-      {/* Clear Results Button */}
-      {searchResults?.features?.length > 0 && mapReady && !isLoading && (
-        <button
-          onClick={clearResults}
-          className="absolute top-4 left-32 bg-white text-slate-600 px-3 py-1.5 rounded-full text-sm font-medium shadow-lg z-20 hover:bg-slate-100 flex items-center gap-1"
-        >
-          <X className="w-4 h-4" />
-          Clear
-        </button>
       )}
 
       {/* Feature Side Panel */}
       {showSidePanel && selectedFeature && (
         <div className="absolute top-0 right-0 bottom-0 w-80 bg-white shadow-xl z-30 overflow-y-auto">
-          <div className={`p-4 bg-${themeColor}-600 text-white flex justify-between items-start`}>
+          <div 
+            className="p-4 text-white flex justify-between items-start"
+            style={{ backgroundColor: colors.bg600 }}
+          >
             <div>
               <h3 className="font-semibold">
                 {selectedFeature.attributes?.PROPERTYADDRESS || 'Property Details'}
@@ -656,7 +851,7 @@ const MapView = forwardRef(function MapView(props, ref) {
       {/* Searching Indicator */}
       {isSearching && mapReady && !isLoading && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg z-20 flex items-center gap-2">
-          <Loader2 className={`w-4 h-4 text-${themeColor}-600 animate-spin`} />
+          <Loader2 className="w-4 h-4 animate-spin" style={{ color: colors.text600 }} />
           <span className="text-sm text-slate-600">Searching...</span>
         </div>
       )}

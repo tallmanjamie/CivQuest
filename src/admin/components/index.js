@@ -17,6 +17,9 @@ export { default as AtlasUserManagement } from './AtlasUserManagement';
 // User Management
 export { default as UserManagementPanel } from './UserManagement';
 
+// License Management
+export { default as LicenseManagement } from './LicenseManagement';
+
 // Archive/Logs
 export { default as Archive } from './Archive';
 

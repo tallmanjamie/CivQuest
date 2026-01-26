@@ -2,6 +2,11 @@
 // CivQuest Atlas - Chat View Component  
 // AI-powered conversational property search interface
 // Search input has been moved to unified SearchToolbar in AtlasApp
+//
+// CHANGES:
+// - Removed buffer fallback from spatialQueryForParcel - now only returns exact intersecting parcel
+// - Address searches should only return 1 parcel (the one the address point falls within)
+// - Uses themeColors utility for proper dynamic theming
 
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { 
@@ -19,6 +24,7 @@ import {
   Check
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
+import { getThemeColors } from '../utils/themeColors';
 
 // Centralized Gemini configuration - update model in one place
 import { getGeminiUrl, getGeminiFallbackUrl, GEMINI_QUERY_CONFIG, GEMINI_CONFIG } from '../../config/geminiConfig';
@@ -110,6 +116,7 @@ const ChatView = forwardRef(function ChatView(props, ref) {
   const chatContainerRef = useRef(null);
 
   const themeColor = config?.ui?.themeColor || 'sky';
+  const colors = getThemeColors(themeColor);
   const botAvatar = config?.ui?.botAvatar || config?.ui?.logoLeft;
 
   /**
@@ -286,13 +293,20 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     return { lat: coords.lat, lng: coords.lng, formatted: addressFeature.attributes[displayField] || address };
   }, [activeMap?.addressSearch, config?.data?.addressSearch]);
 
+  /**
+   * Spatial query for parcel - NO BUFFER
+   * Only returns the parcel that the point actually intersects with
+   * This ensures address searches only return 1 result
+   */
   const spatialQueryForParcel = useCallback(async (coords) => {
     const endpoint = activeMap?.endpoint || config?.data?.endpoint;
     if (!endpoint) throw new Error('No endpoint configured');
     
     console.log('[ChatView] Spatial query at:', coords);
     
-    const exactParams = new URLSearchParams({ 
+    // FIXED: Only use exact point query, no buffer fallback
+    // This ensures address searches return only the parcel containing the address point
+    const params = new URLSearchParams({ 
       f: 'json', 
       where: '1=1', 
       geometry: `${coords.lng},${coords.lat}`, 
@@ -302,30 +316,19 @@ const ChatView = forwardRef(function ChatView(props, ref) {
       returnGeometry: 'true', 
       outSR: '4326', 
       inSR: '4326', 
-      resultRecordCount: 1 
+      resultRecordCount: 1  // Only return 1 result
     });
     
-    let response = await fetch(`${endpoint}/query?${exactParams}`);
-    let data = await response.json();
+    const response = await fetch(`${endpoint}/query?${params}`);
+    const data = await response.json();
     
-    if (data.features && data.features.length > 0) return data;
+    console.log('[ChatView] Spatial query result:', data.features?.length || 0, 'features');
     
-    console.log('[ChatView] No exact match, trying with buffer...');
-    const bufferParams = new URLSearchParams({ 
-      f: 'json', 
-      where: '1=1', 
-      geometry: `${coords.lng - 0.0001},${coords.lat - 0.0001},${coords.lng + 0.0001},${coords.lat + 0.0001}`, 
-      geometryType: 'esriGeometryEnvelope', 
-      spatialRel: 'esriSpatialRelIntersects', 
-      outFields: '*', 
-      returnGeometry: 'true', 
-      outSR: '4326', 
-      inSR: '4326', 
-      resultRecordCount: 5 
-    });
+    return data;
     
-    response = await fetch(`${endpoint}/query?${bufferParams}`);
-    return response.json();
+    // REMOVED: Buffer fallback that was causing multiple results
+    // The old code would fall back to an envelope query with resultRecordCount: 5
+    // which caused address searches to return multiple parcels
   }, [activeMap?.endpoint, config?.data?.endpoint]);
 
   const lookupParcelById = useCallback(async (parcelId) => {
@@ -368,31 +371,76 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     return response.json();
   }, [activeMap?.endpoint, config?.data?.endpoint]);
 
+  /**
+   * Translate natural language query to SQL using AI
+   * Uses the configured System Prompt for AI Query Translation
+   */
   const translateQueryWithAI = useCallback(async (query) => {
+    // Check multiple paths for the system prompt
+    // Priority: activeMap.systemPrompt > config.data.systemPrompt
     const systemPrompt = activeMap?.systemPrompt || config?.data?.systemPrompt;
     
-    if (!systemPrompt) {
-      console.warn('[ChatView] No system prompt configured');
+    console.log('[ChatView] translateQueryWithAI called');
+    console.log('[ChatView] activeMap?.systemPrompt:', activeMap?.systemPrompt ? 'SET' : 'NOT SET');
+    console.log('[ChatView] config?.data?.systemPrompt:', config?.data?.systemPrompt ? 'SET' : 'NOT SET');
+    
+    if (!systemPrompt || systemPrompt.trim() === '') {
+      console.warn('[ChatView] No system prompt configured - AI translation disabled');
+      console.warn('[ChatView] To enable AI query translation, configure the "System Prompt (for AI Query Translation)" in Atlas Admin Settings');
       return null;
     }
 
+    console.log('[ChatView] Using system prompt (first 200 chars):', systemPrompt.substring(0, 200) + '...');
+
     try {
-      const prompt = `${systemPrompt}\n\nUser Query: ${query}`;
-      const data = await callGeminiApi(prompt);
+      // Build the full prompt with context
+      const fullPrompt = `${systemPrompt}
+
+User Query: ${query}
+
+Remember to respond with ONLY a valid JSON object, no additional text or markdown.`;
+
+      console.log('[ChatView] Sending query to Gemini AI...');
+      const data = await callGeminiApi(fullPrompt);
       
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       console.log('[ChatView] Gemini raw response:', text);
       
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        console.log('[ChatView] Parsed Gemini response:', parsed);
-        return parsed;
+      // Try to extract JSON from the response
+      // Handle cases where AI might wrap in markdown code blocks
+      let jsonText = text;
+      
+      // Remove markdown code blocks if present
+      const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlockMatch) {
+        jsonText = codeBlockMatch[1].trim();
       }
       
+      // Find JSON object in the text
+      const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          console.log('[ChatView] Successfully parsed AI response:', parsed);
+          
+          // Validate the response has expected fields
+          if (parsed.where || parsed.parcelId || parsed.address) {
+            return parsed;
+          } else {
+            console.warn('[ChatView] AI response missing expected fields (where/parcelId/address):', parsed);
+            return parsed; // Return anyway, let the caller handle it
+          }
+        } catch (parseErr) {
+          console.error('[ChatView] Failed to parse JSON from AI response:', parseErr);
+          console.error('[ChatView] Raw JSON text:', jsonMatch[0]);
+          return null;
+        }
+      }
+      
+      console.warn('[ChatView] No JSON found in AI response');
       return null;
     } catch (err) {
-      console.warn('[ChatView] Gemini translation failed:', err);
+      console.error('[ChatView] Gemini AI translation failed:', err);
       return null;
     }
   }, [activeMap?.systemPrompt, config?.data?.systemPrompt, callGeminiApi]);
@@ -455,12 +503,15 @@ const ChatView = forwardRef(function ChatView(props, ref) {
         }
       }
       else {
+        // Complex query - use AI translation
         setLoadingText('Analyzing your question...');
-        console.log('[ChatView] Complex query, using AI translation');
+        console.log('[ChatView] Complex query detected, attempting AI translation');
         
         const aiResult = await translateQueryWithAI(trimmedQuery);
         
         if (aiResult) {
+          console.log('[ChatView] AI translation successful:', aiResult);
+          
           if (aiResult.parcelId) {
             setLoadingText('Looking up parcel...');
             results = await lookupParcelById(aiResult.parcelId);
@@ -475,16 +526,30 @@ const ChatView = forwardRef(function ChatView(props, ref) {
             }
           } else if (aiResult.where) {
             setLoadingText('Searching database...');
+            console.log('[ChatView] Executing AI-generated WHERE clause:', aiResult.where);
             results = await executeSqlQuery({
               where: aiResult.where,
               orderBy: aiResult.orderBy || aiResult.orderByFields,
               limit: aiResult.limit || aiResult.resultRecordCount
             });
+          } else {
+            console.warn('[ChatView] AI response had no actionable fields');
+          }
+        } else {
+          // AI translation failed or not configured
+          console.log('[ChatView] AI translation unavailable, falling back to text search');
+          
+          // Check if system prompt is configured
+          const hasSystemPrompt = activeMap?.systemPrompt || config?.data?.systemPrompt;
+          if (!hasSystemPrompt) {
+            console.warn('[ChatView] No system prompt configured - complex queries will use basic text matching');
           }
         }
         
-        if (!results || !results.features) {
-          console.log('[ChatView] AI translation failed, trying LIKE search');
+        // Fallback: try LIKE search if no results yet
+        if (!results || !results.features || results.features.length === 0) {
+          console.log('[ChatView] Falling back to LIKE search');
+          setLoadingText('Searching database...');
           const searchTerm = trimmedQuery.toUpperCase();
           results = await executeSqlQuery({
             where: `UPPER(${addressField}) LIKE '%${searchTerm}%'`
@@ -507,6 +572,7 @@ const ChatView = forwardRef(function ChatView(props, ref) {
         const address = feature.attributes?.[addressField] || feature.attributes?.PROPERTYADDRESS || feature.attributes?.ADDRESS || 'Property';
         addMessage('ai', `I found **${address}**. Here are the details:`, { feature, showDetails: true });
         
+        // Zoom to feature on single result
         if (mapViewRef?.current?.zoomToFeature && enabledModes.includes('map')) {
           mapViewRef.current.zoomToFeature(feature);
         }
@@ -525,7 +591,8 @@ const ChatView = forwardRef(function ChatView(props, ref) {
   }, [
     isLoading, addMessage, getFieldNames, lookupParcelById, searchExternalAddressLayer,
     geocodeAddress, spatialQueryForParcel, executeSqlQuery, translateQueryWithAI,
-    updateSearchResults, setSearchLocation, saveToHistory, mapViewRef, enabledModes, setIsSearching
+    updateSearchResults, setSearchLocation, saveToHistory, mapViewRef, enabledModes, setIsSearching,
+    activeMap, config
   ]);
 
   const handleExampleClick = useCallback((question) => {
@@ -540,13 +607,11 @@ const ChatView = forwardRef(function ChatView(props, ref) {
 
   useImperativeHandle(ref, () => ({ handleSearch }), [handleSearch]);
 
-  // Get the search tip text from config
-  const searchTipText = config?.messages?.searchTip || 
-    `Tip: Use the search bar ${config?.ui?.searchBarPosition === 'bottom' ? 'below' : 'above'} to ask questions about properties`;
+  // Get the search tip text from config (empty = hidden)
+  const searchTipText = config?.messages?.searchTip || '';
 
-  // Get important note from config
-  const importantNote = config?.messages?.importantNote || 
-    'This AI assistant searches public property records. Results may not be 100% accurate - please verify important information with official sources.';
+  // Get important note from config (empty = hidden)
+  const importantNote = config?.messages?.importantNote || '';
 
   // Get example questions
   const exampleQuestions = config?.messages?.exampleQuestions || [];
@@ -564,8 +629,11 @@ const ChatView = forwardRef(function ChatView(props, ref) {
             {botAvatar ? (
               <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
             ) : (
-              <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
-                <HelpCircle className={`w-5 h-5 text-${themeColor}-600`} />
+              <div 
+                className="w-full h-full rounded-full flex items-center justify-center"
+                style={{ backgroundColor: colors.bg100 }}
+              >
+                <HelpCircle className="w-5 h-5" style={{ color: colors.text600 }} />
               </div>
             )}
           </div>
@@ -590,7 +658,19 @@ const ChatView = forwardRef(function ChatView(props, ref) {
                 <button
                   key={idx}
                   onClick={() => handleExampleClick(question)}
-                  className={`px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:border-${themeColor}-300 hover:bg-${themeColor}-50 transition-colors text-left`}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                  style={{ 
+                    '--hover-border': colors.border300,
+                    '--hover-bg': colors.bg50 
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.borderColor = colors.border300;
+                    e.target.style.backgroundColor = colors.bg50;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.borderColor = '';
+                    e.target.style.backgroundColor = '';
+                  }}
                 >
                   {question}
                 </button>
@@ -615,7 +695,7 @@ const ChatView = forwardRef(function ChatView(props, ref) {
             key={msg.id} 
             message={msg} 
             botAvatar={botAvatar}
-            themeColor={themeColor}
+            colors={colors}
             onViewMap={() => setMode('map')}
             onViewTable={() => setMode('table')}
           />
@@ -628,13 +708,16 @@ const ChatView = forwardRef(function ChatView(props, ref) {
               {botAvatar ? (
                 <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
               ) : (
-                <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
-                  <Loader2 className={`w-5 h-5 text-${themeColor}-600 animate-spin`} />
+                <div 
+                  className="w-full h-full rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: colors.bg100 }}
+                >
+                  <Loader2 className="w-5 h-5 animate-spin" style={{ color: colors.text600 }} />
                 </div>
               )}
             </div>
             <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 flex items-center gap-2">
-              <Loader2 className={`w-4 h-4 text-${themeColor}-600 animate-spin`} />
+              <Loader2 className="w-4 h-4 animate-spin" style={{ color: colors.text600 }} />
               <span className="text-sm text-slate-500">{loadingText}</span>
             </div>
           </div>
@@ -667,11 +750,14 @@ const ChatView = forwardRef(function ChatView(props, ref) {
 /**
  * Message Bubble Component
  */
-function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable }) {
+function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable }) {
   if (message.type === 'user') {
     return (
       <div className="flex justify-end">
-        <div className={`bg-${themeColor}-600 text-white p-4 rounded-2xl rounded-tr-none shadow-sm max-w-[80%]`}>
+        <div 
+          className="text-white p-4 rounded-2xl rounded-tr-none shadow-sm max-w-[80%]"
+          style={{ backgroundColor: colors.bg600 }}
+        >
           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         </div>
       </div>
@@ -697,42 +783,48 @@ function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable 
         {botAvatar ? (
           <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
         ) : (
-          <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
-            <HelpCircle className={`w-5 h-5 text-${themeColor}-600`} />
+          <div 
+            className="w-full h-full rounded-full flex items-center justify-center"
+            style={{ backgroundColor: colors.bg100 }}
+          >
+            <HelpCircle className="w-5 h-5" style={{ color: colors.text600 }} />
           </div>
         )}
       </div>
-      <div className="flex-1 max-w-[80%]">
-        <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200">
-          <p className="text-sm text-slate-700 whitespace-pre-wrap" dangerouslySetInnerHTML={{
-            __html: message.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-          }} />
-          
-          {message.showDetails && message.feature && (
-            <div className="mt-3 pt-3 border-t border-slate-100">
-              <FeatureDetails feature={message.feature} themeColor={themeColor} />
-            </div>
-          )}
-          
-          {message.showResultActions && (
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={onViewMap}
-                className={`flex items-center gap-1.5 px-3 py-1.5 bg-${themeColor}-50 text-${themeColor}-700 rounded-lg text-sm font-medium hover:bg-${themeColor}-100 transition`}
-              >
-                <Map className="w-4 h-4" />
-                View on Map
-              </button>
-              <button
-                onClick={onViewTable}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
-              >
-                <Table2 className="w-4 h-4" />
-                View in Table
-              </button>
-            </div>
-          )}
-        </div>
+      <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 max-w-[80%]">
+        <div className="text-sm text-slate-700 prose prose-sm" dangerouslySetInnerHTML={{
+          __html: message.content
+            .replace(/\n/g, '<br>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        }} />
+        
+        {message.showDetails && message.feature && (
+          <div className="mt-3 pt-3 border-t border-slate-100">
+            <FeatureDetails feature={message.feature} colors={colors} />
+          </div>
+        )}
+        
+        {message.showResultActions && (
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={onViewMap}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+              style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+              onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+              onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
+            >
+              <Map className="w-4 h-4" />
+              View on Map
+            </button>
+            <button
+              onClick={onViewTable}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+            >
+              <Table2 className="w-4 h-4" />
+              View in Table
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -741,7 +833,7 @@ function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable 
 /**
  * Feature Details Component
  */
-function FeatureDetails({ feature, themeColor }) {
+function FeatureDetails({ feature, colors }) {
   const attrs = feature.attributes || {};
   const displayFields = Object.entries(attrs)
     .filter(([k, v]) => !k.startsWith('_') && v != null && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
@@ -785,10 +877,10 @@ function HistoryPanel({ history, onSelect, onClear, onClose }) {
                 <button
                   key={idx}
                   onClick={() => onSelect(item.query)}
-                  className="w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+                  className="w-full px-4 py-3 text-left hover:bg-slate-50 transition"
                 >
-                  <p className="text-sm text-slate-800 truncate">{item.query}</p>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-sm text-slate-700 truncate">{item.query}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
                     {new Date(item.timestamp).toLocaleDateString()}
                   </p>
                 </button>
@@ -798,10 +890,10 @@ function HistoryPanel({ history, onSelect, onClear, onClose }) {
         </div>
         
         {history.length > 0 && (
-          <div className="p-4 border-t border-slate-200">
+          <div className="p-3 border-t border-slate-200">
             <button
               onClick={onClear}
-              className="w-full py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              className="w-full py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
             >
               Clear History
             </button>

@@ -1,6 +1,11 @@
 // src/admin/components/AtlasSettingsEditor.jsx
 // Modal for editing Atlas general settings (UI, messages, basemaps)
 // Similar pattern to NotificationEditor but for Atlas configuration
+//
+// UPDATES:
+// - Supports custom hex colors for theme
+// - Shows image previews for logos/avatar
+// - Blank text fields = element hidden in Atlas
 
 import React, { useState } from 'react';
 import { 
@@ -21,23 +26,72 @@ import {
   ArrowUpFromLine,
   ArrowDownToLine,
   Lightbulb,
-  Search
+  Search,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 /**
+ * Helper to check if a string is a valid hex color
+ */
+function isValidHex(color) {
+  return /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color);
+}
+
+/**
+ * Image Preview Component
+ */
+function ImagePreview({ url, label, onClear }) {
+  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  if (!url) {
+    return (
+      <div className="w-full h-20 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">
+        No image
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative group">
+      <div className="w-full h-20 bg-slate-100 rounded-lg flex items-center justify-center overflow-hidden">
+        {loading && !error && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+          </div>
+        )}
+        {error ? (
+          <div className="text-red-400 text-xs text-center px-2">
+            <AlertCircle className="w-5 h-5 mx-auto mb-1" />
+            Failed to load
+          </div>
+        ) : (
+          <img 
+            src={url} 
+            alt={label}
+            onLoad={() => setLoading(false)}
+            onError={() => { setError(true); setLoading(false); }}
+            className={`max-w-full max-h-full object-contain ${loading ? 'opacity-0' : 'opacity-100'} transition-opacity`}
+          />
+        )}
+      </div>
+      {url && onClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+          title="Remove image"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
  * AtlasSettingsEditor Modal
- * 
- * Edits the overall Atlas configuration:
- * - UI settings (title, header, colors, logos, search bar position, search placeholder)
- * - Messages (welcome, examples, notes, search tip)
- * - Basemaps configuration
- * - Data settings (system prompt, limits)
- * 
- * Props:
- * @param {object} data - The atlasConfig object to edit
- * @param {function} onClose - Called when modal is closed
- * @param {function} onSave - Called with updated config when saved
- * @param {string} [accentColor] - Theme accent color
  */
 export default function AtlasSettingsEditor({ 
   data, 
@@ -58,7 +112,7 @@ export default function AtlasSettingsEditor({
       themeColor: 'sky',
       defaultMode: 'chat',
       searchBarPosition: 'top',
-      searchPlaceholder: '', // NEW: Configurable search input placeholder
+      searchPlaceholder: '',
       ...data?.ui
     },
     messages: {
@@ -75,28 +129,25 @@ export default function AtlasSettingsEditor({
       maxRecordCount: 1000,
       timeZoneOffset: -5,
       defaultSort: '',
-      maps: data?.data?.maps || [],
       ...data?.data
     }
   }));
 
-  // Section collapse state
+  const [errors, setErrors] = useState({});
   const [expandedSections, setExpandedSections] = useState({
     ui: true,
     messages: true,
     basemaps: false,
     data: false
   });
+  
+  // Custom hex color input
+  const [customHexInput, setCustomHexInput] = useState(
+    isValidHex(config.ui.themeColor) ? config.ui.themeColor : ''
+  );
 
-  // Validation errors
-  const [errors, setErrors] = useState({});
-
-  // Toggle section expansion
   const toggleSection = (section) => {
-    setExpandedSections(prev => ({
-      ...prev,
-      [section]: !prev[section]
-    }));
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
   // Update UI field
@@ -105,6 +156,7 @@ export default function AtlasSettingsEditor({
       ...prev,
       ui: { ...prev.ui, [field]: value }
     }));
+    if (errors[field]) setErrors(prev => ({ ...prev, [field]: null }));
   };
 
   // Update messages field
@@ -123,31 +175,35 @@ export default function AtlasSettingsEditor({
     }));
   };
 
-  // Add example question
+  // Example questions
   const addExampleQuestion = () => {
     setConfig(prev => ({
       ...prev,
       messages: {
         ...prev.messages,
-        exampleQuestions: [...prev.messages.exampleQuestions, '']
+        exampleQuestions: [...(prev.messages.exampleQuestions || []), '']
       }
     }));
   };
 
-  // Update example question
   const updateExampleQuestion = (index, value) => {
     const updated = [...config.messages.exampleQuestions];
     updated[index] = value;
-    updateMessages('exampleQuestions', updated);
+    setConfig(prev => ({
+      ...prev,
+      messages: { ...prev.messages, exampleQuestions: updated }
+    }));
   };
 
-  // Remove example question
   const removeExampleQuestion = (index) => {
     const updated = config.messages.exampleQuestions.filter((_, i) => i !== index);
-    updateMessages('exampleQuestions', updated);
+    setConfig(prev => ({
+      ...prev,
+      messages: { ...prev.messages, exampleQuestions: updated }
+    }));
   };
 
-  // Add basemap
+  // Basemaps
   const addBasemap = () => {
     setConfig(prev => ({
       ...prev,
@@ -159,18 +215,24 @@ export default function AtlasSettingsEditor({
     }));
   };
 
-  // Update basemap
   const updateBasemap = (index, field, value) => {
     const updated = [...config.basemaps];
     updated[index] = { ...updated[index], [field]: value };
     setConfig(prev => ({ ...prev, basemaps: updated }));
   };
 
-  // Remove basemap
   const removeBasemap = (index) => {
     if (config.basemaps.length <= 1) return;
     const updated = config.basemaps.filter((_, i) => i !== index);
     setConfig(prev => ({ ...prev, basemaps: updated }));
+  };
+
+  // Handle custom hex color
+  const handleCustomHexChange = (value) => {
+    setCustomHexInput(value);
+    if (isValidHex(value)) {
+      updateUI('themeColor', value);
+    }
   };
 
   // Validate and save
@@ -201,38 +263,39 @@ export default function AtlasSettingsEditor({
     onSave(cleanConfig);
   };
 
-  // Theme color options
+  // Theme color options (removed red)
   const themeColors = [
-    { id: 'sky', label: 'Sky Blue', class: 'bg-sky-500' },
-    { id: 'blue', label: 'Blue', class: 'bg-blue-500' },
-    { id: 'indigo', label: 'Indigo', class: 'bg-indigo-500' },
-    { id: 'purple', label: 'Purple', class: 'bg-purple-500' },
-    { id: 'emerald', label: 'Emerald', class: 'bg-emerald-500' },
-    { id: 'teal', label: 'Teal', class: 'bg-teal-500' },
-    { id: 'amber', label: 'Amber', class: 'bg-amber-500' },
-    { id: 'rose', label: 'Rose', class: 'bg-rose-500' },
-    { id: 'slate', label: 'Slate', class: 'bg-slate-500' }
+    { id: 'sky', label: 'Sky Blue', hex: '#0ea5e9' },
+    { id: 'blue', label: 'Blue', hex: '#3b82f6' },
+    { id: 'indigo', label: 'Indigo', hex: '#6366f1' },
+    { id: 'purple', label: 'Purple', hex: '#a855f7' },
+    { id: 'emerald', label: 'Emerald', hex: '#10b981' },
+    { id: 'teal', label: 'Teal', hex: '#14b8a6' },
+    { id: 'amber', label: 'Amber', hex: '#f59e0b' },
+    { id: 'orange', label: 'Orange', hex: '#f97316' },
+    { id: 'rose', label: 'Rose', hex: '#f43f5e' },
+    { id: 'slate', label: 'Slate', hex: '#64748b' }
   ];
+
+  // Check if current theme is a custom hex
+  const isCustomHex = isValidHex(config.ui.themeColor) && 
+    !themeColors.find(c => c.id === config.ui.themeColor);
 
   // Search bar position options
   const searchBarPositions = [
-    { id: 'top', label: 'Top', description: 'Above the content', icon: ArrowUpFromLine },
-    { id: 'bottom', label: 'Bottom', description: 'Below the content', icon: ArrowDownToLine }
-  ];
-
-  // Basemap type options
-  const basemapTypes = [
-    { id: 'esri', label: 'Esri Default' },
-    { id: 'arcgis', label: 'ArcGIS Service' },
-    { id: 'wms', label: 'WMS Service' }
+    { id: 'top', label: 'Top', icon: ArrowUpFromLine },
+    { id: 'bottom', label: 'Bottom', icon: ArrowDownToLine }
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-800">Atlas Settings</h2>
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">Atlas Settings</h2>
+            <p className="text-sm text-slate-500">Configure UI, messages, and basemaps</p>
+          </div>
           <button 
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
@@ -243,10 +306,9 @@ export default function AtlasSettingsEditor({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          
-          {/* UI Settings Section */}
+          {/* UI Section */}
           <Section
-            title="UI Settings"
+            title="User Interface"
             icon={Palette}
             expanded={expandedSections.ui}
             onToggle={() => toggleSection('ui')}
@@ -255,7 +317,7 @@ export default function AtlasSettingsEditor({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Site Title *
+                  Site Title <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -271,13 +333,13 @@ export default function AtlasSettingsEditor({
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Header Title *
+                  Header Title <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={config.ui.headerTitle}
                   onChange={(e) => updateUI('headerTitle', e.target.value)}
-                  placeholder="City of Example"
+                  placeholder="Organization Name"
                   className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-opacity-50 ${
                     errors.headerTitle ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
                   }`}
@@ -286,39 +348,94 @@ export default function AtlasSettingsEditor({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
                   Header Subtitle
+                  {!config.ui.headerSubtitle && (
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      <EyeOff className="w-3 h-3" /> Hidden if empty
+                    </span>
+                  )}
                 </label>
                 <input
                   type="text"
                   value={config.ui.headerSubtitle}
                   onChange={(e) => updateUI('headerSubtitle', e.target.value)}
-                  placeholder="Property Search"
+                  placeholder="Leave empty to hide"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Default Mode
+                </label>
+                <select
+                  value={config.ui.defaultMode}
+                  onChange={(e) => updateUI('defaultMode', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                >
+                  <option value="chat">Chat</option>
+                  <option value="map">Map</option>
+                  <option value="table">Table</option>
+                </select>
+              </div>
+
+              {/* Theme Color */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
                   Theme Color
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 mb-3">
                   {themeColors.map(color => (
                     <button
                       key={color.id}
                       type="button"
-                      onClick={() => updateUI('themeColor', color.id)}
-                      className={`w-8 h-8 rounded-full ${color.class} ${
+                      onClick={() => {
+                        updateUI('themeColor', color.id);
+                        setCustomHexInput('');
+                      }}
+                      className={`w-8 h-8 rounded-full transition-transform ${
                         config.ui.themeColor === color.id 
-                          ? 'ring-2 ring-offset-2 ring-slate-400' 
+                          ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' 
                           : 'hover:scale-110'
-                      } transition-transform`}
+                      }`}
+                      style={{ backgroundColor: color.hex }}
                       title={color.label}
                     />
                   ))}
                 </div>
+                
+                {/* Custom Hex Input */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-500">Or custom:</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={customHexInput}
+                      onChange={(e) => handleCustomHexChange(e.target.value)}
+                      placeholder="#004E7C"
+                      className={`w-28 px-3 py-1.5 border rounded-lg text-sm font-mono ${
+                        customHexInput && !isValidHex(customHexInput) 
+                          ? 'border-red-300' 
+                          : 'border-slate-300'
+                      }`}
+                    />
+                    {isValidHex(customHexInput) && (
+                      <div 
+                        className={`w-8 h-8 rounded-full border-2 border-white shadow ${
+                          isCustomHex ? 'ring-2 ring-offset-2 ring-slate-400' : ''
+                        }`}
+                        style={{ backgroundColor: customHexInput }}
+                      />
+                    )}
+                  </div>
+                  {customHexInput && !isValidHex(customHexInput) && (
+                    <span className="text-xs text-red-500">Invalid hex (use #RRGGBB)</span>
+                  )}
+                </div>
               </div>
 
+              {/* Search Bar Position */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Search Bar Position
@@ -342,41 +459,26 @@ export default function AtlasSettingsEditor({
                 </div>
               </div>
 
+              {/* Search Placeholder */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Default Mode
-                </label>
-                <select
-                  value={config.ui.defaultMode}
-                  onChange={(e) => updateUI('defaultMode', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
-                >
-                  <option value="chat">Chat</option>
-                  <option value="map">Map</option>
-                  <option value="table">Table</option>
-                </select>
-              </div>
-
-              {/* Search Placeholder - NEW */}
-              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
                   <Search className="w-4 h-4 text-slate-400" />
                   Search Bar Placeholder
+                  {!config.ui.searchPlaceholder && (
+                    <span className="text-xs text-slate-400">(uses default)</span>
+                  )}
                 </label>
                 <input
                   type="text"
                   value={config.ui.searchPlaceholder}
                   onChange={(e) => updateUI('searchPlaceholder', e.target.value)}
-                  placeholder="Ask about properties..."
+                  placeholder="Leave empty for default: Search properties..."
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                 />
-                <p className="text-xs text-slate-500 mt-1">
-                  The hint text shown in the search input field. Leave empty to use default: "Ask about properties..."
-                </p>
               </div>
             </div>
 
-            {/* Logos */}
+            {/* Logos & Images */}
             <div className="mt-4 pt-4 border-t border-slate-200">
               <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
                 <Image className="w-4 h-4" /> Logos & Images
@@ -384,32 +486,47 @@ export default function AtlasSettingsEditor({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Logo Left (Header)</label>
+                  <ImagePreview 
+                    url={config.ui.logoLeft} 
+                    label="Logo Left"
+                    onClear={() => updateUI('logoLeft', '')}
+                  />
                   <input
                     type="url"
                     value={config.ui.logoLeft}
                     onChange={(e) => updateUI('logoLeft', e.target.value)}
                     placeholder="https://..."
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                    className="w-full mt-2 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Logo Right (Header)</label>
+                  <ImagePreview 
+                    url={config.ui.logoRight} 
+                    label="Logo Right"
+                    onClear={() => updateUI('logoRight', '')}
+                  />
                   <input
                     type="url"
                     value={config.ui.logoRight}
                     onChange={(e) => updateUI('logoRight', e.target.value)}
                     placeholder="https://..."
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                    className="w-full mt-2 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Bot Avatar (Chat)</label>
+                  <ImagePreview 
+                    url={config.ui.botAvatar} 
+                    label="Bot Avatar"
+                    onClear={() => updateUI('botAvatar', '')}
+                  />
                   <input
                     type="url"
                     value={config.ui.botAvatar}
                     onChange={(e) => updateUI('botAvatar', e.target.value)}
                     placeholder="https://..."
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                    className="w-full mt-2 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                   />
                 </div>
               </div>
@@ -427,25 +544,35 @@ export default function AtlasSettingsEditor({
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
                     Welcome Title
+                    {!config.messages.welcomeTitle && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <EyeOff className="w-3 h-3" /> Hidden if empty
+                      </span>
+                    )}
                   </label>
                   <input
                     type="text"
                     value={config.messages.welcomeTitle}
                     onChange={(e) => updateMessages('welcomeTitle', e.target.value)}
-                    placeholder="Welcome!"
+                    placeholder="Leave empty to hide"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
                     Welcome Text
+                    {!config.messages.welcomeText && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <EyeOff className="w-3 h-3" /> Hidden if empty
+                      </span>
+                    )}
                   </label>
                   <textarea
                     value={config.messages.welcomeText}
                     onChange={(e) => updateMessages('welcomeText', e.target.value)}
-                    placeholder="Search for properties using natural language..."
+                    placeholder="Leave empty to hide the welcome section"
                     rows={2}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                   />
@@ -454,26 +581,18 @@ export default function AtlasSettingsEditor({
 
               {/* Example Questions */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-medium text-slate-700">
-                    Example Questions
-                  </label>
-                  <button
-                    type="button"
-                    onClick={addExampleQuestion}
-                    className="text-xs text-sky-600 hover:text-sky-700 flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" /> Add
-                  </button>
-                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  Example Questions
+                  <span className="text-xs text-slate-400">(shown on welcome screen)</span>
+                </label>
                 <div className="space-y-2">
                   {config.messages.exampleQuestions.map((q, idx) => (
-                    <div key={idx} className="flex gap-2">
+                    <div key={idx} className="flex items-center gap-2">
                       <input
                         type="text"
                         value={q}
                         onChange={(e) => updateExampleQuestion(idx, e.target.value)}
-                        placeholder="e.g., 123 Main Street"
+                        placeholder={`Example ${idx + 1}`}
                         className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                       />
                       <button
@@ -489,6 +608,13 @@ export default function AtlasSettingsEditor({
                     <p className="text-sm text-slate-400 italic">No example questions added</p>
                   )}
                 </div>
+                <button
+                  type="button"
+                  onClick={addExampleQuestion}
+                  className="mt-2 text-sm text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" /> Add Example Question
+                </button>
               </div>
 
               {/* Important Note / Disclaimer */}
@@ -496,17 +622,19 @@ export default function AtlasSettingsEditor({
                 <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-500" />
                   Important Note (Disclaimer)
+                  {!config.messages.importantNote && (
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      <EyeOff className="w-3 h-3" /> Hidden if empty
+                    </span>
+                  )}
                 </label>
                 <textarea
                   value={config.messages.importantNote}
                   onChange={(e) => updateMessages('importantNote', e.target.value)}
-                  placeholder="This AI assistant searches public property records. Results may not be 100% accurate - please verify important information with official sources."
+                  placeholder="Leave empty to hide the disclaimer banner"
                   rows={2}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                 />
-                <p className="text-xs text-slate-500 mt-1">
-                  Shown as a warning banner in the chat area. Leave empty to hide.
-                </p>
               </div>
 
               {/* Search Tip */}
@@ -514,17 +642,19 @@ export default function AtlasSettingsEditor({
                 <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
                   <Lightbulb className="w-4 h-4 text-amber-500" />
                   Search Tip
+                  {!config.messages.searchTip && (
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      <EyeOff className="w-3 h-3" /> Hidden if empty
+                    </span>
+                  )}
                 </label>
                 <input
                   type="text"
                   value={config.messages.searchTip}
                   onChange={(e) => updateMessages('searchTip', e.target.value)}
-                  placeholder="Tip: Use the search bar above to ask questions about properties"
+                  placeholder="Leave empty to hide the tip"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                 />
-                <p className="text-xs text-slate-500 mt-1">
-                  Shown at the bottom of the chat area with a lightbulb icon. Leave empty to use default based on search bar position.
-                </p>
               </div>
             </div>
           </Section>
@@ -539,26 +669,16 @@ export default function AtlasSettingsEditor({
           >
             <div className="space-y-3">
               {config.basemaps.map((basemap, idx) => (
-                <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div key={idx} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-500 mb-1">Label</label>
                       <input
                         type="text"
                         value={basemap.label}
                         onChange={(e) => updateBasemap(idx, 'label', e.target.value)}
-                        placeholder="Basemap name"
-                        className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">ID</label>
-                      <input
-                        type="text"
-                        value={basemap.id}
-                        onChange={(e) => updateBasemap(idx, 'id', e.target.value)}
-                        placeholder="basemap_id"
-                        className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        placeholder="Street Map"
+                        className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
                       />
                     </div>
                     <div>
@@ -566,42 +686,40 @@ export default function AtlasSettingsEditor({
                       <select
                         value={basemap.type}
                         onChange={(e) => updateBasemap(idx, 'type', e.target.value)}
-                        className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
                       >
-                        {basemapTypes.map(t => (
-                          <option key={t.id} value={t.id}>{t.label}</option>
-                        ))}
+                        <option value="esri">Esri Basemap ID</option>
+                        <option value="arcgis">ArcGIS TileLayer</option>
+                        <option value="wms">WMS Layer</option>
                       </select>
                     </div>
-                    <div className="flex items-end">
-                      <button
-                        type="button"
-                        onClick={() => removeBasemap(idx)}
-                        disabled={config.basemaps.length <= 1}
-                        className="p-1.5 text-red-500 hover:bg-red-50 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  {(basemap.type === 'arcgis' || basemap.type === 'wms') && (
-                    <div className="mt-2">
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Service URL</label>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">
+                        {basemap.type === 'esri' ? 'Basemap ID' : 'URL'}
+                      </label>
                       <input
-                        type="url"
-                        value={basemap.url || ''}
-                        onChange={(e) => updateBasemap(idx, 'url', e.target.value)}
-                        placeholder="https://services.arcgis.com/..."
-                        className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        type="text"
+                        value={basemap.type === 'esri' ? basemap.id : basemap.url}
+                        onChange={(e) => updateBasemap(idx, basemap.type === 'esri' ? 'id' : 'url', e.target.value)}
+                        placeholder={basemap.type === 'esri' ? 'streets-navigation-vector' : 'https://...'}
+                        className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
                       />
                     </div>
-                  )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeBasemap(idx)}
+                    disabled={config.basemaps.length <= 1}
+                    className="p-1.5 text-red-500 hover:bg-red-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               ))}
               <button
                 type="button"
                 onClick={addBasemap}
-                className="w-full py-2 border-2 border-dashed border-slate-300 text-slate-500 hover:border-sky-400 hover:text-sky-600 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                className="w-full py-2 border border-dashed border-slate-300 rounded-lg text-sm text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
               >
                 <Plus className="w-4 h-4" /> Add Basemap
               </button>
@@ -667,24 +785,23 @@ export default function AtlasSettingsEditor({
               </div>
             </div>
           </Section>
-
         </div>
 
         {/* Footer */}
         <div className="p-4 border-t border-slate-200 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 text-white rounded-lg flex items-center gap-2 transition-colors"
+            className="px-4 py-2 text-white rounded-lg font-medium flex items-center gap-2"
             style={{ backgroundColor: accentColor }}
           >
             <Save className="w-4 h-4" />
-            Save Settings
+            Save Changes
           </button>
         </div>
       </div>
@@ -701,11 +818,11 @@ function Section({ title, icon: Icon, expanded, onToggle, children, accentColor 
       <button
         type="button"
         onClick={onToggle}
-        className="w-full px-4 py-3 bg-slate-50 flex items-center justify-between hover:bg-slate-100 transition-colors"
+        className="w-full p-4 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
       >
         <div className="flex items-center gap-2">
           <Icon className="w-5 h-5" style={{ color: accentColor }} />
-          <span className="font-medium text-slate-700">{title}</span>
+          <span className="font-semibold text-slate-800">{title}</span>
         </div>
         {expanded ? (
           <ChevronDown className="w-5 h-5 text-slate-400" />

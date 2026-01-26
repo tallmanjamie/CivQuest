@@ -1,5 +1,7 @@
 // src/atlas/hooks/useAtlasConfig.js
 // Hook to load Atlas configuration from Firestore organizations/{orgId}.atlasConfig
+//
+// DEBUG: Added logging to trace theme color loading issues
 
 import { useState, useEffect, useCallback } from 'react';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
@@ -8,25 +10,29 @@ import { PATHS } from '../../shared/services/paths';
 
 /**
  * Default configuration structure when none is found
+ * NOTE: Optional text fields default to empty string so they are hidden when not configured
  */
 const DEFAULT_CONFIG = {
   id: 'default',
   ui: {
     title: 'CivQuest Atlas',
     headerTitle: 'CivQuest',
-    headerSubtitle: 'Atlas Property Search',
+    headerSubtitle: '',  // Empty = hidden
     headerClass: 'bg-sky-700',
     logoLeft: null,
     logoRight: null,
     botAvatar: null,
     themeColor: 'sky',
-    defaultMode: 'chat'
+    defaultMode: 'chat',
+    searchBarPosition: 'top',
+    searchPlaceholder: ''  // Empty = use default
   },
   messages: {
-    welcomeTitle: 'Welcome!',
-    welcomeText: 'CivQuest Atlas is an interactive map and search tool. Search for an address or parcel ID to learn more about a property.',
+    welcomeTitle: '',  // Empty = hidden
+    welcomeText: '',   // Empty = hidden
     exampleQuestions: [],
-    importantNote: ''
+    importantNote: '', // Empty = hidden
+    searchTip: ''      // Empty = hidden
   },
   basemaps: [],
   data: {
@@ -102,6 +108,7 @@ export function useAtlasConfig(providedOrgId = null) {
       return;
     }
 
+    console.log('[useAtlasConfig] Loading config for org:', orgId);
     setLoading(true);
     setError(null);
 
@@ -115,7 +122,12 @@ export function useAtlasConfig(providedOrgId = null) {
           const orgData = docSnap.data();
           const atlasConfig = orgData.atlasConfig || {};
           
-          // Merge with defaults
+          // DEBUG: Log the raw config from Firestore
+          console.log('[useAtlasConfig] Raw atlasConfig from Firestore:', atlasConfig);
+          console.log('[useAtlasConfig] atlasConfig.ui:', atlasConfig.ui);
+          console.log('[useAtlasConfig] atlasConfig.ui?.themeColor:', atlasConfig.ui?.themeColor);
+          
+          // Merge with defaults - deep merge for nested objects
           const mergedConfig = {
             ...DEFAULT_CONFIG,
             ...atlasConfig,
@@ -125,6 +137,10 @@ export function useAtlasConfig(providedOrgId = null) {
             data: { ...DEFAULT_CONFIG.data, ...atlasConfig.data }
           };
           
+          // DEBUG: Log the merged config
+          console.log('[useAtlasConfig] Merged config:', mergedConfig);
+          console.log('[useAtlasConfig] Final themeColor:', mergedConfig.ui.themeColor);
+          
           setConfig(mergedConfig);
           setAvailableMaps(mergedConfig.data?.maps || []);
           setLoading(false);
@@ -132,6 +148,7 @@ export function useAtlasConfig(providedOrgId = null) {
           // Store last used org
           localStorage.setItem('atlas_last_org', orgId);
         } else {
+          console.warn('[useAtlasConfig] Organization document not found:', orgId);
           setError(`Organization "${orgId}" not found.`);
           setConfig(null);
           setLoading(false);
