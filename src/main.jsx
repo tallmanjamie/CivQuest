@@ -1,11 +1,10 @@
 // src/main.jsx
+// CivQuest Unified Platform - Entry Point with Routing
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import NotifyApp from './notify/NotifyApp';
-// Admin components to be loaded dynamically
-// import SuperAdminApp from './admin/SuperAdminApp';
-// import OrgAdminApp from './admin/OrgAdminApp';
+import AdminApp from './admin/AdminApp';
 // Atlas components (Phase 3)
 // import AtlasApp from './atlas/AtlasApp';
 
@@ -25,11 +24,17 @@ const getRouteInfo = () => {
   // - notify.civ.quest -> subdomain = 'notify'
   // - atlas.civ.quest -> subdomain = 'atlas'
   // - admin.civ.quest -> subdomain = 'admin'
-  // - localhost -> check path
+  // - localhost -> check path or query param
   // - civ.quest (root) -> no subdomain
   if (hostname.includes('localhost') || hostname === '127.0.0.1') {
-    // Local development: use path-based routing
-    subdomain = null;
+    // Local development: use path-based or query param routing
+    const params = new URLSearchParams(window.location.search);
+    const moduleOverride = params.get('module');
+    if (moduleOverride) {
+      subdomain = moduleOverride;
+    } else {
+      subdomain = null;
+    }
   } else if (parts.length > 2) {
     subdomain = parts[0];
   }
@@ -41,19 +46,15 @@ const getRouteInfo = () => {
 const getAppComponent = () => {
   const { subdomain, path } = getRouteInfo();
   
-  // Path-based routing (development and admin routes)
+  // Path-based routing (development and production)
   if (path.startsWith('/admin')) {
-    // Super admin portal - lazy load when implemented
-    // return SuperAdminApp;
-    console.warn('Super Admin not yet migrated - showing Notify');
-    return NotifyApp;
+    // Unified admin portal - handles both super admin and org admin
+    return AdminApp;
   }
   
+  // Legacy route - redirect org-admin to unified admin
   if (path.startsWith('/org-admin')) {
-    // Organization admin portal - lazy load when implemented
-    // return OrgAdminApp;
-    console.warn('Org Admin not yet migrated - showing Notify');
-    return NotifyApp;
+    return AdminApp;
   }
   
   // Test routes for development
@@ -71,9 +72,8 @@ const getAppComponent = () => {
       console.warn('Atlas not yet implemented - showing Notify');
       return NotifyApp;
     case 'admin':
-      // return SuperAdminApp;
-      console.warn('Admin subdomain not yet migrated - showing Notify');
-      return NotifyApp;
+      // Unified admin portal
+      return AdminApp;
     default:
       // Default to Notify for now
       return NotifyApp;

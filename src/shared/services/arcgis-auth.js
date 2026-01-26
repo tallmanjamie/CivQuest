@@ -1,5 +1,6 @@
 /**
  * ArcGIS OAuth Authentication Utilities
+ * src/shared/services/arcgis-auth.js
  * 
  * This module provides OAuth 2.0 authentication with ArcGIS Online (AGOL)
  * allowing users to sign in with their Esri accounts.
@@ -15,6 +16,20 @@
 // ArcGIS OAuth Configuration
 const ARCGIS_CLIENT_ID = 'SPmTwmqIB2qEz51L';
 const ARCGIS_OAUTH_BASE = 'https://www.arcgis.com/sharing/rest/oauth2';
+
+/**
+ * Gets the OAuth redirect URI based on current location
+ * @returns {string} The redirect URI for OAuth callbacks
+ */
+export function getOAuthRedirectUri() {
+  if (typeof window === 'undefined') return '';
+  
+  const { protocol, hostname, port } = window.location;
+  const portSuffix = port && port !== '80' && port !== '443' ? `:${port}` : '';
+  
+  // Return base URL without path - OAuth will redirect back to root
+  return `${protocol}//${hostname}${portSuffix}/`;
+}
 
 /**
  * Generates the OAuth authorization URL for ArcGIS Online
@@ -282,21 +297,9 @@ export function generateSecurePassword() {
   return password;
 }
 
-/**
- * Get the OAuth redirect URI (current page without OAuth query params)
- */
-export function getOAuthRedirectUri() {
-  if (typeof window === 'undefined') return '';
-  const url = new URL(window.location.href);
-  // Keep organization/notification params but remove OAuth params
-  url.searchParams.delete('code');
-  url.searchParams.delete('state');
-  url.searchParams.delete('error');
-  url.searchParams.delete('error_description');
-  return url.toString();
-}
-
+// Default export for convenience
 export default {
+  getOAuthRedirectUri,
   getArcGISAuthUrl,
   exchangeCodeForToken,
   getArcGISUserProfile,
@@ -310,6 +313,5 @@ export default {
   getOAuthMode,
   initiateArcGISLogin,
   generateSecurePassword,
-  generateDeterministicPassword,
-  getOAuthRedirectUri
+  generateDeterministicPassword
 };

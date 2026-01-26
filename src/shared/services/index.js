@@ -1,9 +1,5 @@
 // src/shared/services/index.js
-export { app, auth, db } from './firebase';
-export { PATHS, getPath } from './paths';
+// Export all shared services
+
+export { PATHS, getPath, USE_NEW_PATHS } from './paths';
 export * from './arcgis-auth';
-export { sendWelcomeEmail } from './email';
-export * from './organizations';
-export * from './users';
-export * from './admins';
-export * from './invitations';
