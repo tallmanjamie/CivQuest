@@ -21,12 +21,65 @@ import {
 import { useAtlas } from '../AtlasApp';
 
 // Centralized Gemini configuration - update model in one place
-import { getGeminiUrl, GEMINI_QUERY_CONFIG } from '../../config/geminiConfig';
+import { getGeminiUrl, getGeminiFallbackUrl, GEMINI_QUERY_CONFIG, GEMINI_CONFIG } from '../../config/geminiConfig';
+
+/**
+ * Detect if a query looks like a simple address search
+ */
+function isSimpleAddressQuery(query) {
+  const trimmed = query.trim().toLowerCase();
+  const addressPattern = /^\d+\s+[\w\s]+(?:st|street|ave|avenue|ln|lane|rd|road|dr|drive|ct|court|blvd|boulevard|way|pl|place|cir|circle|ter|terrace|pkwy|parkway)?\.?$/i;
+  const questionWords = ['what', 'which', 'who', 'how', 'when', 'where', 'show', 'find', 'list', 'get', 'top', 'largest', 'biggest', 'most', 'recent', 'latest', 'sold', 'sale', 'over', 'under', 'between', 'greater', 'less', 'more', 'than'];
+  const hasQuestionWord = questionWords.some(word => trimmed.includes(word));
+  
+  if (hasQuestionWord) return false;
+  if (addressPattern.test(trimmed)) return true;
+  
+  const words = trimmed.split(/\s+/);
+  if (words.length <= 5 && /^\d+$/.test(words[0])) return true;
+  
+  return false;
+}
+
+/**
+ * Detect if a query looks like a parcel ID
+ */
+function isParcelIdQuery(query) {
+  const trimmed = query.trim();
+  return /^[\d\-A-Z]{5,}$/i.test(trimmed) && !/\s/.test(trimmed);
+}
+
+/**
+ * Get center point from ArcGIS geometry
+ */
+function getGeometryCenter(geometry) {
+  if (!geometry) return null;
+  
+  if (geometry.x !== undefined && geometry.y !== undefined) {
+    return { lat: geometry.y, lng: geometry.x };
+  }
+  
+  if (geometry.rings && geometry.rings.length > 0) {
+    const ring = geometry.rings[0];
+    let sumX = 0, sumY = 0;
+    for (const point of ring) {
+      sumX += point[0];
+      sumY += point[1];
+    }
+    return { lng: sumX / ring.length, lat: sumY / ring.length };
+  }
+  
+  if (geometry.paths && geometry.paths.length > 0) {
+    const path = geometry.paths[0];
+    const midIndex = Math.floor(path.length / 2);
+    return { lng: path[midIndex][0], lat: path[midIndex][1] };
+  }
+  
+  return null;
+}
 
 /**
  * ChatView Component
- * Conversational interface for property search
- * Exposes handleSearch method for parent component to call
  */
 const ChatView = forwardRef(function ChatView(props, ref) {
   const {
@@ -49,22 +102,41 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     setShowAdvanced
   } = useAtlas();
 
-  // State
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchHistory, setSearchHistory] = useState([]);
   const [loadingText, setLoadingText] = useState('Processing...');
 
-  // Refs
   const chatContainerRef = useRef(null);
 
-  // Theme
   const themeColor = config?.ui?.themeColor || 'sky';
   const botAvatar = config?.ui?.botAvatar || config?.ui?.logoLeft;
 
   /**
-   * Load search history from localStorage
+   * Get field names from config
    */
+  const getFieldNames = useCallback(() => {
+    let parcelField = 'PARCELID';
+    let addressField = 'PROPERTYADDRESS';
+    
+    const searchFields = activeMap?.searchFields || config?.data?.searchFields;
+    if (searchFields) {
+      const pObj = searchFields.find(f => 
+        /PARCEL|GPIN|LRSN|PIN/i.test(f.label) || 
+        /PARCEL|GPIN|LRSN|PIN/i.test(f.field)
+      );
+      if (pObj) parcelField = pObj.field;
+      
+      const aObj = searchFields.find(f => 
+        /ADDRESS|SITE|SITUS/i.test(f.label) || 
+        /ADDRESS|SITUS/i.test(f.field)
+      );
+      if (aObj) addressField = aObj.field;
+    }
+    
+    return { parcelField, addressField };
+  }, [activeMap?.searchFields, config?.data?.searchFields]);
+
   useEffect(() => {
     const key = `atlas_history_${config?.id || 'default'}`;
     const saved = localStorage.getItem(key);
@@ -75,9 +147,6 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     }
   }, [config?.id]);
 
-  /**
-   * Save search to history
-   */
   const saveToHistory = useCallback((query) => {
     const key = `atlas_history_${config?.id || 'default'}`;
     const newHistory = [
@@ -88,18 +157,12 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     localStorage.setItem(key, JSON.stringify(newHistory));
   }, [config?.id, searchHistory]);
 
-  /**
-   * Scroll to bottom of chat
-   */
   const scrollToBottom = useCallback(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, []);
 
-  /**
-   * Add message to chat
-   */
   const addMessage = useCallback((type, content, metadata = {}) => {
     setMessages(prev => [...prev, {
       id: Date.now(),
@@ -111,157 +174,345 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     setTimeout(scrollToBottom, 100);
   }, [scrollToBottom]);
 
-  /**
-   * Translate natural language to SQL using Gemini
-   */
-  const translateQuery = useCallback(async (query) => {
-    const systemPrompt = activeMap?.systemPrompt || config?.data?.systemPrompt;
+  const callGeminiApi = useCallback(async (prompt, useFallback = false) => {
+    const url = useFallback ? getGeminiFallbackUrl() : getGeminiUrl();
+    const modelName = useFallback ? GEMINI_CONFIG.fallbackModel : GEMINI_CONFIG.model;
     
-    if (!systemPrompt) {
-      // Fallback to simple address search
-      return {
-        type: 'simple',
-        address: query
-      };
-    }
+    console.log(`[ChatView] Calling Gemini API with model: ${modelName}`);
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: GEMINI_QUERY_CONFIG
+      })
+    });
 
-    try {
-      const geminiUrl = getGeminiUrl();
-      const response = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: `${systemPrompt}\n\nUser Query: ${query}` }]
-          }],
-          generationConfig: GEMINI_QUERY_CONFIG
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Gemini API error');
-      }
-
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const data = await response.json();
+    
+    if (data.error) {
+      const errorMessage = data.error.message || data.error.status || 'Unknown API error';
+      console.error(`[ChatView] Gemini API error (${modelName}):`, data.error);
       
-      // Parse JSON from response
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+      if (!useFallback && GEMINI_CONFIG.fallbackModel) {
+        console.log('[ChatView] Trying fallback model...');
+        return callGeminiApi(prompt, true);
       }
       
-      throw new Error('Invalid response format');
-    } catch (err) {
-      console.warn('[ChatView] Gemini translation failed:', err);
-      // Fallback to simple address search
-      return {
-        type: 'simple',
-        address: query
-      };
+      throw new Error(`Gemini API error: ${errorMessage}`);
     }
-  }, [activeMap?.systemPrompt, config?.data?.systemPrompt]);
 
-  /**
-   * Execute query against ArcGIS FeatureServer
-   */
-  const executeQuery = useCallback(async (queryParams) => {
+    if (!response.ok) {
+      const errorText = JSON.stringify(data);
+      console.error(`[ChatView] HTTP ${response.status}:`, errorText);
+      
+      if (!useFallback && GEMINI_CONFIG.fallbackModel) {
+        return callGeminiApi(prompt, true);
+      }
+      
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    return data;
+  }, []);
+
+  const geocodeAddress = useCallback(async (address) => {
+    const geocoderConfig = activeMap?.geocoder || config?.data?.geocoder;
+    const geocoderUrl = geocoderConfig?.url || 
+      'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer';
+    
+    console.log('[ChatView] Geocoding address:', address);
+    
+    const params = new URLSearchParams({
+      f: 'json',
+      SingleLine: address,
+      outFields: '*',
+      outSR: '4326',
+      maxLocations: 1
+    });
+
+    const response = await fetch(`${geocoderUrl}/findAddressCandidates?${params}`);
+    const data = await response.json();
+
+    if (data.error) throw new Error(data.error.message || 'Geocoder error');
+
+    if (data.candidates && data.candidates.length > 0) {
+      const result = data.candidates[0];
+      return { lat: result.location.y, lng: result.location.x, formatted: result.address };
+    }
+
+    throw new Error('ADDRESS_NOT_FOUND');
+  }, [activeMap?.geocoder, config?.data?.geocoder]);
+
+  const searchExternalAddressLayer = useCallback(async (address) => {
+    const addressSearchConfig = activeMap?.addressSearch || config?.data?.addressSearch;
+    
+    if (!addressSearchConfig?.useExternalLayer || !addressSearchConfig?.externalLayer?.endpoint) {
+      return null;
+    }
+    
+    const externalLayer = addressSearchConfig.externalLayer;
+    const searchField = externalLayer.searchField || 'FullAdd';
+    const searchVal = address.toUpperCase();
+    
+    console.log('[ChatView] Searching external address layer:', externalLayer.endpoint);
+    
+    const useExactMatch = externalLayer.exactMatch === true;
+    const whereClause = useExactMatch 
+      ? `UPPER(${searchField}) = '${searchVal}'`
+      : `UPPER(${searchField}) LIKE '%${searchVal}%'`;
+    
+    const params = new URLSearchParams({ 
+      f: 'json', 
+      where: whereClause, 
+      outFields: '*', 
+      returnGeometry: 'true', 
+      outSR: '4326',
+      resultRecordCount: 1
+    });
+    
+    const response = await fetch(`${externalLayer.endpoint}/query?${params}`);
+    const data = await response.json();
+    
+    if (!data.features || data.features.length === 0) return null;
+    
+    const addressFeature = data.features[0];
+    let coords = addressFeature.geometry ? getGeometryCenter(addressFeature.geometry) : null;
+    
+    if (!coords) return null;
+    
+    const displayField = externalLayer.displayField || searchField;
+    return { lat: coords.lat, lng: coords.lng, formatted: addressFeature.attributes[displayField] || address };
+  }, [activeMap?.addressSearch, config?.data?.addressSearch]);
+
+  const spatialQueryForParcel = useCallback(async (coords) => {
     const endpoint = activeMap?.endpoint || config?.data?.endpoint;
-    if (!endpoint) {
-      throw new Error('No endpoint configured');
-    }
+    if (!endpoint) throw new Error('No endpoint configured');
+    
+    console.log('[ChatView] Spatial query at:', coords);
+    
+    const exactParams = new URLSearchParams({ 
+      f: 'json', 
+      where: '1=1', 
+      geometry: `${coords.lng},${coords.lat}`, 
+      geometryType: 'esriGeometryPoint', 
+      spatialRel: 'esriSpatialRelIntersects', 
+      outFields: '*', 
+      returnGeometry: 'true', 
+      outSR: '4326', 
+      inSR: '4326', 
+      resultRecordCount: 1 
+    });
+    
+    let response = await fetch(`${endpoint}/query?${exactParams}`);
+    let data = await response.json();
+    
+    if (data.features && data.features.length > 0) return data;
+    
+    console.log('[ChatView] No exact match, trying with buffer...');
+    const bufferParams = new URLSearchParams({ 
+      f: 'json', 
+      where: '1=1', 
+      geometry: `${coords.lng - 0.0001},${coords.lat - 0.0001},${coords.lng + 0.0001},${coords.lat + 0.0001}`, 
+      geometryType: 'esriGeometryEnvelope', 
+      spatialRel: 'esriSpatialRelIntersects', 
+      outFields: '*', 
+      returnGeometry: 'true', 
+      outSR: '4326', 
+      inSR: '4326', 
+      resultRecordCount: 5 
+    });
+    
+    response = await fetch(`${endpoint}/query?${bufferParams}`);
+    return response.json();
+  }, [activeMap?.endpoint, config?.data?.endpoint]);
 
+  const lookupParcelById = useCallback(async (parcelId) => {
+    const endpoint = activeMap?.endpoint || config?.data?.endpoint;
+    if (!endpoint) throw new Error('No endpoint configured');
+    
+    const { parcelField } = getFieldNames();
+    console.log('[ChatView] Looking up parcel by ID:', parcelId, 'field:', parcelField);
+    
+    const params = new URLSearchParams({ 
+      f: 'json', 
+      where: `${parcelField} = '${parcelId}'`, 
+      outFields: '*', 
+      returnGeometry: 'true', 
+      outSR: '4326'
+    });
+    
+    const response = await fetch(`${endpoint}/query?${params}`);
+    return response.json();
+  }, [activeMap?.endpoint, config?.data?.endpoint, getFieldNames]);
+
+  const executeSqlQuery = useCallback(async (queryParams) => {
+    const endpoint = activeMap?.endpoint || config?.data?.endpoint;
+    if (!endpoint) throw new Error('No endpoint configured');
+    
+    console.log('[ChatView] Executing SQL query:', queryParams);
+    
     const params = new URLSearchParams({
       f: 'json',
       outFields: '*',
       returnGeometry: 'true',
-      outSR: '4326'
+      outSR: '4326',
+      where: queryParams.where
     });
-
-    if (queryParams.type === 'simple') {
-      // Simple address search
-      params.set('where', `PROPERTYADDRESS LIKE '%${queryParams.address.toUpperCase()}%'`);
-    } else if (queryParams.where) {
-      // SQL query
-      params.set('where', queryParams.where);
-      
-      if (queryParams.orderBy) {
-        params.set('orderByFields', queryParams.orderBy);
-      }
-      
-      if (queryParams.limit) {
-        params.set('resultRecordCount', String(queryParams.limit));
-      }
-    } else {
-      throw new Error('Invalid query parameters');
-    }
-
+    
+    if (queryParams.orderBy) params.set('orderByFields', queryParams.orderBy);
+    if (queryParams.limit) params.set('resultRecordCount', String(queryParams.limit));
+    
     const response = await fetch(`${endpoint}/query?${params}`);
-    const data = await response.json();
-
-    if (data.error) {
-      throw new Error(data.error.message || 'Query failed');
-    }
-
-    return data;
+    return response.json();
   }, [activeMap?.endpoint, config?.data?.endpoint]);
 
-  /**
-   * Handle search submission (called from parent via ref)
-   */
+  const translateQueryWithAI = useCallback(async (query) => {
+    const systemPrompt = activeMap?.systemPrompt || config?.data?.systemPrompt;
+    
+    if (!systemPrompt) {
+      console.warn('[ChatView] No system prompt configured');
+      return null;
+    }
+
+    try {
+      const prompt = `${systemPrompt}\n\nUser Query: ${query}`;
+      const data = await callGeminiApi(prompt);
+      
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      console.log('[ChatView] Gemini raw response:', text);
+      
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        console.log('[ChatView] Parsed Gemini response:', parsed);
+        return parsed;
+      }
+      
+      return null;
+    } catch (err) {
+      console.warn('[ChatView] Gemini translation failed:', err);
+      return null;
+    }
+  }, [activeMap?.systemPrompt, config?.data?.systemPrompt, callGeminiApi]);
+
   const handleSearch = useCallback(async (query) => {
     if (!query?.trim() || isLoading) return;
 
     const trimmedQuery = query.trim();
-
-    // Add user message
     addMessage('user', trimmedQuery);
 
     setIsLoading(true);
     setIsSearching?.(true);
-    setLoadingText('Analyzing your question...');
 
     try {
-      // Translate to SQL
-      const queryParams = await translateQuery(trimmedQuery);
+      let results = null;
+      let location = null;
+      const { parcelField, addressField } = getFieldNames();
+
+      if (isParcelIdQuery(trimmedQuery)) {
+        setLoadingText('Looking up parcel...');
+        console.log('[ChatView] Detected parcel ID query');
+        
+        results = await lookupParcelById(trimmedQuery);
+        
+        if (results.features && results.features.length > 0) {
+          const center = getGeometryCenter(results.features[0].geometry);
+          if (center) location = { ...center, formatted: `ID: ${trimmedQuery}` };
+        }
+      }
+      else if (isSimpleAddressQuery(trimmedQuery)) {
+        setLoadingText('Searching address...');
+        console.log('[ChatView] Detected simple address query');
+        
+        try {
+          location = await searchExternalAddressLayer(trimmedQuery);
+          console.log('[ChatView] External layer result:', location);
+        } catch (e) {
+          console.log('[ChatView] External layer search failed:', e);
+        }
+        
+        if (!location) {
+          try {
+            location = await geocodeAddress(trimmedQuery);
+            console.log('[ChatView] Geocoder result:', location);
+          } catch (e) {
+            console.log('[ChatView] Geocoding failed:', e);
+          }
+        }
+        
+        if (location) {
+          setLoadingText('Finding property...');
+          results = await spatialQueryForParcel(location);
+        } else {
+          console.log('[ChatView] Falling back to LIKE search');
+          setLoadingText('Searching database...');
+          const searchTerm = trimmedQuery.toUpperCase();
+          results = await executeSqlQuery({
+            where: `UPPER(${addressField}) LIKE '%${searchTerm}%'`
+          });
+        }
+      }
+      else {
+        setLoadingText('Analyzing your question...');
+        console.log('[ChatView] Complex query, using AI translation');
+        
+        const aiResult = await translateQueryWithAI(trimmedQuery);
+        
+        if (aiResult) {
+          if (aiResult.parcelId) {
+            setLoadingText('Looking up parcel...');
+            results = await lookupParcelById(aiResult.parcelId);
+          } else if (aiResult.address) {
+            setLoadingText('Searching address...');
+            try {
+              location = await searchExternalAddressLayer(aiResult.address);
+              if (!location) location = await geocodeAddress(aiResult.address);
+              if (location) results = await spatialQueryForParcel(location);
+            } catch (e) {
+              console.log('[ChatView] Address from AI failed:', e);
+            }
+          } else if (aiResult.where) {
+            setLoadingText('Searching database...');
+            results = await executeSqlQuery({
+              where: aiResult.where,
+              orderBy: aiResult.orderBy || aiResult.orderByFields,
+              limit: aiResult.limit || aiResult.resultRecordCount
+            });
+          }
+        }
+        
+        if (!results || !results.features) {
+          console.log('[ChatView] AI translation failed, trying LIKE search');
+          const searchTerm = trimmedQuery.toUpperCase();
+          results = await executeSqlQuery({
+            where: `UPPER(${addressField}) LIKE '%${searchTerm}%'`
+          });
+        }
+      }
+
+      const features = results?.features || [];
       
-      setLoadingText('Searching database...');
+      if (results?.error) throw new Error(results.error.message || 'Query failed');
 
-      // Execute query
-      const results = await executeQuery(queryParams);
-      const features = results.features || [];
-
-      // Update results
       updateSearchResults({ features });
-
-      // Save to history
+      if (location) setSearchLocation?.(location);
       saveToHistory(trimmedQuery);
 
-      // Add result message
       if (features.length === 0) {
-        addMessage('ai', 'I couldn\'t find any properties matching your search. Try adjusting your criteria or check the spelling of any addresses.');
+        addMessage('ai', 'I couldn\'t find any properties matching your search. Try:\n• Checking the spelling\n• Using a different format (e.g., "306 Cedar Lane" or "306 CEDAR LN")\n• Searching by parcel ID instead');
       } else if (features.length === 1) {
         const feature = features[0];
-        const address = feature.attributes?.PROPERTYADDRESS || 'Property';
-        addMessage('ai', `I found **${address}**. Here are the details:`, {
-          feature,
-          showDetails: true
-        });
+        const address = feature.attributes?.[addressField] || feature.attributes?.PROPERTYADDRESS || feature.attributes?.ADDRESS || 'Property';
+        addMessage('ai', `I found **${address}**. Here are the details:`, { feature, showDetails: true });
         
-        // Zoom to feature on map if map mode enabled
         if (mapViewRef?.current?.zoomToFeature && enabledModes.includes('map')) {
           mapViewRef.current.zoomToFeature(feature);
         }
       } else {
-        addMessage('ai', `I found **${features.length}** properties matching your search.`, {
-          features,
-          showResultActions: true
-        });
-        
-        // Render on map
-        if (mapViewRef?.current?.renderResults) {
-          mapViewRef.current.renderResults(features);
-        }
+        addMessage('ai', `I found **${features.length}** properties matching your search.`, { features, showResultActions: true });
+        if (mapViewRef?.current?.renderResults) mapViewRef.current.renderResults(features);
       }
 
     } catch (err) {
@@ -271,28 +522,34 @@ const ChatView = forwardRef(function ChatView(props, ref) {
       setIsLoading(false);
       setIsSearching?.(false);
     }
-  }, [isLoading, addMessage, translateQuery, executeQuery, updateSearchResults, saveToHistory, mapViewRef, enabledModes, setIsSearching]);
+  }, [
+    isLoading, addMessage, getFieldNames, lookupParcelById, searchExternalAddressLayer,
+    geocodeAddress, spatialQueryForParcel, executeSqlQuery, translateQueryWithAI,
+    updateSearchResults, setSearchLocation, saveToHistory, mapViewRef, enabledModes, setIsSearching
+  ]);
 
-  /**
-   * Handle example question click
-   */
   const handleExampleClick = useCallback((question) => {
     handleSearch(question);
   }, [handleSearch]);
 
-  /**
-   * Clear history
-   */
   const clearHistory = useCallback(() => {
     const key = `atlas_history_${config?.id || 'default'}`;
     setSearchHistory([]);
     localStorage.removeItem(key);
   }, [config?.id]);
 
-  // Expose handleSearch method to parent via ref
-  useImperativeHandle(ref, () => ({
-    handleSearch
-  }), [handleSearch]);
+  useImperativeHandle(ref, () => ({ handleSearch }), [handleSearch]);
+
+  // Get the search tip text from config
+  const searchTipText = config?.messages?.searchTip || 
+    `Tip: Use the search bar ${config?.ui?.searchBarPosition === 'bottom' ? 'below' : 'above'} to ask questions about properties`;
+
+  // Get important note from config
+  const importantNote = config?.messages?.importantNote || 
+    'This AI assistant searches public property records. Results may not be 100% accurate - please verify important information with official sources.';
+
+  // Get example questions
+  const exampleQuestions = config?.messages?.exampleQuestions || [];
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -301,16 +558,58 @@ const ChatView = forwardRef(function ChatView(props, ref) {
         ref={chatContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4"
       >
-        {/* Welcome message if no messages */}
-        {messages.length === 0 && (
-          <WelcomeMessage 
-            config={config} 
-            botAvatar={botAvatar}
-            onExampleClick={handleExampleClick}
-          />
+        {/* Welcome Message - ALWAYS VISIBLE */}
+        <div className="flex gap-4">
+          <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+            {botAvatar ? (
+              <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
+            ) : (
+              <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
+                <HelpCircle className={`w-5 h-5 text-${themeColor}-600`} />
+              </div>
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200">
+              <h3 className="font-semibold text-slate-800 mb-2">
+                {config?.messages?.welcomeTitle || 'Welcome!'}
+              </h3>
+              <p className="text-slate-600 text-sm">
+                {config?.messages?.welcomeText || 'Search for properties using natural language. Try asking questions like the examples below.'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Example Questions - ALWAYS VISIBLE */}
+        {exampleQuestions.length > 0 && (
+          <div className="ml-14 space-y-2">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Try asking:</p>
+            <div className="flex flex-wrap gap-2">
+              {exampleQuestions.map((question, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleExampleClick(question)}
+                  className={`px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 hover:border-${themeColor}-300 hover:bg-${themeColor}-50 transition-colors text-left`}
+                >
+                  {question}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
-        {/* Message list */}
+        {/* Important Note / Disclaimer - ALWAYS VISIBLE */}
+        {importantNote && (
+          <div className="ml-14 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800">{importantNote}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Conversation Messages - appear below the welcome section */}
         {messages.map((msg) => (
           <MessageBubble 
             key={msg.id} 
@@ -343,12 +642,14 @@ const ChatView = forwardRef(function ChatView(props, ref) {
       </div>
 
       {/* Tip Footer */}
-      <div className="border-t border-slate-200 bg-white px-4 py-3">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Lightbulb className="w-4 h-4 text-amber-500" />
-          <span>Tip: Use the search bar {config?.ui?.searchBarPosition === 'bottom' ? 'below' : 'above'} to ask questions about properties</span>
+      {searchTipText && (
+        <div className="border-t border-slate-200 bg-white px-4 py-3">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Lightbulb className="w-4 h-4 text-amber-500" />
+            <span>{searchTipText}</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* History Panel */}
       {showHistory && (
@@ -364,82 +665,14 @@ const ChatView = forwardRef(function ChatView(props, ref) {
 });
 
 /**
- * Welcome Message Component
- */
-function WelcomeMessage({ config, botAvatar, onExampleClick }) {
-  const themeColor = config?.ui?.themeColor || 'sky';
-  const exampleQuestions = config?.messages?.exampleQuestions || [];
-
-  return (
-    <>
-      {/* Bot Welcome */}
-      <div className="flex gap-4">
-        <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
-          {botAvatar ? (
-            <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
-          ) : (
-            <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
-              <HelpCircle className={`w-5 h-5 text-${themeColor}-600`} />
-            </div>
-          )}
-        </div>
-        <div className="flex-1">
-          <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200">
-            <h3 className="font-semibold text-slate-800 mb-2">
-              {config?.messages?.welcomeTitle || 'Welcome!'}
-            </h3>
-            <p className="text-slate-600 text-sm">
-              {config?.messages?.welcomeText || 'Search for properties using natural language. Try asking questions like:'}
-            </p>
-          </div>
-          
-          {/* Example Questions */}
-          {exampleQuestions.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {exampleQuestions.slice(0, 4).map((q, i) => (
-                <button
-                  key={i}
-                  onClick={() => onExampleClick(q)}
-                  className={`px-3 py-1.5 bg-white border border-slate-200 rounded-full text-sm text-slate-600 hover:bg-${themeColor}-50 hover:border-${themeColor}-200 hover:text-${themeColor}-700 transition`}
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Important Note */}
-      {config?.messages?.importantNote && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-amber-800">
-            <strong className="font-semibold">Note:</strong> {config.messages.importantNote}
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-/**
  * Message Bubble Component
  */
 function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable }) {
-  const [copied, setCopied] = useState(false);
-
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   if (message.type === 'user') {
     return (
       <div className="flex justify-end">
-        <div className={`max-w-[80%] bg-${themeColor}-600 text-white p-4 rounded-2xl rounded-tr-none shadow-sm`}>
-          <p className="text-sm">{message.content}</p>
+        <div className={`bg-${themeColor}-600 text-white p-4 rounded-2xl rounded-tr-none shadow-sm max-w-[80%]`}>
+          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         </div>
       </div>
     );
@@ -448,17 +681,16 @@ function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable 
   if (message.type === 'error') {
     return (
       <div className="flex gap-4">
-        <div className="w-10 h-10 rounded-full bg-red-100 flex-shrink-0 flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full bg-red-100 border border-red-200 flex-shrink-0 flex items-center justify-center">
           <AlertCircle className="w-5 h-5 text-red-600" />
         </div>
-        <div className="bg-red-50 border border-red-200 p-4 rounded-2xl rounded-tl-none">
+        <div className="bg-red-50 p-4 rounded-2xl rounded-tl-none shadow-sm border border-red-200 max-w-[80%]">
           <p className="text-sm text-red-800">{message.content}</p>
         </div>
       </div>
     );
   }
 
-  // AI message
   return (
     <div className="flex gap-4">
       <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
@@ -470,21 +702,18 @@ function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable 
           </div>
         )}
       </div>
-      <div className="flex-1">
+      <div className="flex-1 max-w-[80%]">
         <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200">
-          {/* Render markdown-like content */}
-          <p className="text-sm text-slate-700" dangerouslySetInnerHTML={{
+          <p className="text-sm text-slate-700 whitespace-pre-wrap" dangerouslySetInnerHTML={{
             __html: message.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
           }} />
           
-          {/* Feature details */}
           {message.showDetails && message.feature && (
             <div className="mt-3 pt-3 border-t border-slate-100">
               <FeatureDetails feature={message.feature} themeColor={themeColor} />
             </div>
           )}
           
-          {/* Result actions */}
           {message.showResultActions && (
             <div className="mt-3 flex gap-2">
               <button
@@ -496,7 +725,7 @@ function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable 
               </button>
               <button
                 onClick={onViewTable}
-                className={`flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition`}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
               >
                 <Table2 className="w-4 h-4" />
                 View in Table
@@ -515,14 +744,14 @@ function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable 
 function FeatureDetails({ feature, themeColor }) {
   const attrs = feature.attributes || {};
   const displayFields = Object.entries(attrs)
-    .filter(([k, v]) => !k.startsWith('_') && v != null && k !== 'OBJECTID')
+    .filter(([k, v]) => !k.startsWith('_') && v != null && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
     .slice(0, 8);
 
   return (
     <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
       {displayFields.map(([key, value]) => (
         <div key={key}>
-          <dt className="text-xs font-medium text-slate-500 uppercase">{key}</dt>
+          <dt className="text-xs font-medium text-slate-500 uppercase">{key.replace(/_/g, ' ')}</dt>
           <dd className="text-slate-800">{String(value)}</dd>
         </div>
       ))}
@@ -552,13 +781,13 @@ function HistoryPanel({ history, onSelect, onClear, onClose }) {
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {history.map((item, i) => (
+              {history.map((item, idx) => (
                 <button
-                  key={i}
+                  key={idx}
                   onClick={() => onSelect(item.query)}
-                  className="w-full p-4 text-left hover:bg-slate-50 transition"
+                  className="w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors"
                 >
-                  <p className="text-sm text-slate-800">{item.query}</p>
+                  <p className="text-sm text-slate-800 truncate">{item.query}</p>
                   <p className="text-xs text-slate-400 mt-1">
                     {new Date(item.timestamp).toLocaleDateString()}
                   </p>
@@ -572,7 +801,7 @@ function HistoryPanel({ history, onSelect, onClear, onClose }) {
           <div className="p-4 border-t border-slate-200">
             <button
               onClick={onClear}
-              className="w-full py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
+              className="w-full py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
             >
               Clear History
             </button>
