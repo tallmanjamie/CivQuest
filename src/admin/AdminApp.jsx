@@ -64,6 +64,7 @@ import NotificationEditModal from './components/NotificationEditor';
 import Archive from './components/Archive';
 import UserManagementPanel from './components/UserManagement';
 import ConfigurationPanel from './components/Configuration';
+import NotificationWizard from './components/NotificationWizard';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
@@ -102,12 +103,8 @@ function UIProvider({ children }) {
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 5000);
+    }, 4000);
   }, []);
-
-  const removeToast = (id) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
 
   const confirm = useCallback(({ title, message, confirmLabel = 'Confirm', destructive = false, onConfirm }) => {
     setConfirmState({
@@ -116,71 +113,65 @@ function UIProvider({ children }) {
       message,
       confirmLabel,
       destructive,
-      onConfirm: async () => {
+      onConfirm: () => {
+        onConfirm();
         setConfirmState(prev => ({ ...prev, isOpen: false }));
-        await onConfirm();
       },
       onCancel: () => setConfirmState(prev => ({ ...prev, isOpen: false }))
     });
   }, []);
+
+  const getToastIcon = (type) => {
+    switch (type) {
+      case 'success': return <CheckCircle className="w-5 h-5 text-green-500" />;
+      case 'error': return <AlertOctagon className="w-5 h-5 text-red-500" />;
+      case 'warning': return <AlertTriangle className="w-5 h-5 text-amber-500" />;
+      default: return <Info className="w-5 h-5 text-blue-500" />;
+    }
+  };
 
   return (
     <UIContext.Provider value={{ addToast, confirm }}>
       {children}
       
       {/* Toast Container */}
-      <div className="fixed bottom-4 right-4 z-[70] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed bottom-4 right-4 z-50 space-y-2">
         {toasts.map(toast => (
           <div 
-            key={toast.id} 
-            className={`
-              pointer-events-auto min-w-[300px] max-w-md p-4 rounded-lg shadow-lg border animate-in slide-in-from-right-full fade-in duration-300
-              ${toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 
-                toast.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 
-                'bg-white border-slate-200 text-slate-800'}
-            `}
+            key={toast.id}
+            className="bg-white rounded-lg shadow-lg border border-slate-200 p-4 flex items-center gap-3 animate-in slide-in-from-right duration-300"
           >
-            <div className="flex items-start gap-3">
-              {toast.type === 'error' ? <AlertOctagon className="w-5 h-5 shrink-0 text-red-600" /> :
-               toast.type === 'success' ? <CheckCircle className="w-5 h-5 shrink-0 text-green-600" /> :
-               <Info className="w-5 h-5 shrink-0 text-[#004E7C]" />}
-              
-              <div className="flex-1 text-sm font-medium pt-0.5">{toast.message}</div>
-              
-              <button onClick={() => removeToast(toast.id)} className="text-current opacity-50 hover:opacity-100">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            {getToastIcon(toast.type)}
+            <span className="text-sm text-slate-700">{toast.message}</span>
           </div>
         ))}
       </div>
 
-      {/* Global Confirmation Dialog */}
+      {/* Confirmation Dialog */}
       {confirmState.isOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
-             <div className="flex flex-col items-center text-center gap-3">
-               <div className={`p-3 rounded-full ${confirmState.destructive ? 'bg-red-100 text-red-600' : 'bg-[#004E7C]/10 text-[#004E7C]'}`}>
-                 {confirmState.destructive ? <AlertTriangle className="w-8 h-8" /> : <Info className="w-8 h-8" />}
-               </div>
-               <h3 className="text-xl font-bold text-slate-800">{confirmState.title}</h3>
-               <p className="text-slate-600">{confirmState.message}</p>
-             </div>
-             <div className="flex gap-3 mt-8">
-               <button 
-                 onClick={confirmState.onCancel}
-                 className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium transition-colors"
-               >
-                 Cancel
-               </button>
-               <button 
-                 onClick={confirmState.onConfirm}
-                 className={`flex-1 px-4 py-2.5 text-white rounded-lg font-bold transition-colors ${confirmState.destructive ? 'bg-red-600 hover:bg-red-700' : 'bg-[#004E7C] hover:bg-[#003B5C]'}`}
-               >
-                 {confirmState.confirmLabel}
-               </button>
-             </div>
-           </div>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-slate-800 mb-2">{confirmState.title}</h3>
+            <p className="text-slate-600 mb-6">{confirmState.message}</p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={confirmState.onCancel}
+                className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmState.onConfirm}
+                className={`px-4 py-2 text-white rounded-lg font-medium ${
+                  confirmState.destructive 
+                    ? 'bg-red-600 hover:bg-red-700' 
+                    : 'bg-[#004E7C] hover:bg-[#003B5C]'
+                }`}
+              >
+                {confirmState.confirmLabel}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </UIContext.Provider>
@@ -215,19 +206,17 @@ export default function AdminAppWrapper() {
 function AdminApp() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [adminRole, setAdminRole] = useState(null); // 'super_admin' or 'org_admin'
+  const [adminRole, setAdminRole] = useState(null);
   const [orgAdminData, setOrgAdminData] = useState(null);
   const [orgConfig, setOrgConfig] = useState(null);
   const [accessError, setAccessError] = useState(null);
   const [isNewAccount, setIsNewAccount] = useState(false);
 
-  // Auth state listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       
       if (currentUser) {
-        // Check admin role using NEW unified path (admins/{uid})
         try {
           const adminDoc = await getDoc(doc(db, PATHS.admins, currentUser.uid));
           if (adminDoc.exists()) {
@@ -243,7 +232,6 @@ function AdminApp() {
               setAdminRole('org_admin');
               setOrgAdminData(adminData);
               
-              // Fetch org config using NEW unified path (organizations/{orgId})
               if (adminData.organizationId) {
                 const configDoc = await getDoc(doc(db, PATHS.organizations, adminData.organizationId));
                 if (configDoc.exists()) {
@@ -309,21 +297,110 @@ function AdminApp() {
   return <AccessDenied error="Unable to determine admin role." onSignOut={() => signOut(auth)} />;
 }
 
+// --- ADMIN LOGIN ---
+function AdminLogin() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
+        <div className="flex items-center justify-center gap-3 mb-6">
+          <Shield className="w-8 h-8 text-[#004E7C]" />
+          <h1 className="text-2xl font-bold text-slate-800">Admin Portal</h1>
+        </div>
+        
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+              required
+            />
+          </div>
+          
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              {error}
+            </div>
+          )}
+          
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- ACCESS DENIED ---
+function AccessDenied({ error, onSignOut }) {
+  return (
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md text-center">
+        <AlertTriangle className="w-16 h-16 text-amber-500 mx-auto mb-4" />
+        <h1 className="text-xl font-bold text-slate-800 mb-2">Access Denied</h1>
+        <p className="text-slate-600 mb-6">{error}</p>
+        <button
+          onClick={onSignOut}
+          className="px-6 py-2 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-700"
+        >
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // --- SIDEBAR NAVIGATION ---
 function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onToggleCollapse }) {
-  const [expandedSections, setExpandedSections] = useState({ notify: true, atlas: false });
+  const [expandedSections, setExpandedSections] = useState({ notify: true, atlas: false, system: role === 'super_admin' });
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Navigation items based on role
   const notifyItems = role === 'super_admin' 
     ? [
         { id: 'subscribers', label: 'Subscribers', icon: Users },
         { id: 'configuration', label: 'Configuration', icon: Settings },
         { id: 'archive', label: 'Archive', icon: History },
-        { id: 'orgadmins', label: 'Org Admins', icon: Building2 },
       ]
     : [
         { id: 'subscribers', label: 'Subscribers', icon: Users },
@@ -333,6 +410,12 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
 
   const atlasItems = [
     { id: 'coming-soon', label: 'Coming Soon', icon: Map, disabled: true },
+  ];
+
+  // System-level items (super_admin only)
+  const systemItems = [
+    { id: 'organizations', label: 'Organizations', icon: Building2 },
+    { id: 'orgadmins', label: 'Org Admins', icon: UserPlus },
   ];
 
   const accentColor = role === 'super_admin' ? '#004E7C' : '#1E5631';
@@ -345,7 +428,6 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
         ${collapsed ? 'w-16' : 'w-64'}
       `}
     >
-      {/* Sidebar Header */}
       <div className="p-4 border-b border-slate-200 flex items-center justify-between">
         {!collapsed && (
           <div className="flex items-center gap-2">
@@ -362,7 +444,6 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
         </button>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {/* Notify Section */}
         <div className="mb-2">
@@ -454,9 +535,64 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
             </div>
           )}
         </div>
+
+        {/* System Section (Super Admin only) */}
+        {role === 'super_admin' && (
+          <div className="mb-2">
+            <button
+              onClick={() => !collapsed && toggleSection('system')}
+              className={`
+                w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all
+                ${activeSection === 'system' 
+                  ? 'text-white font-medium' 
+                  : 'text-slate-700 hover:bg-slate-100'
+                }
+              `}
+              style={activeSection === 'system' ? { backgroundColor: accentColor } : {}}
+            >
+              <Shield className="w-5 h-5 shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="flex-1 text-left font-medium">System</span>
+                  {expandedSections.system ? (
+                    <ChevronDown className="w-4 h-4" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4" />
+                  )}
+                </>
+              )}
+            </button>
+            
+            {!collapsed && expandedSections.system && (
+              <div className="mt-1 ml-3 pl-3 border-l-2 border-slate-200 space-y-1">
+                {systemItems.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => onNavigate('system', item.id)}
+                    disabled={item.disabled}
+                    className={`
+                      w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all
+                      ${activeSection === 'system' && activeTab === item.id
+                        ? 'font-medium'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }
+                      ${item.disabled ? 'opacity-50 cursor-not-allowed' : ''}
+                    `}
+                    style={activeSection === 'system' && activeTab === item.id 
+                      ? { backgroundColor: accentColorLight, color: accentColor } 
+                      : {}
+                    }
+                  >
+                    <item.icon className="w-4 h-4 shrink-0" />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
-      {/* Sidebar Footer */}
       {!collapsed && (
         <div className="p-4 border-t border-slate-200">
           <div className="text-xs text-slate-400">
@@ -547,8 +683,6 @@ function SuperAdminDashboard({ user }) {
               accentColor="#004E7C"
             />
           );
-        case 'orgadmins':
-          return <OrgAdminManagement />;
         default:
           return null;
       }
@@ -564,6 +698,17 @@ function SuperAdminDashboard({ user }) {
           </div>
         </div>
       );
+    }
+
+    if (activeSection === 'system') {
+      switch (activeTab) {
+        case 'organizations':
+          return <OrganizationManagement />;
+        case 'orgadmins':
+          return <OrgAdminManagement />;
+        default:
+          return null;
+      }
     }
 
     return null;
@@ -604,12 +749,20 @@ function OrgAdminDashboard({ user, orgConfig }) {
   const [activeSection, setActiveSection] = useState('notify');
   const [activeTab, setActiveTab] = useState('subscribers');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
   const { addToast, confirm } = useUI();
   const { orgId, orgData, isNewAccount, clearNewAccountFlag } = useAdmin();
 
   const handleNavigate = (section, tab) => {
     setActiveSection(section);
     setActiveTab(tab);
+  };
+
+  // Callback when wizard creates notifications - refresh org data
+  const handleNotificationsCreated = (newNotifications) => {
+    console.log('Created notifications:', newNotifications);
+    setShowWizard(false);
+    // The Configuration component will auto-refresh via onSnapshot
   };
 
   const renderContent = () => {
@@ -639,6 +792,7 @@ function OrgAdminDashboard({ user, orgConfig }) {
               confirm={confirm}
               accentColor="#1E5631"
               NotificationEditModal={NotificationEditModal}
+              onOpenWizard={() => setShowWizard(true)}
             />
           );
         case 'archive':
@@ -698,12 +852,258 @@ function OrgAdminDashboard({ user, orgConfig }) {
           </div>
         </main>
       </div>
+
+      {/* Notification Wizard Modal */}
+      {showWizard && (
+        <NotificationWizard
+          isOpen={showWizard}
+          onClose={() => setShowWizard(false)}
+          db={db}
+          orgId={orgId}
+          orgData={orgData}
+          addToast={addToast}
+          userEmail={user?.email}
+          onNotificationsCreated={handleNotificationsCreated}
+          accentColor="#1E5631"
+        />
+      )}
+    </div>
+  );
+}
+
+// --- ORGANIZATION MANAGEMENT (for Super Admin) ---
+function OrganizationManagement() {
+  const { addToast, confirm } = useUI();
+  const [organizations, setOrganizations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, PATHS.organizations), (snapshot) => {
+      const orgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOrganizations(orgs);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const filteredOrgs = organizations.filter(org =>
+    org.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    org.id?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const handleCreateOrg = async (id, name) => {
+    try {
+      await setDoc(doc(db, PATHS.organizations, id), {
+        name,
+        timezone: "America/New_York",
+        notifications: [],
+        createdAt: serverTimestamp()
+      });
+      addToast(`Organization "${name}" created`, 'success');
+      setShowAddModal(false);
+    } catch (err) {
+      addToast(`Error creating organization: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDeleteOrg = (org) => {
+    confirm({
+      title: 'Delete Organization',
+      message: `Are you sure you want to delete "${org.name}"? This will remove all notification configurations for this organization.`,
+      destructive: true,
+      confirmLabel: 'Delete',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, PATHS.organizations, org.id));
+          addToast('Organization deleted', 'success');
+        } catch (err) {
+          addToast(`Error deleting organization: ${err.message}`, 'error');
+        }
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">Organizations</h2>
+          <p className="text-slate-500 text-sm">Manage organizations across all CivQuest modules.</p>
+        </div>
+        <button 
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-[#004E7C] text-white rounded-lg hover:bg-[#003B5C] font-medium"
+        >
+          <Plus className="w-4 h-4" /> Add Organization
+        </button>
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Search organizations..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredOrgs.map(org => (
+            <div key={org.id} className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-shadow">
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h3 className="font-semibold text-slate-800">{org.name}</h3>
+                  <p className="text-xs text-slate-500 font-mono">{org.id}</p>
+                </div>
+                <button
+                  onClick={() => handleDeleteOrg(org)}
+                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                  title="Delete Organization"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+              
+              <div className="flex items-center gap-4 text-sm text-slate-600">
+                <div className="flex items-center gap-1">
+                  <Bell className="w-4 h-4 text-slate-400" />
+                  <span>{org.notifications?.length || 0} notifications</span>
+                </div>
+                {org.timezone && (
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-4 h-4 text-slate-400" />
+                    <span className="text-xs">{org.timezone}</span>
+                  </div>
+                )}
+              </div>
+              
+              {org.arcgisAccount?.username && (
+                <div className="mt-2 flex items-center gap-1 text-xs text-green-600">
+                  <Globe className="w-3 h-3" />
+                  <span>ArcGIS linked: {org.arcgisAccount.username}</span>
+                </div>
+              )}
+            </div>
+          ))}
+          
+          {filteredOrgs.length === 0 && (
+            <div className="col-span-full text-center py-12 text-slate-500">
+              No organizations found.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Add Organization Modal */}
+      {showAddModal && (
+        <AddOrganizationModal
+          onClose={() => setShowAddModal(false)}
+          onSave={handleCreateOrg}
+          existingIds={organizations.map(o => o.id)}
+        />
+      )}
+    </div>
+  );
+}
+
+// --- ADD ORGANIZATION MODAL ---
+function AddOrganizationModal({ onClose, onSave, existingIds }) {
+  const [id, setId] = useState('');
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [idError, setIdError] = useState('');
+
+  const handleIdChange = (value) => {
+    const sanitized = value.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    setId(sanitized);
+    if (existingIds.includes(sanitized)) {
+      setIdError('This ID already exists');
+    } else {
+      setIdError('');
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!id || !name || idError) return;
+    
+    setSaving(true);
+    await onSave(id, name);
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-slate-800">Add Organization</h3>
+          <button onClick={onClose}>
+            <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Organization Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., City of Chesapeake"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Organization ID (System)</label>
+            <input
+              type="text"
+              value={id}
+              onChange={(e) => handleIdChange(e.target.value)}
+              placeholder="e.g., chesapeake"
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C] font-mono text-sm ${
+                idError ? 'border-red-300 bg-red-50' : 'border-slate-300'
+              }`}
+              required
+            />
+            {idError && <p className="text-red-600 text-xs mt-1">{idError}</p>}
+            <p className="text-slate-500 text-xs mt-1">Used in URLs and database. Cannot be changed later.</p>
+          </div>
+          
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !id || !name || !!idError}
+              className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center gap-2"
+            >
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Create Organization
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
 
 // --- ORG ADMIN MANAGEMENT (for Super Admin) ---
-// Uses NEW unified paths: admins/{uid} and organizations/{orgId}
 function OrgAdminManagement() {
   const { addToast, confirm } = useUI();
   const [orgAdmins, setOrgAdmins] = useState([]);
@@ -714,7 +1114,6 @@ function OrgAdminManagement() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    // Fetch organizations using NEW path
     const fetchOrgs = async () => {
       try {
         const snap = await getDocs(collection(db, PATHS.organizations));
@@ -726,8 +1125,6 @@ function OrgAdminManagement() {
     };
     fetchOrgs();
 
-    // Real-time listener for org admins using NEW path
-    // Filter to only org_admin role
     const adminsRef = collection(db, PATHS.admins);
     const unsubscribe = onSnapshot(adminsRef, (snapshot) => {
       const admins = snapshot.docs
@@ -751,179 +1148,129 @@ function OrgAdminManagement() {
     return org ? org.name : orgId;
   };
 
-  const handleAddOrgAdmin = async (data) => {
+  const filteredAdmins = orgAdmins.filter(admin =>
+    admin.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    getOrgName(admin.organizationId)?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const handleAddAdmin = async (email, organizationId) => {
     try {
-      // For new unified structure, we need the user's UID
-      // Since we're creating by email, we'll use email as a temporary key
-      // In production, this should look up or create the Firebase Auth user first
-      const adminId = data.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      const adminRef = doc(db, PATHS.admins, adminId);
-      await setDoc(adminRef, {
-        email: data.email.toLowerCase(),
+      // Create Firebase Auth account
+      const tempPassword = Math.random().toString(36).slice(-12) + 'A1!';
+      const userCredential = await createUserWithEmailAndPassword(auth, email, tempPassword);
+      
+      // Create admin document
+      await setDoc(doc(db, PATHS.admins, userCredential.user.uid), {
+        email: email.toLowerCase(),
         role: 'org_admin',
-        organizationId: data.orgId,
+        organizationId,
         disabled: false,
         createdAt: serverTimestamp()
       });
+      
+      addToast(`Admin ${email} created. Temporary password: ${tempPassword}`, 'success');
       setShowAddModal(false);
-      addToast(`${data.email} added as org admin for ${getOrgName(data.orgId)}`, "success");
     } catch (err) {
-      addToast("Error adding org admin: " + err.message, "error");
+      addToast(`Error creating admin: ${err.message}`, 'error');
     }
   };
 
-  const handleUpdateOrgAdmin = async (adminId, data) => {
+  const handleToggleDisabled = async (admin) => {
     try {
-      const adminRef = doc(db, PATHS.admins, adminId);
-      await updateDoc(adminRef, {
-        organizationId: data.orgId,
-        disabled: data.disabled
+      await updateDoc(doc(db, PATHS.admins, admin.id), {
+        disabled: !admin.disabled
       });
-      setEditingAdmin(null);
-      addToast("Org admin updated", "success");
+      addToast(`Admin ${admin.disabled ? 'enabled' : 'disabled'}`, 'success');
     } catch (err) {
-      addToast("Error updating org admin: " + err.message, "error");
+      addToast(`Error updating admin: ${err.message}`, 'error');
     }
   };
 
-  const handleToggleStatus = (admin) => {
-    const newStatus = !admin.disabled;
-    confirm({
-      title: newStatus ? 'Disable Org Admin' : 'Enable Org Admin',
-      message: `Are you sure you want to ${newStatus ? 'disable' : 'enable'} ${admin.email}?`,
-      destructive: newStatus,
-      confirmLabel: newStatus ? 'Disable' : 'Enable',
-      onConfirm: async () => {
-        try {
-          const adminRef = doc(db, PATHS.admins, admin.id);
-          await updateDoc(adminRef, { disabled: newStatus });
-          addToast(`Org admin ${newStatus ? 'disabled' : 'enabled'}`, "success");
-        } catch (err) {
-          addToast("Error updating status: " + err.message, "error");
-        }
-      }
-    });
-  };
-
-  const handleDeleteOrgAdmin = (admin) => {
+  const handleDeleteAdmin = (admin) => {
     confirm({
       title: 'Delete Org Admin',
-      message: `Are you sure you want to remove ${admin.email} as an org admin? They will no longer be able to access the organization admin portal.`,
+      message: `Are you sure you want to delete ${admin.email}? This cannot be undone.`,
       destructive: true,
       confirmLabel: 'Delete',
       onConfirm: async () => {
         try {
-          const adminRef = doc(db, PATHS.admins, admin.id);
-          await deleteDoc(adminRef);
-          addToast("Org admin removed", "success");
+          await deleteDoc(doc(db, PATHS.admins, admin.id));
+          addToast('Admin deleted', 'success');
         } catch (err) {
-          addToast("Error removing org admin: " + err.message, "error");
+          addToast(`Error deleting admin: ${err.message}`, 'error');
         }
       }
     });
-  };
-
-  const filteredAdmins = orgAdmins.filter(admin =>
-    admin.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    getOrgName(admin.organizationId).toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const formatDate = (value) => {
-    if (!value) return 'N/A';
-    if (value.seconds) return new Date(value.seconds * 1000).toLocaleString();
-    if (value instanceof Date) return value.toLocaleString();
-    return 'Invalid Date';
   };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-[#004E7C]" /> Organization Admins
-          </h2>
-          <p className="text-slate-500 text-sm">Manage users who can administer specific organizations.</p>
+          <h2 className="text-xl font-bold text-slate-800">Organization Admins</h2>
+          <p className="text-slate-500 text-sm">Manage admin access for organizations.</p>
         </div>
-        <div className="flex gap-2">
-          <div className="relative w-64">
-            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search by email or org..." 
-              className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#004E7C] outline-none"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <button 
-            onClick={() => setShowAddModal(true)}
-            className="bg-[#004E7C] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#003B5C] flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" /> Add Org Admin
-          </button>
-        </div>
+        <button 
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-[#004E7C] text-white rounded-lg hover:bg-[#003B5C] font-medium"
+        >
+          <UserPlus className="w-4 h-4" /> Add Org Admin
+        </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-medium">
-            <tr>
-              <th className="px-6 py-3">Email</th>
-              <th className="px-6 py-3">Organization</th>
-              <th className="px-6 py-3">Status</th>
-              <th className="px-6 py-3">Created</th>
-              <th className="px-6 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {loading ? (
-              <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-500"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></td></tr>
-            ) : filteredAdmins.length === 0 ? (
-              <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-500 italic">No organization admins found.</td></tr>
-            ) : (
-              filteredAdmins.map(admin => (
-                <tr key={admin.id} className={`hover:bg-slate-50 transition-colors ${admin.disabled ? 'bg-red-50/50' : ''}`}>
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-slate-900">{admin.email}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="w-4 h-4 text-slate-400" />
-                      <span className="text-slate-700">{getOrgName(admin.organizationId)}</span>
-                    </div>
-                    <div className="text-xs text-slate-400 font-mono">{admin.organizationId}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold uppercase ${admin.disabled ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                      {admin.disabled ? <Ban className="w-3 h-3"/> : <Check className="w-3 h-3"/>}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Search by email or organization..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Email</th>
+                <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Organization</th>
+                <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Status</th>
+                <th className="text-right px-4 py-3 text-sm font-semibold text-slate-600">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredAdmins.map(admin => (
+                <tr key={admin.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-sm text-slate-800">{admin.email}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{getOrgName(admin.organizationId)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${
+                      admin.disabled 
+                        ? 'bg-red-100 text-red-700' 
+                        : 'bg-green-100 text-green-700'
+                    }`}>
+                      {admin.disabled ? <Ban className="w-3 h-3" /> : <Check className="w-3 h-3" />}
                       {admin.disabled ? 'Disabled' : 'Active'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-slate-500 text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      {formatDate(admin.createdAt)}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button 
-                        onClick={() => setEditingAdmin(admin)}
-                        className="p-2 text-slate-500 hover:text-[#004E7C] hover:bg-slate-100 rounded-lg transition-colors"
-                        title="Edit"
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => handleToggleDisabled(admin)}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded"
+                        title={admin.disabled ? 'Enable' : 'Disable'}
                       >
-                        <Edit2 className="w-4 h-4" />
+                        {admin.disabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                       </button>
-                      <button 
-                        onClick={() => handleToggleStatus(admin)}
-                        className={`p-2 rounded-lg transition-colors ${admin.disabled ? 'text-green-600 hover:text-green-700 hover:bg-green-50' : 'text-orange-500 hover:text-orange-600 hover:bg-orange-50'}`}
-                        title={admin.disabled ? "Enable" : "Disable"}
-                      >
-                        {admin.disabled ? <Check className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteOrgAdmin(admin)}
-                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      <button
+                        onClick={() => handleDeleteAdmin(admin)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
                         title="Delete"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -931,269 +1278,101 @@ function OrgAdminManagement() {
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+              {filteredAdmins.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    No org admins found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      {/* Add Org Admin Modal */}
+      {/* Add Admin Modal */}
       {showAddModal && (
-        <AddOrgAdminModal 
+        <AddOrgAdminModal
           organizations={organizations}
           onClose={() => setShowAddModal(false)}
-          onSave={handleAddOrgAdmin}
-        />
-      )}
-
-      {/* Edit Org Admin Modal */}
-      {editingAdmin && (
-        <EditOrgAdminModal 
-          admin={editingAdmin}
-          organizations={organizations}
-          onClose={() => setEditingAdmin(null)}
-          onSave={(data) => handleUpdateOrgAdmin(editingAdmin.id, data)}
+          onSave={handleAddAdmin}
         />
       )}
     </div>
   );
 }
 
-// --- MODALS ---
+// --- ADD ORG ADMIN MODAL ---
 function AddOrgAdminModal({ organizations, onClose, onSave }) {
   const [email, setEmail] = useState('');
-  const [orgId, setOrgId] = useState('');
+  const [organizationId, setOrganizationId] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const handleSubmit = () => {
-    if (!email || !orgId) return;
-    onSave({ email, orgId });
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!email || !organizationId) return;
+    
+    setSaving(true);
+    await onSave(email, organizationId);
+    setSaving(false);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="font-bold text-lg text-slate-800">Add Organization Admin</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
-        </div>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
-            <input 
-              type="email" 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#004E7C] outline-none"
-              placeholder="admin@example.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-            />
-            <p className="text-xs text-slate-500 mt-1">
-              This user must have an existing Firebase Auth account.
-            </p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Assign to Organization</label>
-            <select 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#004E7C] outline-none"
-              value={orgId}
-              onChange={e => setOrgId(e.target.value)}
-            >
-              <option value="">-- Select Organization --</option>
-              {organizations.map(org => (
-                <option key={org.id} value={org.id}>{org.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg">
-            Cancel
-          </button>
-          <button 
-            onClick={handleSubmit}
-            disabled={!email || !orgId}
-            className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] flex items-center gap-2 disabled:opacity-50"
-          >
-            <Plus className="w-4 h-4" /> Add Admin
+          <h3 className="text-lg font-bold text-slate-800">Add Organization Admin</h3>
+          <button onClick={onClose}>
+            <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function EditOrgAdminModal({ admin, organizations, onClose, onSave }) {
-  const [orgId, setOrgId] = useState(admin.organizationId);
-  const [disabled, setDisabled] = useState(admin.disabled || false);
-
-  const handleSubmit = () => {
-    onSave({ orgId, disabled });
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-bold text-lg text-slate-800">Edit Organization Admin</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
-        </div>
         
-        <div className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <input 
-              type="email" 
-              className="w-full px-3 py-2 border rounded-lg bg-slate-50 text-slate-500"
-              value={admin.email}
-              disabled
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+              required
             />
           </div>
+          
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Assigned Organization</label>
-            <select 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#004E7C] outline-none"
-              value={orgId}
-              onChange={e => setOrgId(e.target.value)}
+            <label className="block text-sm font-medium text-slate-700 mb-1">Organization</label>
+            <select
+              value={organizationId}
+              onChange={(e) => setOrganizationId(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+              required
             >
+              <option value="">Select organization...</option>
               {organizations.map(org => (
                 <option key={org.id} value={org.id}>{org.name}</option>
               ))}
             </select>
           </div>
-          <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
-            <div>
-              <p className="font-medium text-sm text-slate-800">Account Status</p>
-              <p className="text-xs text-slate-500">Disable to revoke access temporarily.</p>
-            </div>
-            <button 
-              onClick={() => setDisabled(!disabled)}
-              className={`w-12 h-7 rounded-full transition-colors relative ${disabled ? 'bg-red-500' : 'bg-green-500'}`}
+          
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
             >
-              <span className={`absolute top-1 left-1 bg-white w-5 h-5 rounded-full transition-transform ${disabled ? '' : 'translate-x-5'}`} />
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !email || !organizationId}
+              className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center gap-2"
+            >
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Create Admin
             </button>
           </div>
-        </div>
-
-        <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg">
-            Cancel
-          </button>
-          <button 
-            onClick={handleSubmit}
-            className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] flex items-center gap-2"
-          >
-            <Save className="w-4 h-4" /> Save Changes
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// --- LOGIN SCREEN ---
-function AdminLogin() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (err) {
-      setError("Login failed. Verify you have admin access.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#004E7C]/10 mb-4">
-            <Shield className="w-8 h-8 text-[#004E7C]" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-800">CivQuest Admin</h2>
-          <p className="text-slate-500 mt-1">Sign in to access administration tools</p>
-        </div>
-        
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <input 
-              type="email" 
-              placeholder="admin@example.com" 
-              className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#004E7C] focus:border-transparent outline-none"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <div className="relative">
-              <input 
-                type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••" 
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#004E7C] focus:border-transparent outline-none pr-10"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-          
-          {error && (
-            <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 p-3 rounded-lg">
-              <AlertOctagon className="w-4 h-4 shrink-0" />
-              {error}
-            </div>
-          )}
-          
-          <button 
-            type="submit" 
-            disabled={loading}
-            className="w-full bg-[#004E7C] text-white py-3 rounded-lg font-semibold hover:bg-[#003B5C] transition-colors flex justify-center items-center gap-2 mt-6"
-          >
-            {loading && <Loader2 className="animate-spin w-5 h-5" />} 
-            Sign In
-          </button>
         </form>
-      </div>
-    </div>
-  );
-}
-
-// --- ACCESS DENIED SCREEN ---
-function AccessDenied({ error, onSignOut }) {
-  return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 w-full max-w-md text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 mb-4">
-          <Shield className="w-8 h-8 text-red-600" />
-        </div>
-        <h2 className="text-xl font-bold text-slate-800 mb-2">Access Denied</h2>
-        <p className="text-slate-600 mb-6">{error}</p>
-        <p className="text-sm text-slate-500 mb-6">
-          Contact support@civicvanguard.com if you believe this is an error.
-        </p>
-        <button 
-          onClick={onSignOut}
-          className="px-6 py-2 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 transition-colors"
-        >
-          Sign Out
-        </button>
       </div>
     </div>
   );
