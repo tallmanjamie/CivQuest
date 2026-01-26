@@ -19,6 +19,7 @@ import {
   updateDoc, 
   setDoc,
   deleteDoc,
+  deleteField,
   onSnapshot,
   serverTimestamp,
   getDoc,
@@ -56,15 +57,17 @@ import {
   Globe,
   Wand2,
   PanelLeftClose,
-  PanelLeft
+  PanelLeft,
+  Layers
 } from 'lucide-react';
 
 // Import admin components
 import NotificationEditModal from './components/NotificationEditor';
 import Archive from './components/Archive';
 import UserManagementPanel from './components/UserManagement';
-import ConfigurationPanel from './components/Configuration';
+import ConfigurationPanel from './components/NotifyConfiguration';
 import NotificationWizard from './components/NotificationWizard';
+import AtlasAdminSection from './components/AtlasAdminSection';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
@@ -412,7 +415,7 @@ function AccessDenied({ error, onSignOut }) {
 
 // --- SIDEBAR NAVIGATION ---
 function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onToggleCollapse }) {
-  const [expandedSections, setExpandedSections] = useState({ notify: true, atlas: false, system: role === 'super_admin' });
+  const [expandedSections, setExpandedSections] = useState({ notify: true, atlas: true, system: role === 'super_admin' });
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -430,9 +433,17 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
         { id: 'archive', label: 'Archive', icon: History },
       ];
 
-  const atlasItems = [
-    { id: 'coming-soon', label: 'Coming Soon', icon: Map, disabled: true },
-  ];
+  // Atlas navigation items based on role
+  const atlasItems = role === 'super_admin'
+    ? [
+        { id: 'users', label: 'Users', icon: Users },
+        { id: 'configuration', label: 'Configuration', icon: Settings },
+      ]
+    : [
+        { id: 'users', label: 'Users', icon: Users },
+        { id: 'maps', label: 'Maps', icon: Layers },
+        { id: 'preview', label: 'Preview', icon: Eye },
+      ];
 
   // System-level items (super_admin only)
   const systemItems = [
@@ -521,23 +532,28 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
           )}
         </div>
 
-        {/* Atlas Section (Stub) */}
+        {/* Atlas Section */}
         <div className="mb-2">
           <button
             onClick={() => !collapsed && toggleSection('atlas')}
             className={`
               w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all
               ${activeSection === 'atlas' 
-                ? 'bg-slate-800 text-white font-medium' 
+                ? 'text-white font-medium' 
                 : 'text-slate-700 hover:bg-slate-100'
               }
             `}
+            style={activeSection === 'atlas' ? { backgroundColor: accentColor } : {}}
           >
             <Map className="w-5 h-5 shrink-0" />
             {!collapsed && (
               <>
                 <span className="flex-1 text-left font-medium">Atlas</span>
-                <span className="text-xs bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">Soon</span>
+                {expandedSections.atlas ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
               </>
             )}
           </button>
@@ -547,8 +563,20 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
               {atlasItems.map(item => (
                 <button
                   key={item.id}
+                  onClick={() => onNavigate('atlas', item.id)}
                   disabled={item.disabled}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-400 cursor-not-allowed"
+                  className={`
+                    w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all
+                    ${activeSection === 'atlas' && activeTab === item.id
+                      ? 'font-medium'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }
+                    ${item.disabled ? 'opacity-50 cursor-not-allowed' : ''}
+                  `}
+                  style={activeSection === 'atlas' && activeTab === item.id 
+                    ? { backgroundColor: accentColorLight, color: accentColor } 
+                    : {}
+                  }
                 >
                   <item.icon className="w-4 h-4 shrink-0" />
                   <span>{item.label}</span>
@@ -712,13 +740,17 @@ function SuperAdminDashboard({ user }) {
     
     if (activeSection === 'atlas') {
       return (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <Map className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-slate-600">Atlas Admin</h3>
-            <p className="text-slate-500 mt-2">Coming soon in Phase 3</p>
-          </div>
-        </div>
+        <AtlasAdminSection
+          db={db}
+          role="super_admin"
+          activeTab={activeTab}
+          orgId={null}
+          orgData={null}
+          addToast={addToast}
+          confirm={confirm}
+          accentColor="#004E7C"
+          adminEmail={user?.email}
+        />
       );
     }
 
@@ -835,13 +867,17 @@ function OrgAdminDashboard({ user, orgConfig }) {
     
     if (activeSection === 'atlas') {
       return (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <Map className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-slate-600">Atlas Admin</h3>
-            <p className="text-slate-500 mt-2">Coming soon in Phase 3</p>
-          </div>
-        </div>
+        <AtlasAdminSection
+          db={db}
+          role="org_admin"
+          activeTab={activeTab}
+          orgId={orgId}
+          orgData={orgData}
+          addToast={addToast}
+          confirm={confirm}
+          accentColor="#1E5631"
+          adminEmail={user?.email}
+        />
       );
     }
 
@@ -899,6 +935,7 @@ function OrganizationManagement() {
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showRenameModal, setShowRenameModal] = useState(null); // org object or null
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -930,12 +967,144 @@ function OrganizationManagement() {
     }
   };
 
+  const handleRenameOrg = async (org, newName, newId) => {
+    if (!newName || newName.trim() === '') {
+      addToast('Organization name cannot be empty', 'error');
+      return;
+    }
+
+    if (!newId || newId.trim() === '') {
+      addToast('Organization ID cannot be empty', 'error');
+      return;
+    }
+
+    const nameChanged = newName !== org.name;
+    const idChanged = newId !== org.id;
+
+    if (!nameChanged && !idChanged) {
+      setShowRenameModal(null);
+      return;
+    }
+
+    const notificationCount = org.notifications?.length || 0;
+    const mapCount = org.atlasConfig?.data?.maps?.length || 0;
+    const hasNotifications = notificationCount > 0;
+    const hasMaps = mapCount > 0;
+
+    // Different confirmation messages based on what's changing
+    let message = '';
+    let destructive = false;
+
+    if (idChanged) {
+      destructive = true;
+      message = `⚠️ BREAKING CHANGE: You are changing the organization ID from "${org.id}" to "${newId}".\n\n`;
+      message += `This will:\n`;
+      message += `• Break ALL existing notification subscription links\n`;
+      message += `• Change ALL Atlas URLs\n`;
+      message += `• Require users to get new links\n\n`;
+      if (hasNotifications) {
+        message += `This organization has ${notificationCount} notification${notificationCount > 1 ? 's' : ''} that will be affected.\n`;
+      }
+      if (hasMaps) {
+        message += `This organization has ${mapCount} Atlas map${mapCount > 1 ? 's' : ''} that will be affected.\n`;
+      }
+      message += `\nAre you absolutely sure you want to proceed?`;
+    } else if (nameChanged) {
+      message = `Are you sure you want to rename "${org.name}" to "${newName}"?`;
+      if (hasNotifications || hasMaps) {
+        message += `\n\nNote: This organization has ${notificationCount} notification${notificationCount !== 1 ? 's' : ''} and ${mapCount} map${mapCount !== 1 ? 's' : ''}. URLs will remain unchanged.`;
+      }
+    }
+
+    confirm({
+      title: idChanged ? '⚠️ Change Organization ID' : 'Rename Organization',
+      message,
+      confirmLabel: idChanged ? 'Yes, Change ID' : 'Rename',
+      destructive,
+      onConfirm: async () => {
+        try {
+          if (idChanged) {
+            // ID is changing - need to create new doc, migrate users, delete old doc
+            const oldOrgRef = doc(db, PATHS.organizations, org.id);
+            const newOrgRef = doc(db, PATHS.organizations, newId);
+
+            // 1. Create new organization document with all data
+            const newOrgData = { ...org };
+            delete newOrgData.id; // Remove the id field (it's the doc ID)
+            newOrgData.name = newName.trim();
+            newOrgData.updatedAt = serverTimestamp();
+            newOrgData.previousId = org.id; // Track the old ID for reference
+            
+            await setDoc(newOrgRef, newOrgData);
+
+            // 2. Update all users with subscriptions or atlasAccess for this org
+            const usersSnapshot = await getDocs(collection(db, PATHS.users));
+            const updatePromises = [];
+
+            usersSnapshot.docs.forEach(userDoc => {
+              const userData = userDoc.data();
+              const updates = {};
+              let needsUpdate = false;
+
+              // Check subscriptions
+              if (userData.subscriptions && userData.subscriptions[org.id]) {
+                updates[`subscriptions.${newId}`] = userData.subscriptions[org.id];
+                updates[`subscriptions.${org.id}`] = deleteField();
+                needsUpdate = true;
+              }
+
+              // Check atlasAccess
+              if (userData.atlasAccess && userData.atlasAccess[org.id]) {
+                updates[`atlasAccess.${newId}`] = userData.atlasAccess[org.id];
+                updates[`atlasAccess.${org.id}`] = deleteField();
+                needsUpdate = true;
+              }
+
+              if (needsUpdate) {
+                updatePromises.push(updateDoc(doc(db, PATHS.users, userDoc.id), updates));
+              }
+            });
+
+            // Wait for all user updates
+            if (updatePromises.length > 0) {
+              await Promise.all(updatePromises);
+            }
+
+            // 3. Delete the old organization document
+            await deleteDoc(oldOrgRef);
+
+            addToast(`Organization ID changed to "${newId}" and ${updatePromises.length} user${updatePromises.length !== 1 ? 's' : ''} updated`, 'success');
+          } else {
+            // Only name is changing - simple update
+            const orgRef = doc(db, PATHS.organizations, org.id);
+            await updateDoc(orgRef, { 
+              name: newName.trim(),
+              updatedAt: serverTimestamp()
+            });
+            addToast(`Organization renamed to "${newName}"`, 'success');
+          }
+          
+          setShowRenameModal(null);
+        } catch (err) {
+          addToast(`Error updating organization: ${err.message}`, 'error');
+        }
+      }
+    });
+  };
+
   const handleDeleteOrg = (org) => {
     // Check if org has notifications
     const notificationCount = org.notifications?.length || 0;
     
     if (notificationCount > 0) {
       addToast(`Cannot delete "${org.name}" - it has ${notificationCount} notification${notificationCount > 1 ? 's' : ''}. Delete the notifications first.`, 'error');
+      return;
+    }
+
+    // Check if org has atlas maps
+    const mapCount = org.atlasConfig?.data?.maps?.length || 0;
+    if (mapCount > 0) {
+      addToast(`Cannot delete "${org.name}" - it has ${mapCount} Atlas map${mapCount > 1 ? 's' : ''}. Uninitialize Atlas first.`, 'error');
       return;
     }
     
@@ -989,6 +1158,8 @@ function OrganizationManagement() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredOrgs.map(org => {
             const hasNotifications = (org.notifications?.length || 0) > 0;
+            const hasMaps = (org.atlasConfig?.data?.maps?.length || 0) > 0;
+            const canDelete = !hasNotifications && !hasMaps;
             return (
             <div key={org.id} className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-3">
@@ -996,17 +1167,26 @@ function OrganizationManagement() {
                   <h3 className="font-semibold text-slate-800">{org.name}</h3>
                   <p className="text-xs text-slate-500 font-mono">{org.id}</p>
                 </div>
-                <button
-                  onClick={() => handleDeleteOrg(org)}
-                  className={`p-1.5 rounded ${
-                    hasNotifications 
-                      ? 'text-slate-300 cursor-not-allowed' 
-                      : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
-                  }`}
-                  title={hasNotifications ? 'Delete notifications first' : 'Delete Organization'}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setShowRenameModal(org)}
+                    className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                    title="Rename Organization"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteOrg(org)}
+                    className={`p-1.5 rounded ${
+                      canDelete 
+                        ? 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                        : 'text-slate-300 cursor-not-allowed' 
+                    }`}
+                    title={canDelete ? 'Delete Organization' : 'Delete notifications and maps first'}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               
               <div className="flex items-center gap-4 text-sm text-slate-600">
@@ -1014,12 +1194,10 @@ function OrganizationManagement() {
                   <Bell className="w-4 h-4 text-slate-400" />
                   <span>{org.notifications?.length || 0} notifications</span>
                 </div>
-                {org.timezone && (
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-4 h-4 text-slate-400" />
-                    <span className="text-xs">{org.timezone}</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-1">
+                  <Map className="w-4 h-4 text-slate-400" />
+                  <span>{org.atlasConfig?.data?.maps?.length || 0} maps</span>
+                </div>
               </div>
               
               {org.arcgisAccount?.username && (
@@ -1046,6 +1224,16 @@ function OrganizationManagement() {
           onClose={() => setShowAddModal(false)}
           onSave={handleCreateOrg}
           existingIds={organizations.map(o => o.id)}
+        />
+      )}
+
+      {/* Rename Organization Modal */}
+      {showRenameModal && (
+        <RenameOrganizationModal
+          org={showRenameModal}
+          onClose={() => setShowRenameModal(null)}
+          onSave={(newName, newId) => handleRenameOrg(showRenameModal, newName, newId)}
+          existingIds={organizations.filter(o => o.id !== showRenameModal.id).map(o => o.id)}
         />
       )}
     </div>
@@ -1132,6 +1320,173 @@ function AddOrganizationModal({ onClose, onSave, existingIds }) {
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
               Create Organization
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- RENAME ORGANIZATION MODAL ---
+function RenameOrganizationModal({ org, onClose, onSave, existingIds = [] }) {
+  const [name, setName] = useState(org.name || '');
+  const [newId, setNewId] = useState(org.id || '');
+  const [idError, setIdError] = useState('');
+  
+  const hasNotifications = (org.notifications?.length || 0) > 0;
+  const hasMaps = (org.atlasConfig?.data?.maps?.length || 0) > 0;
+  const hasContent = hasNotifications || hasMaps;
+  const isChangingId = newId !== org.id;
+
+  const handleIdChange = (value) => {
+    const sanitized = value.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    setNewId(sanitized);
+    if (sanitized !== org.id && existingIds.includes(sanitized)) {
+      setIdError('This ID already exists');
+    } else if (sanitized.length < 2) {
+      setIdError('ID must be at least 2 characters');
+    } else {
+      setIdError('');
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!name.trim() || !newId.trim() || idError) return;
+    onSave(name.trim(), newId.trim());
+  };
+
+  const hasChanges = name.trim() !== org.name || newId !== org.id;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-slate-800">Edit Organization</h3>
+          <button onClick={onClose}>
+            <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Name Input */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Organization Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter organization name..."
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+              autoFocus
+              required
+            />
+          </div>
+
+          {/* ID Input */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Organization ID
+            </label>
+            <input
+              type="text"
+              value={newId}
+              onChange={(e) => handleIdChange(e.target.value)}
+              placeholder="Enter organization ID..."
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C] font-mono text-sm ${
+                idError ? 'border-red-300 bg-red-50' : 'border-slate-300'
+              }`}
+              required
+            />
+            {idError && <p className="text-red-600 text-xs mt-1">{idError}</p>}
+            <p className="text-slate-500 text-xs mt-1">
+              Current ID: <code className="bg-slate-100 px-1 rounded">{org.id}</code>
+            </p>
+          </div>
+
+          {/* Warning for changing ID */}
+          {isChangingId && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-red-800">⚠️ Changing Organization ID is a breaking change!</p>
+                  <ul className="mt-2 text-red-700 space-y-1">
+                    <li>• <strong>All notification subscription links will break</strong></li>
+                    <li>• <strong>All Atlas URLs will change</strong></li>
+                    <li>• Users will need new links to subscribe/access</li>
+                    <li>• Existing bookmarks will stop working</li>
+                  </ul>
+                  <p className="mt-2 text-red-700">
+                    Old URL: <code className="bg-red-100 px-1 rounded">/notify/{org.id}</code><br/>
+                    New URL: <code className="bg-red-100 px-1 rounded">/notify/{newId}</code>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Warning for orgs with content (name change only) */}
+          {hasContent && !isChangingId && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-amber-800">This organization has existing content:</p>
+                  <ul className="mt-1 text-amber-700 space-y-0.5">
+                    {hasNotifications && (
+                      <li>• {org.notifications.length} notification{org.notifications.length > 1 ? 's' : ''}</li>
+                    )}
+                    {hasMaps && (
+                      <li>• {org.atlasConfig.data.maps.length} Atlas map{org.atlasConfig.data.maps.length > 1 ? 's' : ''}</li>
+                    )}
+                  </ul>
+                  <p className="mt-2 text-amber-700">
+                    Renaming will update the display name. URLs remain unchanged.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Info about what changes */}
+          <div className="text-xs text-slate-500 space-y-1 bg-slate-50 rounded-lg p-3">
+            <p><strong>What will change:</strong></p>
+            <ul className="list-disc list-inside space-y-0.5 ml-2">
+              <li>Display name in admin dashboards</li>
+              <li>Atlas header title (if using organization name)</li>
+              <li>Notification email headers</li>
+              {isChangingId && (
+                <>
+                  <li className="text-red-600 font-medium">All URLs containing the organization ID</li>
+                  <li className="text-red-600 font-medium">User subscription references</li>
+                  <li className="text-red-600 font-medium">User Atlas access references</li>
+                </>
+              )}
+            </ul>
+          </div>
+          
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!hasChanges || !name.trim() || !newId.trim() || !!idError}
+              className={`px-4 py-2 text-white rounded-lg font-medium disabled:opacity-50 flex items-center gap-2 ${
+                isChangingId 
+                  ? 'bg-red-600 hover:bg-red-700' 
+                  : 'bg-[#004E7C] hover:bg-[#003B5C]'
+              }`}
+            >
+              {isChangingId ? 'Change ID & Rename' : 'Save Changes'}
             </button>
           </div>
         </form>

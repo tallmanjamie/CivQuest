@@ -45,11 +45,11 @@ import { doc, getDoc, updateDoc, arrayUnion, collection, query, where, getDocs, 
 // Import shared services
 import { PATHS } from '../../shared/services/paths';
 
+// Centralized Gemini configuration - update model in one place
+import { getGeminiUrl, GEMINI_CREATIVE_CONFIG, GEMINI_STRUCTURED_CONFIG } from '../../config/geminiConfig';
+
 // Configuration for the Proxy Service
 const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
-
-// Gemini API Key for smart features
-const GEMINI_API_KEY = 'AIzaSyBhvt_ue8AiQy8ChwQM2JMK-0oBvUBaGes';
 
 /**
  * NotificationWizard Component
@@ -107,9 +107,6 @@ export default function NotificationWizard({
   // Auto-authentication state
   const [isAutoAuthenticating, setIsAutoAuthenticating] = useState(false);
   const [hasAttemptedAutoAuth, setHasAttemptedAutoAuth] = useState(false);
-  
-  // Gemini API Key
-  const geminiApiKey = GEMINI_API_KEY;
 
   // Load existing ArcGIS credentials on mount and attempt auto-authentication
   useEffect(() => {
@@ -1113,12 +1110,6 @@ export default function NotificationWizard({
    * Enhanced with data sampling to analyze update frequency
    */
   const rankEndpointsWithAI = async (endpoints) => {
-    if (!geminiApiKey) {
-      setError('API key is required. Please add it to your organization settings.');
-      setIsLoading(false);
-      return;
-    }
-
     if (endpoints.length === 0) {
       setError('No endpoints found to analyze.');
       setIsLoading(false);
@@ -1217,16 +1208,13 @@ Return ONLY a valid JSON array with the top 15 endpoints (or fewer if less than 
 
 Return ONLY the JSON array, no other text.`;
 
-      // Use the Gemini 3 Flash Preview model (latest available)
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiApiKey}`, {
+      // Use centralized Gemini configuration
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 4096
-          }
+          generationConfig: GEMINI_CREATIVE_CONFIG
         })
       });
 
@@ -1311,11 +1299,6 @@ Return ONLY the JSON array, no other text.`;
    * Generate notifications
    */
   const generateNotifications = async () => {
-    if (!geminiApiKey) {
-      setError('API key is required. Please add it to your organization settings.');
-      return;
-    }
-
     if (selectedEndpoints.length === 0) {
       setError('Please select at least one endpoint');
       return;
@@ -1438,16 +1421,13 @@ Return ONLY a valid JSON object:
 Return ONLY the JSON object, no other text.`;
 
     try {
-      // Use the Gemini 3 Flash Preview model (latest available)
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiApiKey}`, {
+      // Use centralized Gemini configuration
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: 1024
-          }
+          generationConfig: GEMINI_STRUCTURED_CONFIG
         })
       });
 

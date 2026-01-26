@@ -20,9 +20,8 @@ import {
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 
-// Gemini API for query translation
-const GEMINI_API_KEY = 'AIzaSyBhvt_ue8AiQy8ChwQM2JMK-0oBvUBaGes';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+// Centralized Gemini configuration - update model in one place
+import { getGeminiUrl, GEMINI_QUERY_CONFIG } from '../../config/geminiConfig';
 
 /**
  * ChatView Component
@@ -123,17 +122,15 @@ export default function ChatView() {
       throw new Error('No system prompt configured');
     }
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    // Use centralized Gemini config
+    const response = await fetch(getGeminiUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [
           { role: 'user', parts: [{ text: `${systemPrompt}\n\nUser Query: ${userQuery}` }] }
         ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 1024
-        }
+        generationConfig: GEMINI_QUERY_CONFIG
       })
     });
 
@@ -346,13 +343,12 @@ export default function ChatView() {
         // For now, just show the type hint
         setSuggestions([{
           type: ac.type,
-          label: ac.label,
-          icon: ac.icon
+          label: ac.label || ac.type,
+          icon: ac.icon || '🔍'
         }]);
         return;
       }
     }
-
     setSuggestions([]);
   }, [activeMap?.autocomplete]);
 
@@ -367,72 +363,60 @@ export default function ChatView() {
   }, [handleSearch]);
 
   /**
-   * Clear chat history
+   * Clear history
    */
   const clearHistory = useCallback(() => {
     const key = `atlas_history_${config?.id || 'default'}`;
-    localStorage.removeItem(key);
     setSearchHistory([]);
-    setShowHistory(false);
+    localStorage.removeItem(key);
   }, [config?.id]);
 
-  // Example questions from config
-  const exampleQuestions = config?.messages?.exampleQuestions || [];
-
   return (
-    <div className="flex flex-col h-full">
-      {/* Chat Container */}
+    <div className="flex flex-col h-full bg-slate-50">
+      {/* Chat Messages */}
       <div 
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto p-4 scroll-smooth"
+        className="flex-1 overflow-y-auto p-4 space-y-4"
       >
-        <div className="max-w-4xl mx-auto space-y-6">
-          {/* Welcome Message */}
+        {/* Welcome message if no messages */}
+        {messages.length === 0 && (
           <WelcomeMessage 
-            config={config}
+            config={config} 
             botAvatar={botAvatar}
             onExampleClick={handleExampleClick}
           />
+        )}
 
-          {/* Messages */}
-          {messages.map((msg) => (
-            <ChatMessage 
-              key={msg.id}
-              message={msg}
-              botAvatar={botAvatar}
-              themeColor={themeColor}
-              onViewOnMap={() => {
-                if (msg.feature && mapViewRef?.current) {
-                  mapViewRef.current.zoomToFeature(msg.feature);
-                  if (enabledModes.includes('map')) setMode('map');
-                }
-              }}
-              onViewInTable={() => {
-                if (enabledModes.includes('table')) setMode('table');
-              }}
-              enabledModes={enabledModes}
-            />
-          ))}
+        {/* Message list */}
+        {messages.map((msg) => (
+          <MessageBubble 
+            key={msg.id} 
+            message={msg} 
+            botAvatar={botAvatar}
+            themeColor={themeColor}
+            onViewMap={() => setMode('map')}
+            onViewTable={() => setMode('table')}
+          />
+        ))}
 
-          {/* Loading Indicator */}
-          {isLoading && (
-            <div className="flex gap-4">
-              <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
-                {botAvatar ? (
-                  <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
-                ) : (
-                  <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
-                    <Loader2 className={`w-5 h-5 text-${themeColor}-600 animate-spin`} />
-                  </div>
-                )}
-              </div>
-              <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 flex items-center gap-2">
-                <Loader2 className={`w-4 h-4 text-${themeColor}-600 animate-spin`} />
-                <span className="text-sm text-slate-500">{loadingText}</span>
-              </div>
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="flex gap-4">
+            <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+              {botAvatar ? (
+                <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
+              ) : (
+                <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
+                  <Loader2 className={`w-5 h-5 text-${themeColor}-600 animate-spin`} />
+                </div>
+              )}
             </div>
-          )}
-        </div>
+            <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 flex items-center gap-2">
+              <Loader2 className={`w-4 h-4 text-${themeColor}-600 animate-spin`} />
+              <span className="text-sm text-slate-500">{loadingText}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Input Area */}
@@ -546,6 +530,7 @@ export default function ChatView() {
  */
 function WelcomeMessage({ config, botAvatar, onExampleClick }) {
   const themeColor = config?.ui?.themeColor || 'sky';
+  const exampleQuestions = config?.messages?.exampleQuestions || [];
 
   return (
     <>
@@ -555,174 +540,104 @@ function WelcomeMessage({ config, botAvatar, onExampleClick }) {
           {botAvatar ? (
             <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
           ) : (
-            <div className={`w-full h-full bg-${themeColor}-100 rounded-full`} />
+            <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
+              <Lightbulb className={`w-5 h-5 text-${themeColor}-600`} />
+            </div>
           )}
         </div>
-        
-        <div className="bg-white p-6 rounded-2xl rounded-tl-none shadow-sm max-w-[90%] border border-slate-200">
-          <h2 className="font-bold text-slate-800 text-lg mb-2">
-            {config?.messages?.welcomeTitle || 'Welcome!'}
-          </h2>
-          <p className="text-slate-600 text-sm mb-4">
-            {config?.messages?.welcomeText || 'Search for properties by address, parcel ID, or ask questions about the data.'}
-          </p>
-
-          {/* Example Questions */}
-          {config?.messages?.exampleQuestions?.length > 0 && (
-            <div className="border-t border-slate-100 pt-4">
-              <h3 className="font-semibold text-slate-700 text-sm mb-2 flex items-center gap-2">
-                <Lightbulb className="w-4 h-4 text-amber-500" />
-                Try asking:
-              </h3>
-              <ul className="space-y-2">
-                {config.messages.exampleQuestions.map((q, i) => (
-                  <li 
-                    key={i}
-                    onClick={() => onExampleClick(q)}
-                    className={`text-sm text-${themeColor}-700 cursor-pointer hover:underline`}
-                  >
-                    • {q}
-                  </li>
-                ))}
-              </ul>
+        <div className="flex-1">
+          <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200">
+            <h3 className="font-semibold text-slate-800 mb-2">
+              {config?.messages?.welcomeTitle || 'Welcome!'}
+            </h3>
+            <p className="text-sm text-slate-600 mb-3">
+              {config?.messages?.welcomeText || 'Ask me about properties in natural language.'}
+            </p>
+            
+            {exampleQuestions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400 uppercase tracking-wide">Try asking:</p>
+                <div className="flex flex-wrap gap-2">
+                  {exampleQuestions.map((q, i) => (
+                    <button
+                      key={i}
+                      onClick={() => onExampleClick(q)}
+                      className={`text-sm px-3 py-1.5 rounded-full bg-${themeColor}-50 text-${themeColor}-700 hover:bg-${themeColor}-100 transition-colors`}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {config?.messages?.importantNote && (
+            <div className="mt-2 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 p-2 rounded-lg">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{config.messages.importantNote}</span>
             </div>
           )}
         </div>
       </div>
-
-      {/* Important Note */}
-      {config?.messages?.importantNote && (
-        <div className="flex justify-center">
-          <div className={`bg-${themeColor}-50 border border-${themeColor}-200 rounded-lg p-3 text-sm text-${themeColor}-800 max-w-[85%] flex items-start gap-2`}>
-            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <div>
-              <strong>Important Note:</strong>
-              <p className="mt-1">{config.messages.importantNote}</p>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
 
 /**
- * Chat Message Component
+ * Message Bubble Component
  */
-function ChatMessage({ message, botAvatar, themeColor, onViewOnMap, onViewInTable, enabledModes }) {
+function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable }) {
   const isUser = message.type === 'user';
   const isError = message.type === 'error';
 
-  if (isUser) {
-    return (
-      <div className="flex justify-end">
-        <div className={`bg-${themeColor}-600 text-white p-4 rounded-2xl rounded-tr-none shadow-sm max-w-[80%]`}>
-          {message.content}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex gap-4">
-      <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
-        {botAvatar ? (
-          <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
-        ) : (
-          <div className={`w-full h-full bg-${themeColor}-100 rounded-full`} />
-        )}
-      </div>
+    <div className={`flex gap-4 ${isUser ? 'flex-row-reverse' : ''}`}>
+      {/* Avatar */}
+      {!isUser && (
+        <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+          {botAvatar ? (
+            <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
+          ) : (
+            <div className={`w-full h-full bg-${themeColor}-100 rounded-full`} />
+          )}
+        </div>
+      )}
       
-      <div className={`p-4 rounded-2xl rounded-tl-none shadow-sm max-w-[80%] border ${
-        isError 
-          ? 'bg-red-50 border-red-200 text-red-800' 
-          : 'bg-white border-slate-200'
-      }`}>
-        {/* Render markdown-style bold */}
-        <div 
-          className="text-sm prose prose-sm"
-          dangerouslySetInnerHTML={{ 
-            __html: message.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
-          }}
-        />
-
+      {/* Message Content */}
+      <div className={`max-w-[75%] ${isUser ? 'ml-auto' : ''}`}>
+        <div className={`p-4 rounded-2xl ${
+          isUser 
+            ? `bg-${themeColor}-600 text-white rounded-tr-none`
+            : isError
+              ? 'bg-red-50 border border-red-200 text-red-700 rounded-tl-none'
+              : 'bg-white border border-slate-200 shadow-sm rounded-tl-none'
+        }`}>
+          <p className={`text-sm ${isUser ? 'text-white' : isError ? 'text-red-700' : 'text-slate-700'}`}>
+            {message.content}
+          </p>
+        </div>
+        
         {/* Result Actions */}
         {message.showResultActions && (
-          <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
-            {enabledModes.includes('map') && (
-              <button
-                onClick={onViewOnMap}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-${themeColor}-100 text-${themeColor}-700 rounded-full hover:bg-${themeColor}-200`}
-              >
-                <Map className="w-3.5 h-3.5" />
-                View on Map
-              </button>
-            )}
-            {enabledModes.includes('table') && (
-              <button
-                onClick={onViewInTable}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-700 rounded-full hover:bg-slate-200"
-              >
-                <Table2 className="w-3.5 h-3.5" />
-                View in Table
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Single Feature Details */}
-        {message.showDetails && message.feature && (
-          <div className="mt-3 pt-3 border-t border-slate-100">
-            <FeaturePreview feature={message.feature} />
-            {enabledModes.includes('map') && (
-              <button
-                onClick={onViewOnMap}
-                className={`mt-3 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-${themeColor}-100 text-${themeColor}-700 rounded-full hover:bg-${themeColor}-200`}
-              >
-                <MapPin className="w-3.5 h-3.5" />
-                View on Map
-              </button>
-            )}
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={onViewMap}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
+            >
+              <Map className="w-3.5 h-3.5" />
+              View on Map
+            </button>
+            <button
+              onClick={onViewTable}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
+            >
+              <Table2 className="w-3.5 h-3.5" />
+              View in Table
+            </button>
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * Feature Preview Component
- */
-function FeaturePreview({ feature }) {
-  const attrs = feature.attributes || {};
-  const previewFields = [
-    { key: 'PROPERTYADDRESS', label: 'Address' },
-    { key: 'PARCELID', label: 'Parcel ID' },
-    { key: 'CURRENTOWNER', label: 'Owner' },
-    { key: 'PARCELCLASSDESC', label: 'Class' },
-    { key: 'SALEAMOUNT', label: 'Last Sale', format: 'currency' },
-    { key: 'SALEDATE', label: 'Sale Date', format: 'date' }
-  ];
-
-  return (
-    <div className="grid grid-cols-2 gap-2 text-xs">
-      {previewFields.map(({ key, label, format }) => {
-        let value = attrs[key];
-        if (value === null || value === undefined) return null;
-
-        if (format === 'currency' && typeof value === 'number') {
-          value = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-        } else if (format === 'date' && value > 1000000000000) {
-          value = new Date(value).toLocaleDateString();
-        }
-
-        return (
-          <div key={key}>
-            <span className="text-slate-500">{label}:</span>
-            <span className="ml-1 text-slate-800 font-medium">{value}</span>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -732,45 +647,52 @@ function FeaturePreview({ feature }) {
  */
 function HistoryPanel({ history, onSelect, onClear, onClose }) {
   return (
-    <div className="absolute bottom-16 left-2 right-2 md:left-4 md:right-auto md:w-[450px] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 flex flex-col max-h-[70vh]">
-      <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
-        <h3 className="font-bold text-slate-700 flex items-center gap-2">
-          <Clock className="w-5 h-5 text-emerald-600" />
-          Search History
-        </h3>
-        <div className="flex gap-2">
-          <button 
-            onClick={onClear}
-            className="text-xs text-red-500 hover:text-red-700 px-2 py-1"
-          >
-            Clear All
-          </button>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {history.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">
-            No search history found.
-          </div>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {history.map((item, i) => (
-              <li
-                key={i}
-                onClick={() => onSelect(item.query)}
-                className="px-4 py-3 hover:bg-slate-50 cursor-pointer"
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/20">
+      <div className="bg-white w-full max-w-lg rounded-t-2xl shadow-2xl max-h-[60vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-800">Search History</h3>
+          <div className="flex items-center gap-2">
+            {history.length > 0 && (
+              <button
+                onClick={onClear}
+                className="text-xs text-red-500 hover:text-red-700"
               >
-                <div className="text-sm text-slate-700">{item.query}</div>
-                <div className="text-xs text-slate-400 mt-1">
-                  {new Date(item.timestamp).toLocaleString()}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+                Clear All
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-slate-100 rounded-full"
+            >
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+          </div>
+        </div>
+        
+        {/* History List */}
+        <div className="flex-1 overflow-y-auto">
+          {history.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">
+              No search history found.
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {history.map((item, i) => (
+                <li
+                  key={i}
+                  onClick={() => onSelect(item.query)}
+                  className="px-4 py-3 hover:bg-slate-50 cursor-pointer"
+                >
+                  <div className="text-sm text-slate-700">{item.query}</div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    {new Date(item.timestamp).toLocaleString()}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );
