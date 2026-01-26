@@ -1,5 +1,4 @@
 // src/shared/services/index.js
-// Export all shared services
+// Shared services exports for CivQuest unified platform
 
-export { PATHS, getPath, USE_NEW_PATHS } from './paths';
-export * from './arcgis-auth';
+export { PATHS, LEGACY_PATHS } from './paths.js';

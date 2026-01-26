@@ -17,7 +17,6 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // Proxy for ArcGIS services (development only)
     proxy: {
       '/arcgis-proxy': {
         target: 'https://notify.civ.quest',
@@ -32,7 +31,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // Separate vendor chunks for better caching
           'firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
           'arcgis': ['@arcgis/core'],
           'react-vendor': ['react', 'react-dom']
@@ -40,9 +38,9 @@ export default defineConfig({
       }
     }
   },
-  // Optimize deps for ArcGIS
   optimizeDeps: {
     include: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+    // Exclude ArcGIS from pre-bundling - it handles its own module loading
     exclude: ['@arcgis/core']
   }
 });

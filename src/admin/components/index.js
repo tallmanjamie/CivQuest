@@ -7,3 +7,4 @@ export { default as UserManagementPanel } from './UserManagement';
 export { default as ConfigurationPanel } from './Configuration';
 export { default as ServiceFinder } from './ServiceFinder';
 export { default as SpatialFilter } from './SpatialFilter';
+export { default as NotificationWizard } from './NotificationWizard';
