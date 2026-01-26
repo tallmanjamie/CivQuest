@@ -1,27 +1,27 @@
 // src/atlas/components/TableView.jsx
 // CivQuest Atlas - Table View Component
-// AG Grid-based data table with sorting, filtering, and export
+// AG Grid data table with sorting, filtering, and export
+// Search input has been moved to unified SearchToolbar in AtlasApp
 
-import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { 
   Download, 
-  Columns, 
-  RotateCcw, 
-  X, 
-  Filter, 
-  ChevronDown,
-  MapPin,
+  Columns,
+  RefreshCw,
+  X,
   Loader2,
-  Search
+  ChevronDown,
+  Map,
+  Eye,
+  Filter,
+  SortAsc,
+  ArrowUpDown
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 
-// Storage keys
-const getStorageKey = (orgId, suffix = '') => `atlas_table_${orgId}${suffix ? '_' + suffix : ''}`;
-
 /**
  * TableView Component
- * Renders search results in an AG Grid data table
+ * AG Grid data table for search results
  */
 const TableView = forwardRef(function TableView(props, ref) {
   const {
@@ -32,8 +32,7 @@ const TableView = forwardRef(function TableView(props, ref) {
     isSearching,
     zoomToFeature,
     highlightFeature,
-    mode,
-    enabledModes
+    setMode
   } = useAtlas();
 
   // Refs
@@ -41,80 +40,66 @@ const TableView = forwardRef(function TableView(props, ref) {
   const gridApiRef = useRef(null);
 
   // State
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isGridReady, setIsGridReady] = useState(false);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
-  const [columnVisibility, setColumnVisibility] = useState({});
-  const [selectedRow, setSelectedRow] = useState(null);
-  const [showSidePanel, setShowSidePanel] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState([]);
+  const [rowCount, setRowCount] = useState(0);
+
+  const themeColor = config?.ui?.themeColor || 'sky';
+  const hasResults = searchResults?.features?.length > 0;
 
   /**
-   * Build column definitions from config
+   * Get column definitions from config
    */
-  const columnDefs = useMemo(() => {
+  const getColumnDefs = useCallback(() => {
     const tableColumns = activeMap?.tableColumns || [];
     
     if (tableColumns.length === 0) {
-      // Auto-generate from first result if no config
+      // Auto-generate columns from first feature
       if (searchResults?.features?.[0]?.attributes) {
-        return Object.keys(searchResults.features[0].attributes).map(field => ({
-          field,
-          headerName: field.replace(/_/g, ' '),
-          sortable: true,
-          filter: true,
-          resizable: true,
-          minWidth: 100
-        }));
+        return Object.keys(searchResults.features[0].attributes)
+          .filter(k => !k.startsWith('_') && k !== 'OBJECTID')
+          .map(field => ({
+            field,
+            headerName: field,
+            sortable: true,
+            filter: true,
+            resizable: true,
+            minWidth: 100
+          }));
       }
       return [];
     }
 
     return tableColumns.map(col => ({
       field: col.field,
-      headerName: col.label || col.field,
-      sortable: true,
-      filter: true,
-      resizable: true,
-      minWidth: 100,
-      hide: columnVisibility[col.field] === false,
-      valueFormatter: (params) => formatCellValue(params.value, col.field)
+      headerName: col.headerName || col.field,
+      width: col.width,
+      minWidth: col.minWidth || 80,
+      sortable: col.sortable !== false,
+      filter: col.filter !== false,
+      resizable: col.resizable !== false,
+      cellRenderer: col.cellRenderer,
+      valueFormatter: col.valueFormatter ? 
+        (params) => {
+          try {
+            return new Function('params', `return ${col.valueFormatter}`)(params);
+          } catch {
+            return params.value;
+          }
+        } : undefined
     }));
-  }, [activeMap?.tableColumns, searchResults, columnVisibility]);
+  }, [activeMap?.tableColumns, searchResults?.features]);
 
   /**
-   * Format cell values
+   * Get row data from search results
    */
-  const formatCellValue = useCallback((value, field) => {
-    if (value === null || value === undefined) return '';
-    
-    // Date formatting
-    if (typeof value === 'number' && value > 1000000000000) {
-      return new Date(value).toLocaleDateString();
-    }
-    
-    // Currency formatting
-    if (field?.toLowerCase().includes('amount') || field?.toLowerCase().includes('price')) {
-      if (typeof value === 'number') {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-      }
-    }
-    
-    // Number formatting
-    if (typeof value === 'number') {
-      return value.toLocaleString();
-    }
-    
-    return String(value);
-  }, []);
-
-  /**
-   * Build row data from search results
-   */
-  const rowData = useMemo(() => {
-    if (!searchResults?.features?.length) return [];
-    return searchResults.features.map((feature, index) => ({
-      ...feature.attributes,
-      _geometry: feature.geometry,
-      _index: index
+  const getRowData = useCallback(() => {
+    if (!searchResults?.features) return [];
+    return searchResults.features.map((f, idx) => ({
+      ...f.attributes,
+      _index: idx,
+      _geometry: f.geometry
     }));
   }, [searchResults]);
 
@@ -122,253 +107,278 @@ const TableView = forwardRef(function TableView(props, ref) {
    * Initialize AG Grid
    */
   const initializeGrid = useCallback(() => {
-    if (!gridRef.current || isInitialized) return;
+    if (!gridRef.current || !window.agGrid) {
+      console.warn('[TableView] AG Grid not available');
+      return;
+    }
+
+    const columnDefs = getColumnDefs();
+    
+    // Add action column at the beginning
+    const allColumns = [
+      {
+        headerName: '',
+        field: '_actions',
+        width: 50,
+        sortable: false,
+        filter: false,
+        resizable: false,
+        pinned: 'left',
+        cellRenderer: (params) => {
+          const btn = document.createElement('button');
+          btn.className = 'p-1 hover:bg-slate-100 rounded';
+          btn.innerHTML = '<svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+          btn.onclick = () => {
+            const feature = searchResults?.features?.[params.data._index];
+            if (feature) {
+              zoomToFeature(feature);
+              setMode('map');
+            }
+          };
+          return btn;
+        }
+      },
+      ...columnDefs
+    ];
 
     const gridOptions = {
-      columnDefs,
-      rowData,
+      columnDefs: allColumns,
+      rowData: getRowData(),
       defaultColDef: {
         sortable: true,
         filter: true,
         resizable: true,
         minWidth: 80
       },
-      rowSelection: 'single',
       animateRows: true,
-      pagination: true,
-      paginationPageSize: 100,
-      paginationPageSizeSelector: [25, 50, 100, 500],
+      rowSelection: 'single',
       suppressCellFocus: true,
-      enableCellTextSelection: true,
-      onRowClicked: (event) => {
-        setSelectedRow(event.data);
-        setShowSidePanel(true);
-        
-        // Highlight on map if map mode is available
-        if (event.data._geometry && highlightFeature) {
-          highlightFeature({
-            attributes: event.data,
-            geometry: event.data._geometry
-          });
-        }
-      },
       onGridReady: (params) => {
         gridApiRef.current = params.api;
+        setIsGridReady(true);
+        setVisibleColumns(columnDefs.map(c => c.field));
         
-        // Restore saved column state
-        const savedState = localStorage.getItem(getStorageKey(config?.id, 'columns'));
-        if (savedState) {
-          try {
-            params.api.applyColumnState({ state: JSON.parse(savedState) });
-          } catch (e) {
-            console.warn('[TableView] Failed to restore column state:', e);
-          }
-        }
-        
-        // Auto-size columns on first load
+        // Auto-size columns
         params.api.sizeColumnsToFit();
       },
-      onColumnMoved: () => saveColumnState(),
-      onColumnResized: () => saveColumnState(),
-      onColumnVisible: () => saveColumnState(),
-      onSortChanged: () => saveColumnState()
+      onRowClicked: (params) => {
+        const feature = searchResults?.features?.[params.data._index];
+        if (feature) {
+          highlightFeature(feature);
+        }
+      },
+      onRowDoubleClicked: (params) => {
+        const feature = searchResults?.features?.[params.data._index];
+        if (feature) {
+          zoomToFeature(feature);
+          setMode('map');
+        }
+      },
+      onModelUpdated: (params) => {
+        setRowCount(params.api.getDisplayedRowCount());
+      }
     };
 
-    // Create grid
-    if (typeof agGrid !== 'undefined') {
-      agGrid.createGrid(gridRef.current, gridOptions);
-      setIsInitialized(true);
-    } else {
-      console.error('[TableView] AG Grid not loaded');
+    // Destroy existing grid if any
+    if (gridApiRef.current) {
+      gridApiRef.current.destroy();
     }
-  }, [columnDefs, rowData, config?.id, highlightFeature, isInitialized]);
+
+    // Create new grid
+    new window.agGrid.Grid(gridRef.current, gridOptions);
+  }, [getColumnDefs, getRowData, searchResults, zoomToFeature, highlightFeature, setMode]);
 
   /**
-   * Save column state to localStorage
+   * Update grid data when results change
    */
-  const saveColumnState = useCallback(() => {
-    if (!gridApiRef.current || !config?.id) return;
-    
-    const state = gridApiRef.current.getColumnState();
-    localStorage.setItem(getStorageKey(config.id, 'columns'), JSON.stringify(state));
-  }, [config?.id]);
+  useEffect(() => {
+    if (gridApiRef.current && searchResults?.features) {
+      gridApiRef.current.setRowData(getRowData());
+      gridApiRef.current.sizeColumnsToFit();
+    } else if (searchResults?.features && !gridApiRef.current) {
+      // Initialize grid if not yet done
+      initializeGrid();
+    }
+  }, [searchResults, getRowData, initializeGrid]);
 
   /**
-   * Reset table layout
+   * Initialize grid on mount
    */
-  const resetLayout = useCallback(() => {
-    if (!gridApiRef.current) return;
-    
-    gridApiRef.current.resetColumnState();
-    gridApiRef.current.sizeColumnsToFit();
-    setColumnVisibility({});
-    
-    if (config?.id) {
-      localStorage.removeItem(getStorageKey(config.id, 'columns'));
+  useEffect(() => {
+    // Load AG Grid if not already loaded
+    if (!window.agGrid) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.1/dist/ag-grid-community.min.js';
+      script.onload = () => {
+        if (searchResults?.features) {
+          initializeGrid();
+        }
+      };
+      document.head.appendChild(script);
+
+      const style = document.createElement('link');
+      style.rel = 'stylesheet';
+      style.href = 'https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.1/styles/ag-grid.css';
+      document.head.appendChild(style);
+
+      const theme = document.createElement('link');
+      theme.rel = 'stylesheet';
+      theme.href = 'https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.1/styles/ag-theme-alpine.css';
+      document.head.appendChild(theme);
+    } else if (searchResults?.features) {
+      initializeGrid();
     }
-  }, [config?.id]);
+
+    return () => {
+      if (gridApiRef.current) {
+        gridApiRef.current.destroy();
+        gridApiRef.current = null;
+      }
+    };
+  }, []);
 
   /**
    * Export to CSV
    */
-  const exportToCSV = useCallback(() => {
+  const exportCSV = useCallback(() => {
     if (!gridApiRef.current) return;
     
     gridApiRef.current.exportDataAsCsv({
-      fileName: `atlas-export-${config?.id || 'data'}-${Date.now()}.csv`,
-      allColumns: false, // Only visible columns
-      skipPinnedTop: true,
-      skipPinnedBottom: true
+      fileName: `atlas-export-${new Date().toISOString().split('T')[0]}.csv`,
+      columnKeys: visibleColumns
     });
-  }, [config?.id]);
+  }, [visibleColumns]);
 
   /**
    * Toggle column visibility
    */
-  const toggleColumn = useCallback((field, visible) => {
-    setColumnVisibility(prev => ({ ...prev, [field]: visible }));
+  const toggleColumn = useCallback((field) => {
+    if (!gridApiRef.current) return;
     
-    if (gridApiRef.current) {
-      gridApiRef.current.setColumnsVisible([field], visible);
-    }
-  }, []);
-
-  /**
-   * View selected row on map
-   */
-  const viewOnMap = useCallback(() => {
-    if (!selectedRow || !selectedRow._geometry) return;
+    const isVisible = visibleColumns.includes(field);
+    const newVisible = isVisible
+      ? visibleColumns.filter(f => f !== field)
+      : [...visibleColumns, field];
     
-    zoomToFeature({
-      attributes: selectedRow,
-      geometry: selectedRow._geometry
-    });
-  }, [selectedRow, zoomToFeature]);
+    setVisibleColumns(newVisible);
+    gridApiRef.current.setColumnsVisible([field], !isVisible);
+  }, [visibleColumns]);
 
   /**
    * Clear table
    */
   const clearTable = useCallback(() => {
+    updateSearchResults({ features: [] });
     if (gridApiRef.current) {
-      gridApiRef.current.setGridOption('rowData', []);
+      gridApiRef.current.setRowData([]);
     }
-    setSelectedRow(null);
-    setShowSidePanel(false);
-    updateSearchResults(null);
   }, [updateSearchResults]);
 
-  // Expose methods via ref
+  // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
-    exportToCSV,
-    resetLayout,
+    exportCSV,
     clearTable,
-    gridApi: gridApiRef.current
-  }), [exportToCSV, resetLayout, clearTable]);
+    getRowCount: () => rowCount
+  }), [exportCSV, clearTable, rowCount]);
 
-  // Initialize grid on mount
-  useEffect(() => {
-    // Wait for AG Grid to be available
-    const checkAndInit = () => {
-      if (typeof agGrid !== 'undefined') {
-        initializeGrid();
-      } else {
-        setTimeout(checkAndInit, 100);
-      }
-    };
-    checkAndInit();
-  }, [initializeGrid]);
-
-  // Update grid data when results change
-  useEffect(() => {
-    if (gridApiRef.current && rowData) {
-      gridApiRef.current.setGridOption('rowData', rowData);
-      gridApiRef.current.setGridOption('columnDefs', columnDefs);
-    }
-  }, [rowData, columnDefs]);
-
-  const themeColor = config?.ui?.themeColor || 'sky';
-  const hasResults = rowData.length > 0;
-  const mapEnabled = enabledModes.includes('map');
+  const allColumns = getColumnDefs();
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-white">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-slate-200">
-        <div className="flex items-center gap-4">
-          {/* Record Count */}
-          <div className="flex items-center gap-2 text-sm text-slate-600">
-            <span className="text-lg">📊</span>
-            {isSearching ? (
-              <span className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Searching...
-              </span>
-            ) : (
-              <span>
-                {hasResults ? `${rowData.length} record${rowData.length !== 1 ? 's' : ''}` : 'No results to display'}
-              </span>
-            )}
-          </div>
+      <div className="flex items-center justify-between gap-2 p-2 border-b border-slate-200 bg-slate-50">
+        {/* Left: Result count */}
+        <div className="flex items-center gap-2">
+          {hasResults ? (
+            <span className={`px-2 py-1 bg-${themeColor}-100 text-${themeColor}-700 rounded-full text-xs font-medium`}>
+              {rowCount} record{rowCount !== 1 ? 's' : ''}
+            </span>
+          ) : (
+            <span className="text-sm text-slate-500">No results</span>
+          )}
+          
+          {isSearching && (
+            <div className="flex items-center gap-1 text-slate-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-xs">Searching...</span>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Right: Actions */}
+        <div className="flex items-center gap-1">
           {/* Column Picker */}
           <div className="relative">
             <button
               onClick={() => setShowColumnPicker(!showColumnPicker)}
-              className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
-              title="Show/Hide columns"
+              disabled={!hasResults}
+              className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Show/hide columns"
             >
               <Columns className="w-4 h-4" />
+              <span className="hidden sm:inline">Columns</span>
+              <ChevronDown className="w-3 h-3" />
             </button>
 
             {showColumnPicker && (
-              <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-lg shadow-xl border border-slate-200 py-2 z-50 max-h-80 overflow-y-auto">
-                <div className="px-3 py-2 border-b border-slate-100">
-                  <h4 className="text-xs font-semibold text-slate-500 uppercase">Columns</h4>
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowColumnPicker(false)} />
+                <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 max-h-80 overflow-y-auto">
+                  <div className="px-3 py-2 border-b border-slate-100">
+                    <span className="text-xs font-semibold text-slate-500 uppercase">Toggle Columns</span>
+                  </div>
+                  {allColumns.map((col) => (
+                    <button
+                      key={col.field}
+                      onClick={() => toggleColumn(col.field)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    >
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                        visibleColumns.includes(col.field)
+                          ? `bg-${themeColor}-600 border-${themeColor}-600 text-white`
+                          : 'border-slate-300'
+                      }`}>
+                        {visibleColumns.includes(col.field) && (
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="text-slate-700">{col.headerName || col.field}</span>
+                    </button>
+                  ))}
                 </div>
-                {columnDefs.map(col => (
-                  <label
-                    key={col.field}
-                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={columnVisibility[col.field] !== false}
-                      onChange={(e) => toggleColumn(col.field, e.target.checked)}
-                      className={`rounded border-slate-300 text-${themeColor}-600 focus:ring-${themeColor}-500`}
-                    />
-                    <span className="text-sm text-slate-700">{col.headerName}</span>
-                  </label>
-                ))}
-              </div>
+              </>
             )}
           </div>
 
-          {/* Reset Layout */}
+          {/* Export */}
           <button
-            onClick={resetLayout}
-            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
-            title="Reset table layout"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-
-          {/* Export CSV */}
-          <button
-            onClick={exportToCSV}
+            onClick={exportCSV}
             disabled={!hasResults}
-            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             title="Export to CSV"
           >
             <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">Export</span>
           </button>
 
-          {/* Clear Table */}
+          {/* View on Map */}
+          <button
+            onClick={() => setMode('map')}
+            disabled={!hasResults}
+            className={`flex items-center gap-1 px-2 py-1.5 text-sm text-${themeColor}-600 hover:bg-${themeColor}-50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed`}
+            title="View on map"
+          >
+            <Map className="w-4 h-4" />
+            <span className="hidden sm:inline">Map</span>
+          </button>
+
+          {/* Clear */}
           <button
             onClick={clearTable}
             disabled={!hasResults}
-            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             title="Clear table"
           >
             <X className="w-4 h-4" />
@@ -395,12 +405,22 @@ const TableView = forwardRef(function TableView(props, ref) {
                 <p className="text-slate-500 text-sm mb-4">
                   Search for properties using the search bar to populate the table with results.
                 </p>
-                {activeMap?.searchPlaceholder && (
+                {config?.messages?.exampleQuestions?.[0] && (
                   <div className="inline-flex items-center gap-2 text-sm text-slate-400 bg-slate-100 px-3 py-2 rounded-lg">
                     <span>💡</span>
-                    <span>Try: "{config?.messages?.exampleQuestions?.[0] || 'Search for a property'}"</span>
+                    <span>Try: "{config.messages.exampleQuestions[0]}"</span>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Loading State */}
+          {isSearching && !hasResults && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <Loader2 className={`w-8 h-8 text-${themeColor}-600 animate-spin mx-auto mb-2`} />
+                <p className="text-sm text-slate-600">Searching...</p>
               </div>
             </div>
           )}
@@ -408,91 +428,22 @@ const TableView = forwardRef(function TableView(props, ref) {
           {/* AG Grid */}
           <div
             ref={gridRef}
-            className={`ag-theme-alpine w-full h-full ${!hasResults ? 'opacity-0' : ''}`}
+            className={`ag-theme-alpine w-full h-full ${!hasResults ? 'invisible' : ''}`}
           />
         </div>
-
-        {/* Side Panel for Selected Row */}
-        {showSidePanel && selectedRow && (
-          <div className="w-80 bg-white border-l border-slate-200 flex flex-col">
-            <div className={`bg-${themeColor}-700 text-white p-3 flex justify-between items-center`}>
-              <h3 className="font-semibold text-sm">Property Details</h3>
-              <button
-                onClick={() => {
-                  setShowSidePanel(false);
-                  setSelectedRow(null);
-                }}
-                className="p-1 hover:bg-white/20 rounded"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-3">
-              <SidePanelDetails 
-                data={selectedRow} 
-                columns={activeMap?.tableColumns}
-                formatValue={formatCellValue}
-              />
-            </div>
-
-            {/* Actions */}
-            {mapEnabled && selectedRow._geometry && (
-              <div className="p-3 border-t border-slate-200">
-                <button
-                  onClick={viewOnMap}
-                  className={`w-full flex items-center justify-center gap-2 px-4 py-2 bg-${themeColor}-600 text-white rounded-lg hover:bg-${themeColor}-700`}
-                >
-                  <MapPin className="w-4 h-4" />
-                  View on Map
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
-      {/* Close column picker when clicking outside */}
-      {showColumnPicker && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setShowColumnPicker(false)}
-        />
+      {/* Footer */}
+      {hasResults && (
+        <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 text-xs text-slate-500">
+          <div className="flex items-center justify-between">
+            <span>Double-click a row to view on map</span>
+            <span>{rowCount} of {searchResults?.features?.length || 0} records shown</span>
+          </div>
+        </div>
       )}
     </div>
   );
 });
-
-/**
- * Side Panel Details Component
- */
-function SidePanelDetails({ data, columns, formatValue }) {
-  if (!data) return null;
-
-  // Use configured columns or all attributes
-  const fields = columns?.length 
-    ? columns.filter(col => data[col.field] !== undefined)
-    : Object.keys(data).filter(k => !k.startsWith('_')).map(field => ({ field, label: field }));
-
-  return (
-    <div className="space-y-2">
-      {fields.map(({ field, label }) => {
-        const value = data[field];
-        if (value === null || value === undefined || value === '') return null;
-
-        return (
-          <div key={field} className="border-b border-slate-100 pb-2">
-            <dt className="text-xs text-slate-500 font-medium uppercase tracking-wide">
-              {label || field}
-            </dt>
-            <dd className="text-sm text-slate-800 mt-0.5">
-              {formatValue(value, field)}
-            </dd>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 export default TableView;

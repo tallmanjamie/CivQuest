@@ -15,7 +15,12 @@ import {
   HelpCircle,
   Loader2,
   AlertCircle,
-  Home
+  Home,
+  Search,
+  Send,
+  Plus,
+  Clock,
+  Filter
 } from 'lucide-react';
 
 // Hooks
@@ -51,6 +56,154 @@ const MODES = {
 };
 
 /**
+ * SearchToolbar Component
+ * Unified search bar with mode toggle - available in all modes
+ * Position can be 'top' or 'bottom' based on config.ui.searchBarPosition
+ */
+function SearchToolbar({ 
+  config, 
+  mode, 
+  onModeChange, 
+  enabledModes,
+  searchQuery,
+  onSearch,
+  isSearching,
+  activeMap,
+  onShowHistory,
+  onShowAdvanced,
+  position = 'top'
+}) {
+  const [inputValue, setInputValue] = useState('');
+  const [showMenu, setShowMenu] = useState(false);
+  const inputRef = useRef(null);
+  
+  const themeColor = config?.ui?.themeColor || 'sky';
+  const isBottom = position === 'bottom';
+  
+  const handleSubmit = (e) => {
+    e?.preventDefault();
+    if (inputValue.trim() && onSearch) {
+      onSearch(inputValue.trim());
+      setInputValue('');
+    }
+  };
+  
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  return (
+    <div className={`bg-white ${isBottom ? 'border-t' : 'border-b'} border-slate-200 px-3 py-2 flex items-center gap-2`}>
+      {/* Mode Toggle */}
+      <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+        {Object.values(MODES)
+          .filter(m => enabledModes.includes(m.id))
+          .map(m => {
+            const Icon = m.icon;
+            const isActive = mode === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => onModeChange(m.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  isActive 
+                    ? `bg-white text-${themeColor}-700 shadow-sm`
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title={m.label}
+              >
+                <Icon className="w-4 h-4" />
+                {isActive && <span>{m.label}</span>}
+              </button>
+            );
+          })}
+      </div>
+      
+      {/* Search Input */}
+      <div className="flex-1 flex items-center gap-2 relative">
+        {/* Menu Button */}
+        <button
+          onClick={() => setShowMenu(!showMenu)}
+          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg flex-shrink-0"
+          title="More options"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+        
+        {/* Menu Dropdown */}
+        {showMenu && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+            <div className={`absolute ${isBottom ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-slate-200 shadow-xl rounded-xl w-56 p-1.5 z-50`}>
+              <button
+                onClick={() => { onShowAdvanced?.(); setShowMenu(false); }}
+                className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
+              >
+                <div className={`w-8 h-8 rounded-full bg-${themeColor}-100 text-${themeColor}-600 flex items-center justify-center`}>
+                  <Filter className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="block text-sm font-semibold text-slate-700">Advanced Search</span>
+                  <span className="block text-xs text-slate-400">Filter by specific fields</span>
+                </div>
+              </button>
+              <button
+                onClick={() => { onShowHistory?.(); setShowMenu(false); }}
+                className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
+              >
+                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="block text-sm font-semibold text-slate-700">History</span>
+                  <span className="block text-xs text-slate-400">View previous searches</span>
+                </div>
+              </button>
+            </div>
+          </>
+        )}
+        
+        {/* Input Field */}
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={activeMap?.searchPlaceholder || 'Search properties...'}
+            className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm"
+            disabled={isSearching}
+          />
+        </div>
+        
+        {/* Search Button */}
+        <button
+          onClick={handleSubmit}
+          disabled={isSearching || !inputValue.trim()}
+          className={`p-2 rounded-lg flex-shrink-0 transition-colors ${
+            inputValue.trim() && !isSearching
+              ? `bg-${themeColor}-600 text-white hover:bg-${themeColor}-700` 
+              : 'bg-slate-100 text-slate-400'
+          }`}
+          title="Search"
+        >
+          {isSearching ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Send className="w-5 h-5" />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * AtlasApp - Main application entry point
  */
 export default function AtlasApp() {
@@ -63,6 +216,8 @@ export default function AtlasApp() {
   const [mode, setMode] = useState('chat');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showOrgSelector, setShowOrgSelector] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   
   // Search State (shared across views)
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,9 +228,14 @@ export default function AtlasApp() {
   // Refs for cross-component communication
   const mapViewRef = useRef(null);
   const tableViewRef = useRef(null);
+  const chatViewRef = useRef(null);
   
   // Determine enabled modes from config
   const enabledModes = activeMap?.enabledModes || ['chat', 'map', 'table'];
+  
+  // Determine search bar position from config (default: 'top')
+  // Can be set in atlasConfig.ui.searchBarPosition = 'top' | 'bottom'
+  const searchBarPosition = config?.ui?.searchBarPosition || 'top';
   
   // Set initial mode based on config
   useEffect(() => {
@@ -102,22 +262,16 @@ export default function AtlasApp() {
     }
   }, [enabledModes, config?.id]);
   
-  // Handle search execution
-  const executeSearch = useCallback(async (query, options = {}) => {
+  // Handle search execution from unified toolbar
+  const handleSearch = useCallback(async (query) => {
     if (!query?.trim() || !activeMap) return;
     
-    setIsSearching(true);
     setSearchQuery(query);
+    setIsSearching(true);
     
-    try {
-      // Search will be handled by the active view component
-      // This just updates shared state
-      console.log('[AtlasApp] Executing search:', query);
-      
-    } catch (err) {
-      console.error('[AtlasApp] Search error:', err);
-    } finally {
-      setIsSearching(false);
+    // Delegate to ChatView's search logic
+    if (chatViewRef.current?.handleSearch) {
+      chatViewRef.current.handleSearch(query);
     }
   }, [activeMap]);
   
@@ -125,6 +279,7 @@ export default function AtlasApp() {
   const updateSearchResults = useCallback((results, location = null) => {
     setSearchResults(results);
     if (location) setSearchLocation(location);
+    setIsSearching(false);
   }, []);
   
   // Navigate to feature on map
@@ -175,15 +330,23 @@ export default function AtlasApp() {
     searchLocation,
     setSearchLocation,
     isSearching,
-    executeSearch,
+    setIsSearching,
+    handleSearch,
     
     // Actions
     zoomToFeature,
     highlightFeature,
     
+    // History/Advanced
+    showHistory,
+    setShowHistory,
+    showAdvanced,
+    setShowAdvanced,
+    
     // Refs
     mapViewRef,
-    tableViewRef
+    tableViewRef,
+    chatViewRef
   };
   
   // Show org selector if no org specified
@@ -248,6 +411,23 @@ export default function AtlasApp() {
   // Theme color from config
   const themeColor = config.ui?.themeColor || 'sky';
   
+  // Search toolbar component (rendered in both positions conditionally)
+  const searchToolbar = (
+    <SearchToolbar
+      config={config}
+      mode={mode}
+      onModeChange={handleModeChange}
+      enabledModes={enabledModes}
+      searchQuery={searchQuery}
+      onSearch={handleSearch}
+      isSearching={isSearching}
+      activeMap={activeMap}
+      onShowHistory={() => setShowHistory(true)}
+      onShowAdvanced={() => setShowAdvanced(true)}
+      position={searchBarPosition}
+    />
+  );
+  
   return (
     <AtlasContext.Provider value={contextValue}>
       <div className="h-dvh flex flex-col bg-slate-100 font-sans">
@@ -261,6 +441,9 @@ export default function AtlasApp() {
           showMobileMenu={showMobileMenu}
         />
         
+        {/* Search Toolbar - Top Position */}
+        {searchBarPosition === 'top' && searchToolbar}
+        
         {/* Main Content */}
         <main className="flex-1 relative overflow-hidden">
           {/* Chat View */}
@@ -269,7 +452,7 @@ export default function AtlasApp() {
               mode === 'chat' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
             }`}
           >
-            <ChatView />
+            <ChatView ref={chatViewRef} />
           </div>
           
           {/* Map View */}
@@ -290,6 +473,9 @@ export default function AtlasApp() {
             <TableView ref={tableViewRef} />
           </div>
         </main>
+        
+        {/* Search Toolbar - Bottom Position */}
+        {searchBarPosition === 'bottom' && searchToolbar}
         
         {/* Mobile Menu Overlay */}
         {showMobileMenu && (
@@ -354,8 +540,8 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
                   onClick={() => { onModeChange(m.id); onClose(); }}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition ${
                     isActive 
-                      ? `bg-${themeColor}-100 text-${themeColor}-700` 
-                      : 'hover:bg-slate-100 text-slate-600'
+                      ? `bg-${themeColor}-50 text-${themeColor}-700`
+                      : 'text-slate-600 hover:bg-slate-50'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
@@ -371,24 +557,38 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
           <h3 className="text-xs font-semibold text-slate-500 uppercase mb-2">Account</h3>
           {arcgisUser ? (
             <div className="space-y-2">
-              <div className="text-sm text-slate-600">
-                Signed in as <span className="font-medium">{arcgisUser.fullName || arcgisUser.username}</span>
+              <div className="flex items-center gap-3 px-3 py-2 bg-slate-50 rounded-lg">
+                <div className="w-8 h-8 bg-slate-300 rounded-full flex items-center justify-center">
+                  {arcgisUser.thumbnailUrl ? (
+                    <img src={arcgisUser.thumbnailUrl} alt="" className="w-8 h-8 rounded-full" />
+                  ) : (
+                    <span className="text-sm font-medium text-slate-600">
+                      {arcgisUser.fullName?.charAt(0) || arcgisUser.username?.charAt(0) || '?'}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-700 truncate">
+                    {arcgisUser.fullName || arcgisUser.username}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">{arcgisUser.email}</p>
+                </div>
               </div>
               <button
                 onClick={() => { onSignOut(); onClose(); }}
-                className="flex items-center gap-2 text-red-600 hover:text-red-700"
+                className="w-full flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg"
               >
                 <LogOut className="w-4 h-4" />
-                Sign Out
+                <span className="text-sm font-medium">Sign Out</span>
               </button>
             </div>
           ) : (
             <button
               onClick={() => { onSignIn(); onClose(); }}
-              className={`flex items-center gap-2 text-${themeColor}-600 hover:text-${themeColor}-700`}
+              className={`w-full flex items-center gap-2 px-3 py-2 bg-${themeColor}-600 text-white rounded-lg hover:bg-${themeColor}-700`}
             >
               <LogIn className="w-4 h-4" />
-              Sign in with ArcGIS
+              <span className="text-sm font-medium">Sign in with ArcGIS</span>
             </button>
           )}
         </div>

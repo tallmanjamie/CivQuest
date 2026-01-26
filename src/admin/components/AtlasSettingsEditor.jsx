@@ -17,14 +17,16 @@ import {
   ChevronRight,
   AlertCircle,
   ExternalLink,
-  HelpCircle
+  HelpCircle,
+  ArrowUpFromLine,
+  ArrowDownToLine
 } from 'lucide-react';
 
 /**
  * AtlasSettingsEditor Modal
  * 
  * Edits the overall Atlas configuration:
- * - UI settings (title, header, colors, logos)
+ * - UI settings (title, header, colors, logos, search bar position)
  * - Messages (welcome, examples, notes)
  * - Basemaps configuration
  * - Data settings (system prompt, limits)
@@ -53,6 +55,7 @@ export default function AtlasSettingsEditor({
       botAvatar: '',
       themeColor: 'sky',
       defaultMode: 'chat',
+      searchBarPosition: 'top', // NEW: 'top' or 'bottom'
       ...data?.ui
     },
     messages: {
@@ -209,6 +212,12 @@ export default function AtlasSettingsEditor({
     { id: 'table', label: 'Table' }
   ];
 
+  // Search bar position options
+  const searchBarPositionOptions = [
+    { id: 'top', label: 'Top', description: 'Below the header', icon: ArrowUpFromLine },
+    { id: 'bottom', label: 'Bottom', description: 'Below the content', icon: ArrowDownToLine }
+  ];
+
   // Basemap type options
   const basemapTypes = [
     { id: 'esri', label: 'Esri Default' },
@@ -323,6 +332,39 @@ export default function AtlasSettingsEditor({
                 </select>
               </div>
 
+              {/* NEW: Search Bar Position */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Search Bar Position
+                </label>
+                <div className="flex gap-2">
+                  {searchBarPositionOptions.map(option => {
+                    const Icon = option.icon;
+                    const isSelected = config.ui.searchBarPosition === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => updateUI('searchBarPosition', option.id)}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${
+                          isSelected
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span className="text-sm font-medium">{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {config.ui.searchBarPosition === 'top' 
+                    ? 'Search bar appears below the header' 
+                    : 'Search bar appears below the content area'}
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Header CSS Class
@@ -332,89 +374,101 @@ export default function AtlasSettingsEditor({
                   value={config.ui.headerClass}
                   onChange={(e) => updateUI('headerClass', e.target.value)}
                   placeholder="bg-sky-700"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                 />
               </div>
+            </div>
 
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  <Image className="w-4 h-4 inline mr-1" /> Logo URLs
-                </label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {/* Logo URLs */}
+            <div className="mt-4 pt-4 border-t border-slate-200">
+              <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                <Image className="w-4 h-4" /> Logo & Avatar URLs
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Left Logo URL</label>
                   <input
-                    type="url"
+                    type="text"
                     value={config.ui.logoLeft}
                     onChange={(e) => updateUI('logoLeft', e.target.value)}
-                    placeholder="Left logo URL"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
-                  />
-                  <input
-                    type="url"
-                    value={config.ui.logoRight}
-                    onChange={(e) => updateUI('logoRight', e.target.value)}
-                    placeholder="Right logo URL"
+                    placeholder="https://..."
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Chat Bot Avatar URL
-                </label>
-                <input
-                  type="url"
-                  value={config.ui.botAvatar}
-                  onChange={(e) => updateUI('botAvatar', e.target.value)}
-                  placeholder="https://..."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
-                />
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Right Logo URL</label>
+                  <input
+                    type="text"
+                    value={config.ui.logoRight}
+                    onChange={(e) => updateUI('logoRight', e.target.value)}
+                    placeholder="https://..."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Bot Avatar URL</label>
+                  <input
+                    type="text"
+                    value={config.ui.botAvatar}
+                    onChange={(e) => updateUI('botAvatar', e.target.value)}
+                    placeholder="https://..."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  />
+                </div>
               </div>
             </div>
           </Section>
 
           {/* Messages Section */}
           <Section
-            title="Welcome Messages"
+            title="Messages"
             icon={MessageSquare}
             expanded={expandedSections.messages}
             onToggle={() => toggleSection('messages')}
             accentColor={accentColor}
           >
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Welcome Title
-                </label>
-                <input
-                  type="text"
-                  value={config.messages.welcomeTitle}
-                  onChange={(e) => updateMessages('welcomeTitle', e.target.value)}
-                  placeholder="Welcome!"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Welcome Title
+                  </label>
+                  <input
+                    type="text"
+                    value={config.messages.welcomeTitle}
+                    onChange={(e) => updateMessages('welcomeTitle', e.target.value)}
+                    placeholder="Welcome!"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Welcome Text
+                  </label>
+                  <textarea
+                    value={config.messages.welcomeText}
+                    onChange={(e) => updateMessages('welcomeText', e.target.value)}
+                    placeholder="Search for properties using natural language..."
+                    rows={2}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                  />
+                </div>
               </div>
 
+              {/* Example Questions */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Welcome Text
-                </label>
-                <textarea
-                  value={config.messages.welcomeText}
-                  onChange={(e) => updateMessages('welcomeText', e.target.value)}
-                  placeholder="Explain what users can do with this Atlas..."
-                  rows={3}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Example Questions
-                  <span className="text-slate-400 font-normal ml-2">
-                    (shown as quick-start suggestions)
-                  </span>
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Example Questions
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addExampleQuestion}
+                    className="text-xs text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" /> Add
+                  </button>
+                </div>
                 <div className="space-y-2">
                   {config.messages.exampleQuestions.map((q, idx) => (
                     <div key={idx} className="flex gap-2">
@@ -428,33 +482,27 @@ export default function AtlasSettingsEditor({
                       <button
                         type="button"
                         onClick={() => removeExampleQuestion(idx)}
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={addExampleQuestion}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                  >
-                    <Plus className="w-4 h-4" /> Add Example
-                  </button>
+                  {config.messages.exampleQuestions.length === 0 && (
+                    <p className="text-sm text-slate-400 italic">No example questions added</p>
+                  )}
                 </div>
               </div>
 
+              {/* Important Note */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Important Note
-                  <span className="text-slate-400 font-normal ml-2">
-                    (optional disclaimer or notice)
-                  </span>
+                  Important Note (Disclaimer)
                 </label>
                 <textarea
                   value={config.messages.importantNote}
                   onChange={(e) => updateMessages('importantNote', e.target.value)}
-                  placeholder="Any important disclaimer or note..."
+                  placeholder="Optional disclaimer or important information..."
                   rows={2}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                 />
@@ -490,8 +538,8 @@ export default function AtlasSettingsEditor({
                         type="text"
                         value={basemap.id}
                         onChange={(e) => updateBasemap(idx, 'id', e.target.value)}
-                        placeholder="unique_id"
-                        className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono"
+                        placeholder="basemap-id"
+                        className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                       />
                     </div>
                     <div>
@@ -506,41 +554,42 @@ export default function AtlasSettingsEditor({
                         ))}
                       </select>
                     </div>
-                    <div className="flex items-end gap-2">
-                      <div className="flex-1">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">URL</label>
-                        <input
-                          type="url"
-                          value={basemap.url || ''}
-                          onChange={(e) => updateBasemap(idx, 'url', e.target.value)}
-                          placeholder={basemap.type === 'esri' ? 'N/A' : 'Service URL'}
-                          disabled={basemap.type === 'esri'}
-                          className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-                      </div>
+                    <div className="flex items-end">
                       <button
                         type="button"
                         onClick={() => removeBasemap(idx)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                        disabled={config.basemaps.length === 1}
+                        disabled={config.basemaps.length <= 1}
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
+                  {(basemap.type === 'arcgis' || basemap.type === 'wms') && (
+                    <div className="mt-2">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Service URL</label>
+                      <input
+                        type="text"
+                        value={basemap.url || ''}
+                        onChange={(e) => updateBasemap(idx, 'url', e.target.value)}
+                        placeholder="https://..."
+                        className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
               <button
                 type="button"
                 onClick={addBasemap}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                className="w-full py-2 border-2 border-dashed border-slate-300 text-slate-500 hover:border-sky-400 hover:text-sky-600 rounded-lg flex items-center justify-center gap-2 transition-colors"
               >
                 <Plus className="w-4 h-4" /> Add Basemap
               </button>
             </div>
           </Section>
 
-          {/* Advanced Data Settings */}
+          {/* Advanced/Data Section */}
           <Section
             title="Advanced Settings"
             icon={HelpCircle}
@@ -549,12 +598,19 @@ export default function AtlasSettingsEditor({
             accentColor={accentColor}
           >
             <div className="space-y-4">
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                <AlertCircle className="w-4 h-4 inline mr-1" />
-                These settings affect all maps in this Atlas instance.
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  System Prompt (for AI Query Translation)
+                </label>
+                <textarea
+                  value={config.data.systemPrompt}
+                  onChange={(e) => updateData('systemPrompt', e.target.value)}
+                  placeholder="Instructions for Gemini to translate natural language to SQL..."
+                  rows={4}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm font-mono"
+                />
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Max Record Count
@@ -563,13 +619,9 @@ export default function AtlasSettingsEditor({
                     type="number"
                     value={config.data.maxRecordCount}
                     onChange={(e) => updateData('maxRecordCount', parseInt(e.target.value) || 1000)}
-                    min={100}
-                    max={50000}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Maximum features to return from queries</p>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Timezone Offset (hours)
@@ -578,13 +630,9 @@ export default function AtlasSettingsEditor({
                     type="number"
                     value={config.data.timeZoneOffset}
                     onChange={(e) => updateData('timeZoneOffset', parseInt(e.target.value) || 0)}
-                    min={-12}
-                    max={12}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                   />
-                  <p className="text-xs text-slate-500 mt-1">UTC offset for date calculations</p>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Default Sort
@@ -594,47 +642,30 @@ export default function AtlasSettingsEditor({
                     value={config.data.defaultSort}
                     onChange={(e) => updateData('defaultSort', e.target.value)}
                     placeholder="FIELD_NAME DESC"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                   />
-                  <p className="text-xs text-slate-500 mt-1">SQL-style sort clause for results</p>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  AI System Prompt
-                  <span className="text-slate-400 font-normal ml-2">
-                    (for Chat mode query translation)
-                  </span>
-                </label>
-                <textarea
-                  value={config.data.systemPrompt}
-                  onChange={(e) => updateData('systemPrompt', e.target.value)}
-                  placeholder="Instructions for the AI to translate natural language queries..."
-                  rows={6}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
-                />
               </div>
             </div>
           </Section>
+
         </div>
 
         {/* Footer */}
         <div className="p-4 border-t border-slate-200 flex justify-end gap-3">
           <button
-            type="button"
             onClick={onClose}
-            className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+            className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
-            type="button"
             onClick={handleSave}
-            className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium transition-colors"
+            className="px-4 py-2 text-white rounded-lg flex items-center gap-2 transition-colors"
             style={{ backgroundColor: accentColor }}
           >
-            <Save className="w-4 h-4" /> Save Settings
+            <Save className="w-4 h-4" />
+            Save Settings
           </button>
         </div>
       </div>
@@ -642,23 +673,25 @@ export default function AtlasSettingsEditor({
   );
 }
 
-// --- Collapsible Section Component ---
-function Section({ title, icon: Icon, expanded, onToggle, accentColor, children }) {
+/**
+ * Collapsible Section Component
+ */
+function Section({ title, icon: Icon, expanded, onToggle, children, accentColor }) {
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full p-3 bg-slate-50 flex items-center justify-between hover:bg-slate-100 transition-colors"
+        className="w-full px-4 py-3 bg-slate-50 flex items-center justify-between hover:bg-slate-100 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4" style={{ color: accentColor }} />
-          <span className="font-medium text-slate-800">{title}</span>
+          <Icon className="w-5 h-5" style={{ color: accentColor }} />
+          <span className="font-medium text-slate-700">{title}</span>
         </div>
         {expanded ? (
-          <ChevronDown className="w-4 h-4 text-slate-400" />
+          <ChevronDown className="w-5 h-5 text-slate-400" />
         ) : (
-          <ChevronRight className="w-4 h-4 text-slate-400" />
+          <ChevronRight className="w-5 h-5 text-slate-400" />
         )}
       </button>
       {expanded && (

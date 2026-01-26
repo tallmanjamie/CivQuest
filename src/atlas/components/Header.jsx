@@ -1,29 +1,21 @@
 // src/atlas/components/Header.jsx
 // CivQuest Atlas - Header Component
-// Application header with mode switcher and navigation
+// Application header with branding and user menu (mode switcher moved to SearchToolbar)
 
 import React, { useState } from 'react';
 import { 
-  Map, 
-  Table2, 
-  MessageSquare, 
   Menu, 
   LogIn, 
   LogOut,
   ChevronDown,
-  User
+  User,
+  Settings
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 
-// Mode configuration
-const MODES = {
-  chat: { id: 'chat', label: 'Chat', icon: MessageSquare },
-  map: { id: 'map', label: 'Map', icon: Map },
-  table: { id: 'table', label: 'Table', icon: Table2 }
-};
-
 /**
  * Header Component
+ * Displays branding, map selector, and user menu
  */
 export default function Header({ 
   config, 
@@ -44,6 +36,7 @@ export default function Header({
   } = useAtlas();
 
   const [showMapPicker, setShowMapPicker] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const themeColor = config?.ui?.themeColor || 'sky';
   const headerClass = config?.ui?.headerClass || `bg-${themeColor}-700`;
@@ -70,60 +63,31 @@ export default function Header({
           </div>
         </div>
 
-        {/* Center: Mode Switcher (Desktop) */}
-        <div className="hidden md:flex items-center bg-white/10 rounded-full p-1">
-          {Object.values(MODES)
-            .filter(m => enabledModes.includes(m.id))
-            .map(m => {
-              const Icon = m.icon;
-              const isActive = mode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => onModeChange(m.id)}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
-                    isActive 
-                      ? 'bg-white text-slate-800 shadow-sm' 
-                      : 'text-white/80 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{m.label}</span>
-                </button>
-              );
-            })
-          }
-        </div>
-
-        {/* Right: Map Picker, Auth, Menu */}
-        <div className="flex items-center gap-2">
-          {/* Map Picker (if multiple maps) */}
-          {availableMaps.length > 1 && (
-            <div className="relative hidden md:block">
+        {/* Right: Map Picker & User Menu (Desktop) */}
+        <div className="hidden md:flex items-center gap-3">
+          {/* Map Picker (if multiple maps available) */}
+          {availableMaps?.length > 1 && (
+            <div className="relative">
               <button
                 onClick={() => setShowMapPicker(!showMapPicker)}
-                className="flex items-center gap-1 text-sm bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition"
+                className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition"
               >
-                <span className="max-w-[120px] truncate">{activeMap?.name || 'Select Map'}</span>
-                <ChevronDown className="w-4 h-4" />
+                <span className="truncate max-w-[150px]">{activeMap?.name || 'Select Map'}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showMapPicker ? 'rotate-180' : ''}`} />
               </button>
-
+              
               {showMapPicker && (
                 <>
-                  <div 
-                    className="fixed inset-0 z-40" 
-                    onClick={() => setShowMapPicker(false)} 
-                  />
-                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50">
-                    {availableMaps.map((map, index) => (
+                  <div className="fixed inset-0 z-40" onClick={() => setShowMapPicker(false)} />
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 max-h-80 overflow-y-auto">
+                    {availableMaps.map((map, idx) => (
                       <button
-                        key={index}
-                        onClick={() => {
-                          setActiveMap(index);
-                          setShowMapPicker(false);
-                        }}
+                        key={idx}
+                        onClick={() => { setActiveMap(idx); setShowMapPicker(false); }}
                         className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-100 ${
-                          index === activeMap?.index ? `text-${themeColor}-700 bg-${themeColor}-50` : 'text-slate-700'
+                          activeMap?.name === map.name 
+                            ? `bg-${themeColor}-50 text-${themeColor}-700 font-medium`
+                            : 'text-slate-700'
                         }`}
                       >
                         {map.name}
@@ -135,77 +99,65 @@ export default function Header({
             </div>
           )}
 
-          {/* Auth Button (Desktop) */}
-          <button
-            onClick={isAuthenticated ? signOut : signIn}
-            className="hidden md:flex items-center gap-2 text-sm hover:bg-white/10 px-3 py-1.5 rounded-full transition"
-          >
-            {isAuthenticated ? (
+          {/* User Menu */}
+          <div className="relative">
+            {isAuthenticated && arcgisUser ? (
               <>
-                <span className="opacity-80 max-w-[100px] truncate">
-                  {arcgisUser?.fullName || arcgisUser?.username}
-                </span>
-                <LogOut className="w-4 h-4" />
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition"
+                >
+                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
+                    {arcgisUser.thumbnailUrl ? (
+                      <img src={arcgisUser.thumbnailUrl} alt="" className="w-6 h-6 rounded-full" />
+                    ) : (
+                      <User className="w-4 h-4" />
+                    )}
+                  </div>
+                  <span className="text-sm font-medium hidden lg:inline truncate max-w-[100px]">
+                    {arcgisUser.fullName || arcgisUser.username}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {showUserMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50">
+                      <div className="px-4 py-3 border-b border-slate-100">
+                        <p className="text-sm font-medium text-slate-800">{arcgisUser.fullName || arcgisUser.username}</p>
+                        <p className="text-xs text-slate-500 truncate">{arcgisUser.email}</p>
+                      </div>
+                      <button
+                        onClick={() => { signOut(); setShowUserMenu(false); }}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Sign Out
+                      </button>
+                    </div>
+                  </>
+                )}
               </>
             ) : (
-              <>
+              <button
+                onClick={signIn}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition"
+              >
                 <LogIn className="w-4 h-4" />
-                <span>Sign In</span>
-              </>
+                <span className="hidden lg:inline">Sign In</span>
+              </button>
             )}
-          </button>
-
-          {/* Right Logo */}
-          {config?.ui?.logoRight && (
-            <a 
-              href={config.ui.rightLink || '#'} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="hidden md:block"
-            >
-              <img 
-                src={config.ui.logoRight} 
-                alt="Partner Logo" 
-                className="w-7 h-7 md:w-10 md:h-10 object-contain bg-white rounded-full hover:opacity-90 transition-opacity"
-              />
-            </a>
-          )}
-
-          {/* Mobile Menu Button */}
-          <button
-            onClick={onMenuToggle}
-            className="md:hidden p-2 hover:bg-white/10 rounded-lg"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
+          </div>
         </div>
-      </div>
 
-      {/* Mobile Mode Switcher (Below Header) */}
-      <div className="md:hidden mt-2 flex justify-center">
-        <div className="flex items-center bg-white/10 rounded-full p-1">
-          {Object.values(MODES)
-            .filter(m => enabledModes.includes(m.id))
-            .map(m => {
-              const Icon = m.icon;
-              const isActive = mode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => onModeChange(m.id)}
-                  className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                    isActive 
-                      ? 'bg-white text-slate-800 shadow-sm' 
-                      : 'text-white/80'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{m.label}</span>
-                </button>
-              );
-            })
-          }
-        </div>
+        {/* Mobile Menu Button */}
+        <button
+          onClick={onMenuToggle}
+          className="md:hidden p-2 hover:bg-white/20 rounded-lg"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
       </div>
     </header>
   );

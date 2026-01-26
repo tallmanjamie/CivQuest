@@ -18,7 +18,7 @@
 
 export const GEMINI_CONFIG = {
   // API Key - consider moving to environment variable for production
-  apiKey: 'AIzaSyBhvt_ue8AiQy8ChwQM2JMK-0oBvUBaGes',
+  apiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
   
   // Model to use across the application
   model: 'gemini-3-flash-preview',

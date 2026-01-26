@@ -1,22 +1,22 @@
 // src/atlas/components/ChatView.jsx
 // CivQuest Atlas - Chat View Component  
 // AI-powered conversational property search interface
+// Search input has been moved to unified SearchToolbar in AtlasApp
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { 
-  Send, 
   HelpCircle, 
-  Plus, 
   Clock, 
-  Filter, 
   MapPin,
-  ChevronDown,
   Loader2,
   AlertCircle,
   Lightbulb,
   X,
   Map,
-  Table2
+  Table2,
+  ExternalLink,
+  Copy,
+  Check
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 
@@ -26,8 +26,9 @@ import { getGeminiUrl, GEMINI_QUERY_CONFIG } from '../../config/geminiConfig';
 /**
  * ChatView Component
  * Conversational interface for property search
+ * Exposes handleSearch method for parent component to call
  */
-export default function ChatView() {
+const ChatView = forwardRef(function ChatView(props, ref) {
   const {
     config,
     activeMap,
@@ -36,27 +37,26 @@ export default function ChatView() {
     searchLocation,
     setSearchLocation,
     isSearching,
+    setIsSearching,
     mode,
     setMode,
     enabledModes,
     mapViewRef,
-    tableViewRef
+    tableViewRef,
+    showHistory,
+    setShowHistory,
+    showAdvanced,
+    setShowAdvanced
   } = useAtlas();
 
   // State
   const [messages, setMessages] = useState([]);
-  const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
   const [searchHistory, setSearchHistory] = useState([]);
-  const [suggestions, setSuggestions] = useState([]);
   const [loadingText, setLoadingText] = useState('Processing...');
 
   // Refs
   const chatContainerRef = useRef(null);
-  const inputRef = useRef(null);
 
   // Theme
   const themeColor = config?.ui?.themeColor || 'sky';
@@ -100,63 +100,75 @@ export default function ChatView() {
   /**
    * Add message to chat
    */
-  const addMessage = useCallback((type, content, extra = {}) => {
-    const message = {
+  const addMessage = useCallback((type, content, metadata = {}) => {
+    setMessages(prev => [...prev, {
       id: Date.now(),
       type,
       content,
       timestamp: new Date().toISOString(),
-      ...extra
-    };
-    setMessages(prev => [...prev, message]);
-    setTimeout(scrollToBottom, 50);
-    return message;
+      ...metadata
+    }]);
+    setTimeout(scrollToBottom, 100);
   }, [scrollToBottom]);
 
   /**
    * Translate natural language to SQL using Gemini
    */
-  const translateQuery = useCallback(async (userQuery) => {
+  const translateQuery = useCallback(async (query) => {
     const systemPrompt = activeMap?.systemPrompt || config?.data?.systemPrompt;
-    if (!systemPrompt) {
-      throw new Error('No system prompt configured');
-    }
-
-    // Use centralized Gemini config
-    const response = await fetch(getGeminiUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: `${systemPrompt}\n\nUser Query: ${userQuery}` }] }
-        ],
-        generationConfig: GEMINI_QUERY_CONFIG
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to translate query');
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     
-    // Extract JSON from response
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Invalid response format');
+    if (!systemPrompt) {
+      // Fallback to simple address search
+      return {
+        type: 'simple',
+        address: query
+      };
     }
 
-    return JSON.parse(jsonMatch[0]);
+    try {
+      const geminiUrl = getGeminiUrl();
+      const response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: `${systemPrompt}\n\nUser Query: ${query}` }]
+          }],
+          generationConfig: GEMINI_QUERY_CONFIG
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Gemini API error');
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      // Parse JSON from response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      
+      throw new Error('Invalid response format');
+    } catch (err) {
+      console.warn('[ChatView] Gemini translation failed:', err);
+      // Fallback to simple address search
+      return {
+        type: 'simple',
+        address: query
+      };
+    }
   }, [activeMap?.systemPrompt, config?.data?.systemPrompt]);
 
   /**
-   * Execute ArcGIS query
+   * Execute query against ArcGIS FeatureServer
    */
   const executeQuery = useCallback(async (queryParams) => {
     const endpoint = activeMap?.endpoint || config?.data?.endpoint;
     if (!endpoint) {
-      throw new Error('No data endpoint configured');
+      throw new Error('No endpoint configured');
     }
 
     const params = new URLSearchParams({
@@ -166,23 +178,9 @@ export default function ChatView() {
       outSR: '4326'
     });
 
-    // Handle different query types
-    if (queryParams.parcelId) {
-      // Direct parcel lookup
-      params.set('where', `PARCELID = '${queryParams.parcelId}'`);
-    } else if (queryParams.address) {
-      // Address geocoding first, then spatial query
-      const geocodeResult = await geocodeAddress(queryParams.address);
-      if (geocodeResult) {
-        params.set('geometry', JSON.stringify(geocodeResult.location));
-        params.set('geometryType', 'esriGeometryPoint');
-        params.set('spatialRel', 'esriSpatialRelIntersects');
-        params.set('inSR', '4326');
-        setSearchLocation(geocodeResult);
-      } else {
-        // Fallback to address text search
-        params.set('where', `PROPERTYADDRESS LIKE '%${queryParams.address.toUpperCase()}%'`);
-      }
+    if (queryParams.type === 'simple') {
+      // Simple address search
+      params.set('where', `PROPERTYADDRESS LIKE '%${queryParams.address.toUpperCase()}%'`);
     } else if (queryParams.where) {
       // SQL query
       params.set('where', queryParams.where);
@@ -206,60 +204,21 @@ export default function ChatView() {
     }
 
     return data;
-  }, [activeMap?.endpoint, config?.data?.endpoint, setSearchLocation]);
+  }, [activeMap?.endpoint, config?.data?.endpoint]);
 
   /**
-   * Geocode an address
+   * Handle search submission (called from parent via ref)
    */
-  const geocodeAddress = useCallback(async (address) => {
-    const geocoder = activeMap?.geocoder || config?.data?.geocoder;
-    if (!geocoder?.url) return null;
-
-    try {
-      const params = new URLSearchParams({
-        SingleLine: address,
-        f: 'json',
-        outSR: '4326',
-        maxLocations: 1,
-        ...geocoder.params
-      });
-
-      const response = await fetch(`${geocoder.url}/findAddressCandidates?${params}`);
-      const data = await response.json();
-
-      if (data.candidates?.length > 0) {
-        const candidate = data.candidates[0];
-        return {
-          location: {
-            x: candidate.location.x,
-            y: candidate.location.y
-          },
-          address: candidate.address,
-          score: candidate.score
-        };
-      }
-    } catch (e) {
-      console.warn('[ChatView] Geocoding failed:', e);
-    }
-
-    return null;
-  }, [activeMap?.geocoder, config?.data?.geocoder]);
-
-  /**
-   * Handle search submission
-   */
-  const handleSearch = useCallback(async (query = inputValue) => {
+  const handleSearch = useCallback(async (query) => {
     if (!query?.trim() || isLoading) return;
 
     const trimmedQuery = query.trim();
-    setInputValue('');
-    setShowMenu(false);
-    setSuggestions([]);
 
     // Add user message
     addMessage('user', trimmedQuery);
 
     setIsLoading(true);
+    setIsSearching?.(true);
     setLoadingText('Analyzing your question...');
 
     try {
@@ -310,56 +269,15 @@ export default function ChatView() {
       addMessage('error', `Sorry, I encountered an error: ${err.message}. Please try rephrasing your question.`);
     } finally {
       setIsLoading(false);
+      setIsSearching?.(false);
     }
-  }, [inputValue, isLoading, addMessage, translateQuery, executeQuery, updateSearchResults, saveToHistory, mapViewRef, enabledModes]);
+  }, [isLoading, addMessage, translateQuery, executeQuery, updateSearchResults, saveToHistory, mapViewRef, enabledModes, setIsSearching]);
 
   /**
    * Handle example question click
    */
   const handleExampleClick = useCallback((question) => {
-    setInputValue(question);
-    inputRef.current?.focus();
-  }, []);
-
-  /**
-   * Handle input change with autocomplete
-   */
-  const handleInputChange = useCallback((e) => {
-    const value = e.target.value;
-    setInputValue(value);
-
-    // Clear suggestions if empty
-    if (!value.trim()) {
-      setSuggestions([]);
-      return;
-    }
-
-    // Check autocomplete patterns
-    const autocompleteConfig = activeMap?.autocomplete || [];
-    for (const ac of autocompleteConfig) {
-      const pattern = new RegExp(ac.pattern);
-      if (pattern.test(value)) {
-        // Could fetch suggestions from API here
-        // For now, just show the type hint
-        setSuggestions([{
-          type: ac.type,
-          label: ac.label || ac.type,
-          icon: ac.icon || '🔍'
-        }]);
-        return;
-      }
-    }
-    setSuggestions([]);
-  }, [activeMap?.autocomplete]);
-
-  /**
-   * Handle key press
-   */
-  const handleKeyPress = useCallback((e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSearch();
-    }
+    handleSearch(question);
   }, [handleSearch]);
 
   /**
@@ -370,6 +288,11 @@ export default function ChatView() {
     setSearchHistory([]);
     localStorage.removeItem(key);
   }, [config?.id]);
+
+  // Expose handleSearch method to parent via ref
+  useImperativeHandle(ref, () => ({
+    handleSearch
+  }), [handleSearch]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -419,93 +342,13 @@ export default function ChatView() {
         )}
       </div>
 
-      {/* Input Area */}
-      <footer className="border-t border-slate-200 bg-white p-3">
-        <div className="max-w-4xl mx-auto relative">
-          {/* Suggestions */}
-          {suggestions.length > 0 && (
-            <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border border-slate-200 rounded-xl shadow-lg p-2">
-              {suggestions.map((s, i) => (
-                <div key={i} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600">
-                  <span>{s.icon}</span>
-                  <span>{s.label} detected</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Input Row */}
-          <div className="relative flex items-center gap-2">
-            {/* Menu Button */}
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-
-            {/* Menu Dropdown */}
-            {showMenu && (
-              <div className="absolute bottom-12 left-0 bg-white border border-slate-200 shadow-xl rounded-xl w-56 p-1.5 z-50">
-                <button
-                  onClick={() => { setShowAdvanced(true); setShowMenu(false); }}
-                  className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
-                >
-                  <div className={`w-8 h-8 rounded-full bg-${themeColor}-100 text-${themeColor}-600 flex items-center justify-center`}>
-                    <Filter className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="block text-sm font-semibold text-slate-700">Advanced Search</span>
-                    <span className="block text-xs text-slate-400">Filter by specific fields</span>
-                  </div>
-                </button>
-                <button
-                  onClick={() => { setShowHistory(true); setShowMenu(false); }}
-                  className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
-                >
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                    <Clock className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="block text-sm font-semibold text-slate-700">History</span>
-                    <span className="block text-xs text-slate-400">View previous searches</span>
-                  </div>
-                </button>
-              </div>
-            )}
-
-            {/* Input Field */}
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputValue}
-              onChange={handleInputChange}
-              onKeyPress={handleKeyPress}
-              placeholder={activeMap?.searchPlaceholder || 'Ask about properties...'}
-              className="flex-1 border border-slate-300 rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500 text-slate-700"
-              disabled={isLoading}
-            />
-
-            {/* Send Button */}
-            <button
-              onClick={() => inputValue.trim() ? handleSearch() : null}
-              disabled={isLoading}
-              className={`p-2 rounded-full ${
-                inputValue.trim() 
-                  ? `bg-${themeColor}-600 text-white hover:bg-${themeColor}-700` 
-                  : 'bg-slate-100 text-slate-400'
-              } transition-colors`}
-              title={inputValue.trim() ? 'Search' : 'Help'}
-            >
-              {inputValue.trim() ? (
-                <Send className="w-5 h-5" />
-              ) : (
-                <HelpCircle className="w-5 h-5" />
-              )}
-            </button>
-          </div>
+      {/* Tip Footer */}
+      <div className="border-t border-slate-200 bg-white px-4 py-3">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <Lightbulb className="w-4 h-4 text-amber-500" />
+          <span>Tip: Use the search bar {config?.ui?.searchBarPosition === 'bottom' ? 'below' : 'above'} to ask questions about properties</span>
         </div>
-      </footer>
+      </div>
 
       {/* History Panel */}
       {showHistory && (
@@ -516,14 +359,9 @@ export default function ChatView() {
           onClose={() => setShowHistory(false)}
         />
       )}
-
-      {/* Click outside to close menu */}
-      {showMenu && (
-        <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-      )}
     </div>
   );
-}
+});
 
 /**
  * Welcome Message Component
@@ -541,7 +379,7 @@ function WelcomeMessage({ config, botAvatar, onExampleClick }) {
             <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
           ) : (
             <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
-              <Lightbulb className={`w-5 h-5 text-${themeColor}-600`} />
+              <HelpCircle className={`w-5 h-5 text-${themeColor}-600`} />
             </div>
           )}
         </div>
@@ -550,36 +388,37 @@ function WelcomeMessage({ config, botAvatar, onExampleClick }) {
             <h3 className="font-semibold text-slate-800 mb-2">
               {config?.messages?.welcomeTitle || 'Welcome!'}
             </h3>
-            <p className="text-sm text-slate-600 mb-3">
-              {config?.messages?.welcomeText || 'Ask me about properties in natural language.'}
+            <p className="text-slate-600 text-sm">
+              {config?.messages?.welcomeText || 'Search for properties using natural language. Try asking questions like:'}
             </p>
-            
-            {exampleQuestions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Try asking:</p>
-                <div className="flex flex-wrap gap-2">
-                  {exampleQuestions.map((q, i) => (
-                    <button
-                      key={i}
-                      onClick={() => onExampleClick(q)}
-                      className={`text-sm px-3 py-1.5 rounded-full bg-${themeColor}-50 text-${themeColor}-700 hover:bg-${themeColor}-100 transition-colors`}
-                    >
-                      {q}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
           
-          {config?.messages?.importantNote && (
-            <div className="mt-2 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 p-2 rounded-lg">
-              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>{config.messages.importantNote}</span>
+          {/* Example Questions */}
+          {exampleQuestions.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {exampleQuestions.slice(0, 4).map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => onExampleClick(q)}
+                  className={`px-3 py-1.5 bg-white border border-slate-200 rounded-full text-sm text-slate-600 hover:bg-${themeColor}-50 hover:border-${themeColor}-200 hover:text-${themeColor}-700 transition`}
+                >
+                  {q}
+                </button>
+              ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* Important Note */}
+      {config?.messages?.importantNote && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-amber-800">
+            <strong className="font-semibold">Note:</strong> {config.messages.importantNote}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -588,57 +427,106 @@ function WelcomeMessage({ config, botAvatar, onExampleClick }) {
  * Message Bubble Component
  */
 function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable }) {
-  const isUser = message.type === 'user';
-  const isError = message.type === 'error';
+  const [copied, setCopied] = useState(false);
 
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (message.type === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className={`max-w-[80%] bg-${themeColor}-600 text-white p-4 rounded-2xl rounded-tr-none shadow-sm`}>
+          <p className="text-sm">{message.content}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.type === 'error') {
+    return (
+      <div className="flex gap-4">
+        <div className="w-10 h-10 rounded-full bg-red-100 flex-shrink-0 flex items-center justify-center">
+          <AlertCircle className="w-5 h-5 text-red-600" />
+        </div>
+        <div className="bg-red-50 border border-red-200 p-4 rounded-2xl rounded-tl-none">
+          <p className="text-sm text-red-800">{message.content}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // AI message
   return (
-    <div className={`flex gap-4 ${isUser ? 'flex-row-reverse' : ''}`}>
-      {/* Avatar */}
-      {!isUser && (
-        <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
-          {botAvatar ? (
-            <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
-          ) : (
-            <div className={`w-full h-full bg-${themeColor}-100 rounded-full`} />
-          )}
-        </div>
-      )}
-      
-      {/* Message Content */}
-      <div className={`max-w-[75%] ${isUser ? 'ml-auto' : ''}`}>
-        <div className={`p-4 rounded-2xl ${
-          isUser 
-            ? `bg-${themeColor}-600 text-white rounded-tr-none`
-            : isError
-              ? 'bg-red-50 border border-red-200 text-red-700 rounded-tl-none'
-              : 'bg-white border border-slate-200 shadow-sm rounded-tl-none'
-        }`}>
-          <p className={`text-sm ${isUser ? 'text-white' : isError ? 'text-red-700' : 'text-slate-700'}`}>
-            {message.content}
-          </p>
-        </div>
-        
-        {/* Result Actions */}
-        {message.showResultActions && (
-          <div className="mt-2 flex gap-2">
-            <button
-              onClick={onViewMap}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
-            >
-              <Map className="w-3.5 h-3.5" />
-              View on Map
-            </button>
-            <button
-              onClick={onViewTable}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
-            >
-              <Table2 className="w-3.5 h-3.5" />
-              View in Table
-            </button>
+    <div className="flex gap-4">
+      <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+        {botAvatar ? (
+          <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
+        ) : (
+          <div className={`w-full h-full bg-${themeColor}-100 rounded-full flex items-center justify-center`}>
+            <HelpCircle className={`w-5 h-5 text-${themeColor}-600`} />
           </div>
         )}
       </div>
+      <div className="flex-1">
+        <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200">
+          {/* Render markdown-like content */}
+          <p className="text-sm text-slate-700" dangerouslySetInnerHTML={{
+            __html: message.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          }} />
+          
+          {/* Feature details */}
+          {message.showDetails && message.feature && (
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <FeatureDetails feature={message.feature} themeColor={themeColor} />
+            </div>
+          )}
+          
+          {/* Result actions */}
+          {message.showResultActions && (
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={onViewMap}
+                className={`flex items-center gap-1.5 px-3 py-1.5 bg-${themeColor}-50 text-${themeColor}-700 rounded-lg text-sm font-medium hover:bg-${themeColor}-100 transition`}
+              >
+                <Map className="w-4 h-4" />
+                View on Map
+              </button>
+              <button
+                onClick={onViewTable}
+                className={`flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition`}
+              >
+                <Table2 className="w-4 h-4" />
+                View in Table
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Feature Details Component
+ */
+function FeatureDetails({ feature, themeColor }) {
+  const attrs = feature.attributes || {};
+  const displayFields = Object.entries(attrs)
+    .filter(([k, v]) => !k.startsWith('_') && v != null && k !== 'OBJECTID')
+    .slice(0, 8);
+
+  return (
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+      {displayFields.map(([key, value]) => (
+        <div key={key}>
+          <dt className="text-xs font-medium text-slate-500 uppercase">{key}</dt>
+          <dd className="text-slate-800">{String(value)}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -647,53 +535,52 @@ function MessageBubble({ message, botAvatar, themeColor, onViewMap, onViewTable 
  */
 function HistoryPanel({ history, onSelect, onClear, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/20">
-      <div className="bg-white w-full max-w-lg rounded-t-2xl shadow-2xl max-h-[60vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center">
+      <div className="bg-white w-full md:w-96 max-h-[80vh] rounded-t-2xl md:rounded-2xl overflow-hidden shadow-xl">
+        <div className="p-4 border-b border-slate-200 flex justify-between items-center">
           <h3 className="font-semibold text-slate-800">Search History</h3>
-          <div className="flex items-center gap-2">
-            {history.length > 0 && (
-              <button
-                onClick={onClear}
-                className="text-xs text-red-500 hover:text-red-700"
-              >
-                Clear All
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="p-1 hover:bg-slate-100 rounded-full"
-            >
-              <X className="w-5 h-5 text-slate-500" />
-            </button>
-          </div>
+          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded">
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
         </div>
         
-        {/* History List */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="overflow-y-auto max-h-[60vh]">
           {history.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-sm">
-              No search history found.
+            <div className="p-8 text-center text-slate-500">
+              <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No search history yet</p>
             </div>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100">
               {history.map((item, i) => (
-                <li
+                <button
                   key={i}
                   onClick={() => onSelect(item.query)}
-                  className="px-4 py-3 hover:bg-slate-50 cursor-pointer"
+                  className="w-full p-4 text-left hover:bg-slate-50 transition"
                 >
-                  <div className="text-sm text-slate-700">{item.query}</div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    {new Date(item.timestamp).toLocaleString()}
-                  </div>
-                </li>
+                  <p className="text-sm text-slate-800">{item.query}</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {new Date(item.timestamp).toLocaleDateString()}
+                  </p>
+                </button>
               ))}
-            </ul>
+            </div>
           )}
         </div>
+        
+        {history.length > 0 && (
+          <div className="p-4 border-t border-slate-200">
+            <button
+              onClick={onClear}
+              className="w-full py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
+            >
+              Clear History
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+export default ChatView;
