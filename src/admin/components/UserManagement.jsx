@@ -38,7 +38,9 @@ import {
   CheckCircle,
   AlertOctagon,
   Shield,
-  Eraser
+  Eraser,
+  Bell,
+  ChevronDown
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
 
@@ -79,12 +81,48 @@ export default function UserManagement({
   const [availableOptions, setAvailableOptions] = useState([]);
   const [optionsMap, setOptionsMap] = useState({});
 
-  // Fetch data based on role
-  useEffect(() => {
-    fetchData();
-  }, [role, orgId]);
+  // Filter states
+  const [organizations, setOrganizations] = useState([]);
+  const [filterOrg, setFilterOrg] = useState('all');
+  const [filterNotification, setFilterNotification] = useState('all');
 
-  // Fetch notification configs
+  // Fetch users with real-time listener
+  useEffect(() => {
+    setLoading(true);
+    const unsubUsers = onSnapshot(collection(db, PATHS.users), (snapshot) => {
+      const allUsers = snapshot.docs.map(docSnap => ({
+        uid: docSnap.id,
+        isRegistered: true,
+        ...docSnap.data()
+      }));
+      setUsers(allUsers);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching users:", error);
+      setLoading(false);
+    });
+
+    return () => unsubUsers();
+  }, [db]);
+
+  // Fetch invites with real-time listener
+  useEffect(() => {
+    const unsubInvites = onSnapshot(collection(db, PATHS.invitations), (snapshot) => {
+      const allInvites = snapshot.docs.map(docSnap => ({
+        uid: docSnap.id, 
+        isRegistered: false,
+        isInvite: true,
+        ...docSnap.data()
+      }));
+      setInvites(allInvites);
+    }, (error) => {
+      console.error("Error fetching invites:", error);
+    });
+
+    return () => unsubInvites();
+  }, [db]);
+
+  // Fetch notification configs and organizations
   useEffect(() => {
     if (role === 'org_admin' && orgData?.notifications) {
       // For org admin, use org-specific notifications
@@ -119,9 +157,11 @@ export default function UserManagement({
       const querySnapshot = await getDocs(collection(db, PATHS.organizations));
       const options = [];
       const map = {};
+      const orgs = [];
       
       querySnapshot.forEach(docSnap => {
         const data = docSnap.data();
+        orgs.push({ id: docSnap.id, name: data.name, ...data });
         if (data.notifications) {
           data.notifications.forEach(notif => {
             const key = `${docSnap.id}_${notif.id}`;
@@ -139,6 +179,7 @@ export default function UserManagement({
           });
         }
       });
+      setOrganizations(orgs);
       setAvailableOptions(options);
       setOptionsMap(map);
     } catch (e) {
@@ -146,72 +187,51 @@ export default function UserManagement({
     }
   };
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const unsubUsers = onSnapshot(collection(db, PATHS.users), (snapshot) => {
-        const allUsers = snapshot.docs.map(docSnap => ({
-          uid: docSnap.id,
-          isRegistered: true,
-          ...docSnap.data()
-        }));
-        
-        if (role === 'org_admin' && orgId) {
-          // Filter to only users with subscriptions to this org
-          const orgUsers = allUsers.filter(user => {
-            if (!user.subscriptions) return false;
-            return Object.keys(user.subscriptions).some(key => key.startsWith(`${orgId}_`) && user.subscriptions[key]);
-          });
-          setUsers(orgUsers);
-        } else {
-          setUsers(allUsers);
-        }
-      }, (error) => {
-        console.error("Error fetching users:", error);
-      });
-
-      const unsubInvites = onSnapshot(collection(db, PATHS.invitations), (snapshot) => {
-        const allInvites = snapshot.docs.map(docSnap => ({
-          uid: docSnap.id, 
-          isRegistered: false,
-          isInvite: true,
-          ...docSnap.data()
-        }));
-        
-        if (role === 'org_admin' && orgId) {
-          // Filter to only invites for this org
-          const orgInvites = allInvites.filter(inv => inv.orgId === orgId);
-          setInvites(orgInvites);
-        } else {
-          setInvites(allInvites);
-        }
-      }, (error) => {
-        console.error("Error fetching invites:", error);
-      });
-
-      setLoading(false);
-      return () => { unsubUsers(); unsubInvites(); };
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setLoading(false);
-    }
-  };
-
   // Combine users and invites into a single list
   const combinedList = useMemo(() => {
+    let filteredUsersList = users;
+    let filteredInvitesList = invites;
+    
+    // For org_admin, filter to only users with subscriptions to this org
+    if (role === 'org_admin' && orgId) {
+      filteredUsersList = users.filter(user => {
+        if (!user.subscriptions) return false;
+        return Object.keys(user.subscriptions).some(key => key.startsWith(`${orgId}_`) && user.subscriptions[key]);
+      });
+      filteredInvitesList = invites.filter(inv => inv.orgId === orgId);
+    }
+    
     const map = new Map();
-    users.forEach(u => {
+    filteredUsersList.forEach(u => {
       if(u.email) map.set(u.email.toLowerCase(), u);
       else map.set(u.uid, u);
     });
-    invites.forEach(inv => {
+    filteredInvitesList.forEach(inv => {
       const email = inv.email.toLowerCase();
       if (!map.has(email)) {
         map.set(email, inv);
       }
     });
     return Array.from(map.values()).sort((a, b) => (a.email || "").localeCompare(b.email || ""));
-  }, [users, invites]);
+  }, [users, invites, role, orgId]);
+
+  // Get filtered notification options based on selected org (for admin)
+  const filteredNotificationOptions = useMemo(() => {
+    if (role === 'org_admin') {
+      return availableOptions;
+    }
+    if (filterOrg === 'all') {
+      return availableOptions;
+    }
+    return availableOptions.filter(opt => opt.orgId === filterOrg);
+  }, [role, filterOrg, availableOptions]);
+
+  // Reset notification filter when org filter changes
+  useEffect(() => {
+    if (role === 'admin') {
+      setFilterNotification('all');
+    }
+  }, [filterOrg, role]);
 
   const handleSaveSubscriptions = async (userId, newSubs) => {
     try {
@@ -302,10 +322,42 @@ export default function UserManagement({
     });
   };
 
-  const filteredUsers = combinedList.filter(u => 
-    u.email?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    u.uid.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = useMemo(() => {
+    let result = combinedList;
+    
+    // Apply search filter
+    if (searchTerm) {
+      result = result.filter(u => 
+        u.email?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        u.uid.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    // For admin: filter by org if selected
+    if (role === 'admin' && filterOrg !== 'all') {
+      result = result.filter(u => {
+        if (u.isInvite) return u.orgId === filterOrg;
+        if (!u.subscriptions) return false;
+        return Object.keys(u.subscriptions).some(key => 
+          key.startsWith(`${filterOrg}_`) && u.subscriptions[key] === true
+        );
+      });
+    }
+    
+    // Filter by notification if selected (both roles)
+    if (filterNotification !== 'all') {
+      result = result.filter(u => {
+        if (u.isInvite) {
+          // Check if invite has this notification in its subscriptions
+          return u.subscriptions && u.subscriptions[filterNotification] === true;
+        }
+        if (!u.subscriptions) return false;
+        return u.subscriptions[filterNotification] === true;
+      });
+    }
+    
+    return result;
+  }, [combinedList, searchTerm, role, filterOrg, filterNotification]);
 
   const formatDate = (value) => {
     if (!value) return 'N/A';
@@ -343,24 +395,11 @@ export default function UserManagement({
           </h2>
           <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
             <UsersIcon className="w-3 h-3" /> 
-            {role === 'admin' 
-              ? 'Unique Users & Invites' 
-              : `Users subscribed to ${orgData?.name} notifications`}
+            {filteredUsers.length} {role === 'admin' ? 'users' : 'subscribers'}
+            {(filterOrg !== 'all' || filterNotification !== 'all') && ' (filtered)'}
           </p>
         </div>
         <div className="flex gap-2">
-          <div className="relative w-64">
-            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search email..." 
-              className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-2 outline-none"
-              style={{ '--tw-ring-color': accentColor }}
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-            />
-          </div>
-          
           {/* Audit Button - Admin only */}
           {role === 'admin' && (
             <button 
@@ -380,6 +419,76 @@ export default function UserManagement({
             <Send className="w-4 h-4" /> Invite User
           </button>
         </div>
+      </div>
+
+      {/* Filters Row */}
+      <div className="flex flex-wrap gap-3 items-center">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="Search email..." 
+            className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-2 outline-none"
+            style={{ '--tw-ring-color': accentColor }}
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* Org Filter - Admin only */}
+        {role === 'admin' && organizations.length > 0 && (
+          <div className="relative">
+            <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <select
+              value={filterOrg}
+              onChange={e => setFilterOrg(e.target.value)}
+              className="pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-sm appearance-none bg-white focus:ring-2 outline-none min-w-[180px]"
+              style={{ '--tw-ring-color': accentColor }}
+            >
+              <option value="all">All Organizations</option>
+              {organizations.map(org => (
+                <option key={org.id} value={org.id}>{org.name}</option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          </div>
+        )}
+
+        {/* Notification Filter - Both roles */}
+        {filteredNotificationOptions.length > 0 && (
+          <div className="relative">
+            <Bell className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <select
+              value={filterNotification}
+              onChange={e => setFilterNotification(e.target.value)}
+              className="pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-sm appearance-none bg-white focus:ring-2 outline-none min-w-[180px]"
+              style={{ '--tw-ring-color': accentColor }}
+            >
+              <option value="all">All Notifications</option>
+              {filteredNotificationOptions.map(opt => (
+                <option key={opt.key} value={opt.key}>
+                  {role === 'admin' && filterOrg === 'all' ? `${opt.organization} - ${opt.label}` : opt.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          </div>
+        )}
+
+        {/* Clear Filters */}
+        {(filterOrg !== 'all' || filterNotification !== 'all' || searchTerm) && (
+          <button
+            onClick={() => {
+              setFilterOrg('all');
+              setFilterNotification('all');
+              setSearchTerm('');
+            }}
+            className="px-3 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg flex items-center gap-1"
+          >
+            <X className="w-4 h-4" /> Clear
+          </button>
+        )}
       </div>
 
       {/* Users Table */}

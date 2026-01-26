@@ -212,6 +212,7 @@ function AdminApp() {
   const [accessError, setAccessError] = useState(null);
   const [isNewAccount, setIsNewAccount] = useState(false);
 
+  // Auth state listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
@@ -231,13 +232,6 @@ function AdminApp() {
             if (adminData.role === 'org_admin') {
               setAdminRole('org_admin');
               setOrgAdminData(adminData);
-              
-              if (adminData.organizationId) {
-                const configDoc = await getDoc(doc(db, PATHS.organizations, adminData.organizationId));
-                if (configDoc.exists()) {
-                  setOrgConfig({ id: configDoc.id, ...configDoc.data() });
-                }
-              }
               setLoading(false);
               return;
             }
@@ -253,6 +247,25 @@ function AdminApp() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Real-time listener for org config (org_admin only)
+  useEffect(() => {
+    if (adminRole !== 'org_admin' || !orgAdminData?.organizationId) return;
+    
+    const unsubscribe = onSnapshot(
+      doc(db, PATHS.organizations, orgAdminData.organizationId),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setOrgConfig({ id: docSnap.id, ...docSnap.data() });
+        }
+      },
+      (error) => {
+        console.error("Error listening to org config:", error);
+      }
+    );
+    
+    return () => unsubscribe();
+  }, [adminRole, orgAdminData?.organizationId]);
 
   const clearNewAccountFlag = () => setIsNewAccount(false);
 
@@ -280,7 +293,16 @@ function AdminApp() {
     );
   }
 
-  if (adminRole === 'org_admin' && orgConfig) {
+  if (adminRole === 'org_admin') {
+    // Wait for orgConfig to load from the real-time listener
+    if (!orgConfig) {
+      return (
+        <div className="h-screen flex items-center justify-center bg-slate-50">
+          <Loader2 className="w-8 h-8 animate-spin text-[#1E5631]" />
+        </div>
+      );
+    }
+    
     return (
       <AdminProvider 
         role="org_admin" 
@@ -909,9 +931,17 @@ function OrganizationManagement() {
   };
 
   const handleDeleteOrg = (org) => {
+    // Check if org has notifications
+    const notificationCount = org.notifications?.length || 0;
+    
+    if (notificationCount > 0) {
+      addToast(`Cannot delete "${org.name}" - it has ${notificationCount} notification${notificationCount > 1 ? 's' : ''}. Delete the notifications first.`, 'error');
+      return;
+    }
+    
     confirm({
       title: 'Delete Organization',
-      message: `Are you sure you want to delete "${org.name}"? This will remove all notification configurations for this organization.`,
+      message: `Are you sure you want to delete "${org.name}"? This action cannot be undone.`,
       destructive: true,
       confirmLabel: 'Delete',
       onConfirm: async () => {
@@ -957,7 +987,9 @@ function OrganizationManagement() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredOrgs.map(org => (
+          {filteredOrgs.map(org => {
+            const hasNotifications = (org.notifications?.length || 0) > 0;
+            return (
             <div key={org.id} className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-3">
                 <div>
@@ -966,8 +998,12 @@ function OrganizationManagement() {
                 </div>
                 <button
                   onClick={() => handleDeleteOrg(org)}
-                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
-                  title="Delete Organization"
+                  className={`p-1.5 rounded ${
+                    hasNotifications 
+                      ? 'text-slate-300 cursor-not-allowed' 
+                      : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                  }`}
+                  title={hasNotifications ? 'Delete notifications first' : 'Delete Organization'}
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -993,7 +1029,8 @@ function OrganizationManagement() {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
           
           {filteredOrgs.length === 0 && (
             <div className="col-span-full text-center py-12 text-slate-500">

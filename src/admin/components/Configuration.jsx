@@ -1,12 +1,13 @@
+// src/admin/components/Configuration.jsx
+// Notification Configuration Management
+// Updated: Removed Add Organization and Delete Organization - now managed in System section
+
 import React, { useState, useEffect } from 'react';
 import { 
   collection, 
   doc, 
   updateDoc, 
-  setDoc,
-  deleteDoc,
   onSnapshot,
-  serverTimestamp,
   addDoc
 } from "firebase/firestore";
 import { 
@@ -28,8 +29,10 @@ import { PATHS } from '../../shared/services/paths';
  * Shared Configuration Management Component
  * 
  * This component provides a unified configuration interface for two different admin roles:
- * - 'admin': System admins who can manage all organizations and their notifications
+ * - 'admin': System admins who can manage notifications for all organizations
  * - 'org_admin': Organization admins who can only manage notifications for their organization
+ * 
+ * Note: Organization creation/deletion is now handled in System > Organizations
  * 
  * Props:
  * @param {object} db - Firestore database instance
@@ -56,7 +59,6 @@ export default function Configuration({
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingNotification, setEditingNotification] = useState(null);
-  const [isCreatingOrg, setIsCreatingOrg] = useState(false);
 
   // Fetch all organizations for admin role
   useEffect(() => {
@@ -98,22 +100,6 @@ export default function Configuration({
     }
   };
 
-  // Admin: Delete organization
-  const deleteOrganization = (id) => {
-    if (role !== 'admin') return;
-    
-    confirm({
-      title: "Delete Organization",
-      message: "Are you sure? This will delete the configuration and all associated notification rules.",
-      destructive: true,
-      confirmLabel: "Delete",
-      onConfirm: async () => {
-        await deleteDoc(doc(db, PATHS.organizations, id));
-        addToast("Organization deleted", "success");
-      }
-    });
-  };
-
   // Update notification
   const handleUpdateNotification = async (targetOrgId, updatedNotifications) => {
     const docRef = doc(db, PATHS.organizations, targetOrgId);
@@ -151,39 +137,23 @@ export default function Configuration({
     });
   };
 
-  // Admin: Create organization
-  const handleSaveOrganization = async (id, name) => {
-    if (role !== 'admin') return;
-    
-    await setDoc(doc(db, PATHS.organizations, id), {
-      name: name,
-      timezone: "America/New_York",
-      notifications: []
-    });
-    setIsCreatingOrg(false);
-    addToast("Organization created", "success");
-  };
-
   // Force run broadcast
   const handleForceRunBroadcast = (targetOrgId, notifId, notifName) => {
     confirm({
       title: "Run Broadcast?",
-      message: `Confirm Force Run: ${notifName}?\n\nThis will send a notification to ALL subscribers immediately, regardless of schedule.`,
-      destructive: false,
-      confirmLabel: "Run Broadcast",
+      message: `This will immediately send "${notifName}" to all subscribers. Continue?`,
+      confirmLabel: "Run Now",
       onConfirm: async () => {
         try {
-          await addDoc(collection(db, PATHS.forceQueue), {
-            type: 'broadcast',
+          await addDoc(collection(db, 'force_queue'), {
             orgId: targetOrgId,
-            notifId: notifId,
-            status: 'pending',
-            createdAt: serverTimestamp(),
-            createdBy: role === 'admin' ? 'admin_ui' : 'org_admin_ui'
+            notificationId: notifId,
+            requestedAt: new Date(),
+            status: 'pending'
           });
-          addToast("Broadcast run queued successfully", "success");
+          addToast("Broadcast queued successfully!", "success");
         } catch (err) {
-          addToast("Error queuing broadcast: " + err.message, "error");
+          addToast("Error: " + err.message, "error");
         }
       }
     });
@@ -248,45 +218,37 @@ export default function Configuration({
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-bold text-slate-800">System Configuration</h2>
-            <p className="text-slate-500 text-sm">Manage organizations and their notification rules.</p>
-          </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => setIsCreatingOrg(true)} 
-              className="flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors font-medium"
-              style={{ backgroundColor: accentColor }}
-            >
-              <Plus className="w-4 h-4" /> Add Organization
-            </button>
+            <h2 className="text-xl font-bold text-slate-800">Notification Configuration</h2>
+            <p className="text-slate-500 text-sm">Manage notification rules for all organizations.</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {loading ? <p>Loading config...</p> : organizations.map(org => (
-            <OrganizationCard 
-              key={org.id} 
-              organization={org}
-              role={role}
-              accentColor={accentColor}
-              addToast={addToast}
-              onDelete={() => deleteOrganization(org.id)} 
-              onForceRun={(notifId, notifName) => handleForceRunBroadcast(org.id, notifId, notifName)}
-              onEditNotification={(idx, data) => handleEditNotification(org.id, idx, data, org.notifications)}
-              onDeleteNotification={(idx, name) => handleDeleteNotification(org.id, idx, name)}
-              onDuplicateNotification={(notif) => handleDuplicateNotification(org.id, notif, org.notifications)}
-              onAddNotification={() => handleAddNotification(org.id, org.notifications)}
-            />
-          ))}
+          {loading ? (
+            <p>Loading config...</p>
+          ) : organizations.length === 0 ? (
+            <div className="col-span-full text-center py-12 text-slate-500">
+              <Building2 className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+              <p>No organizations found.</p>
+              <p className="text-sm mt-1">Create organizations in System → Organizations.</p>
+            </div>
+          ) : (
+            organizations.map(org => (
+              <OrganizationCard 
+                key={org.id} 
+                organization={org}
+                role={role}
+                accentColor={accentColor}
+                addToast={addToast}
+                onForceRun={(notifId, notifName) => handleForceRunBroadcast(org.id, notifId, notifName)}
+                onEditNotification={(idx, data) => handleEditNotification(org.id, idx, data, org.notifications)}
+                onDeleteNotification={(idx, name) => handleDeleteNotification(org.id, idx, name)}
+                onDuplicateNotification={(notif) => handleDuplicateNotification(org.id, notif, org.notifications)}
+                onAddNotification={() => handleAddNotification(org.id, org.notifications)}
+              />
+            ))
+          )}
         </div>
-
-        {isCreatingOrg && (
-          <OrganizationCreateModal 
-            accentColor={accentColor}
-            onClose={() => setIsCreatingOrg(false)}
-            onSave={handleSaveOrganization}
-          />
-        )}
 
         {editingNotification && NotificationEditModal && (
           <NotificationEditModal 
@@ -374,12 +336,12 @@ export default function Configuration({
 }
 
 // --- Organization Card (Admin view) ---
+// Note: No delete button - organizations are managed in System section
 function OrganizationCard({ 
   organization, 
   role,
   accentColor,
   addToast,
-  onDelete, 
   onEditNotification, 
   onAddNotification, 
   onForceRun, 
@@ -397,104 +359,73 @@ function OrganizationCard({
     return `Monthly (${notif.runDay})${lagText}`;
   };
 
-  const copySignUpUrl = async (notif) => {
-    const url = `https://notify.civ.quest/?organization=${organization.id}&notification=${notif.id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      addToast("Sign-up URL copied to clipboard!", "success");
-    } catch (err) {
-      const textarea = document.createElement('textarea');
-      textarea.value = url;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      addToast("Sign-up URL copied to clipboard!", "success");
-    }
-  };
-
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col h-full">
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow">
       <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
         <div>
-          <h3 className="font-bold text-slate-800">{organization.name}</h3>
+          <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            <Building2 className="w-5 h-5" style={{ color: accentColor }} />
+            {organization.name}
+          </h3>
           <p className="text-xs text-slate-400 font-mono">{organization.id}</p>
         </div>
-        {role === 'admin' && (
-          <button onClick={onDelete} className="p-2 text-slate-400 hover:text-red-600 transition-colors">
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
       </div>
       
-      <div className="p-4 flex-1">
+      <div className="p-4">
         <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Notification Types</h4>
         {organization.notifications && organization.notifications.length > 0 ? (
           <div className="space-y-2">
             {organization.notifications.map((notif, idx) => (
               <div 
-                key={idx} 
+                key={idx}
                 className={`group relative flex flex-col gap-2 p-3 bg-slate-50 rounded-lg border border-slate-100 hover:border-opacity-50 transition-all ${notif.paused ? 'opacity-75 bg-slate-100' : ''}`}
-                style={{ '--hover-border-color': accentColor }}
               >
                 <div className="flex justify-between items-start">
                   <div className="flex gap-3">
                     <div 
                       className={`p-1.5 rounded h-fit ${notif.paused ? 'bg-slate-200 text-slate-400' : ''}`}
                       style={{ 
-                        backgroundColor: notif.paused ? undefined : `${accentColor}20`,
-                        color: notif.paused ? undefined : accentColor 
+                        backgroundColor: notif.paused ? undefined : `${accentColor}15`,
+                        color: notif.paused ? undefined : accentColor
                       }}
                     >
-                      <MailIcon className="w-3 h-3" />
+                      {notif.paused ? <PauseCircle className="w-4 h-4" /> : <ExternalLink className="w-4 h-4" />}
                     </div>
                     <div>
-                      <p className="font-medium text-sm text-slate-800 flex items-center gap-2">
+                      <h5 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                         {notif.name}
-                        {notif.access === 'private' && <Lock className="w-3 h-3 text-slate-400" />}
-                        {notif.paused && (
-                          <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 rounded font-bold uppercase flex items-center gap-1">
-                            <PauseCircle className="w-3 h-3"/> Paused
-                          </span>
-                        )}
-                      </p>
+                        {notif.access === 'private' && <Lock className="w-3 h-3 text-amber-500" />}
+                      </h5>
                       <p className="text-xs text-slate-500 line-clamp-1">{notif.description}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={() => copySignUpUrl(notif)}
-                      className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-white rounded transition-all"
-                      title="Copy Sign-up URL"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </button>
+                  
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button 
                       onClick={() => onForceRun(notif.id, notif.name)}
-                      className="p-1.5 text-slate-400 hover:bg-white rounded transition-all"
-                      style={{ ':hover': { color: accentColor } }}
-                      title="Force Run (Broadcast)"
+                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded transition-all"
+                      title="Force Run"
                     >
                       <Play className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={() => onDuplicateNotification(notif)}
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white rounded transition-all"
-                      title="Duplicate Notification"
+                      className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-white rounded transition-all"
+                      title="Duplicate"
                     >
                       <Copy className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={() => onEditNotification(idx, notif)}
                       className="p-1.5 text-slate-400 hover:bg-white rounded transition-all"
-                      title="Edit Rule"
+                      title="Edit"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={() => onDeleteNotification(idx, notif.name)}
                       className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-white rounded transition-all"
-                      title="Delete Rule"
+                      title="Delete"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -521,8 +452,7 @@ function OrganizationCard({
       <div className="p-3 border-t border-slate-100 bg-slate-50">
         <button 
           onClick={onAddNotification}
-          className="w-full py-2 border border-dashed border-slate-300 text-slate-500 rounded hover:bg-white text-sm transition-all flex items-center justify-center gap-2"
-          style={{ ':hover': { borderColor: accentColor, color: accentColor } }}
+          className="w-full py-2 border border-dashed border-slate-300 text-slate-500 rounded hover:bg-white text-sm transition-all flex items-center justify-center gap-2 hover:border-slate-400 hover:text-slate-600"
         >
           <Plus className="w-4 h-4" /> Add Notification Rule
         </button>
@@ -579,37 +509,33 @@ function NotificationRow({
           <div 
             className={`p-1.5 rounded h-fit ${notif.paused ? 'bg-slate-200 text-slate-400' : ''}`}
             style={{ 
-              backgroundColor: notif.paused ? undefined : `${accentColor}20`,
-              color: notif.paused ? undefined : accentColor 
+              backgroundColor: notif.paused ? undefined : `${accentColor}15`,
+              color: notif.paused ? undefined : accentColor
             }}
           >
-            <MailIcon className="w-3 h-3" />
+            {notif.paused ? <PauseCircle className="w-4 h-4" /> : <ExternalLink className="w-4 h-4" />}
           </div>
           <div>
-            <p className="font-medium text-sm text-slate-800 flex items-center gap-2">
+            <h5 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
               {notif.name}
-              {notif.access === 'private' && <Lock className="w-3 h-3 text-slate-400" />}
-              {notif.paused && (
-                <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 rounded font-bold uppercase flex items-center gap-1">
-                  <PauseCircle className="w-3 h-3"/> Paused
-                </span>
-              )}
-            </p>
+              {notif.access === 'private' && <Lock className="w-3 h-3 text-amber-500" />}
+            </h5>
             <p className="text-xs text-slate-500 line-clamp-1">{notif.description}</p>
           </div>
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button 
             onClick={copySignUpUrl}
-            className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-white rounded transition-all"
+            className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-white rounded transition-all"
             title="Copy Sign-up URL"
           >
             <ExternalLink className="w-4 h-4" />
           </button>
           <button 
             onClick={onForceRun}
-            className="p-1.5 text-slate-400 hover:bg-white rounded transition-all"
-            title="Force Run (Broadcast)"
+            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded transition-all"
+            title="Force Run"
           >
             <Play className="w-4 h-4" />
           </button>
@@ -647,79 +573,5 @@ function NotificationRow({
         )}
       </div>
     </div>
-  );
-}
-
-// --- Organization Create Modal (Admin only) ---
-function OrganizationCreateModal({ accentColor, onClose, onSave }) {
-  const [id, setId] = useState('');
-  const [name, setName] = useState('');
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-bold text-lg text-slate-800">Add New Organization</h3>
-          <button onClick={onClose}>
-            <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
-          </button>
-        </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Organization ID (System)</label>
-            <input 
-              value={id} 
-              onChange={e => setId(e.target.value.toLowerCase().replace(/\s+/g, '_'))} 
-              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2"
-              style={{ '--tw-ring-color': accentColor }}
-              placeholder="e.g. org_identifier"
-            />
-            <p className="text-xs text-slate-500 mt-1">Unique identifier, lowercase, no spaces.</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Display Name</label>
-            <input 
-              value={name} 
-              onChange={e => setName(e.target.value)} 
-              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2"
-              style={{ '--tw-ring-color': accentColor }}
-              placeholder="e.g. Acme Corp"
-            />
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-            Cancel
-          </button>
-          <button 
-            disabled={!id || !name}
-            onClick={() => onSave(id, name)} 
-            className="px-4 py-2 text-white rounded-lg disabled:opacity-50"
-            style={{ backgroundColor: accentColor }}
-          >
-            Create Organization
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// --- Mail Icon ---
-function MailIcon({ className }) {
-  return (
-    <svg 
-      className={className} 
-      xmlns="http://www.w3.org/2000/svg" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
-    >
-      <rect width="20" height="16" x="2" y="4" rx="2" />
-      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-    </svg>
   );
 }
