@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@arcgis/core": "^4.34.8",
+    "ag-grid-community": "^35.0.1",
+    "ag-grid-react": "^35.0.1",
     "firebase": "^10.7.1",
     "lucide-react": "^0.294.0",
     "papaparse": "^5.4.1",

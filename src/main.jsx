@@ -5,8 +5,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import NotifyApp from './notify/NotifyApp';
 import AdminApp from './admin/AdminApp';
-// Atlas components (Phase 3)
-// import AtlasApp from './atlas/AtlasApp';
+import AtlasApp from './atlas/AtlasApp';
 
 // Define Global Configuration for ArcGIS Proxy
 window.ARCGIS_PROXY_URL = 'https://notify.civ.quest';
@@ -15,6 +14,7 @@ window.ARCGIS_PROXY_URL = 'https://notify.civ.quest';
 const getRouteInfo = () => {
   const hostname = window.location.hostname;
   const path = window.location.pathname;
+  const params = new URLSearchParams(window.location.search);
   
   // Parse subdomain
   const parts = hostname.split('.');
@@ -24,27 +24,34 @@ const getRouteInfo = () => {
   // - notify.civ.quest -> subdomain = 'notify'
   // - atlas.civ.quest -> subdomain = 'atlas'
   // - admin.civ.quest -> subdomain = 'admin'
+  // - chesapeake.atlas.civ.quest -> subdomain = 'atlas' (org subdomain)
   // - localhost -> check path or query param
   // - civ.quest (root) -> no subdomain
   if (hostname.includes('localhost') || hostname === '127.0.0.1') {
     // Local development: use path-based or query param routing
-    const params = new URLSearchParams(window.location.search);
     const moduleOverride = params.get('module');
     if (moduleOverride) {
       subdomain = moduleOverride;
-    } else {
-      subdomain = null;
     }
-  } else if (parts.length > 2) {
-    subdomain = parts[0];
+    // If ?org= is present, assume Atlas
+    else if (params.get('org')) {
+      subdomain = 'atlas';
+    }
+  } else if (parts.length >= 3) {
+    // Check if it's an org subdomain (e.g., chesapeake.atlas.civ.quest)
+    if (parts[1] === 'atlas') {
+      subdomain = 'atlas';
+    } else {
+      subdomain = parts[0];
+    }
   }
   
-  return { subdomain, path };
+  return { subdomain, path, params };
 };
 
 // Route component selection
 const getAppComponent = () => {
-  const { subdomain, path } = getRouteInfo();
+  const { subdomain, path, params } = getRouteInfo();
   
   // Path-based routing (development and production)
   if (path.startsWith('/admin')) {
@@ -55,6 +62,19 @@ const getAppComponent = () => {
   // Legacy route - redirect org-admin to unified admin
   if (path.startsWith('/org-admin')) {
     return AdminApp;
+  }
+  
+  // Atlas routes
+  if (path.startsWith('/atlas')) {
+    return AtlasApp;
+  }
+  
+  // Check if path is an org ID (not a known route) - e.g., /chesapeake
+  const knownRoutes = ['admin', 'notify', 'atlas', 'org-admin', 'test-editor', 'test-spatial'];
+  const pathSegment = path.split('/')[1];
+  if (pathSegment && !knownRoutes.includes(pathSegment.toLowerCase())) {
+    // Treat as Atlas with org ID in path
+    return AtlasApp;
   }
   
   // Test routes for development
@@ -68,14 +88,16 @@ const getAppComponent = () => {
     case 'notify':
       return NotifyApp;
     case 'atlas':
-      // return AtlasApp;
-      console.warn('Atlas not yet implemented - showing Notify');
-      return NotifyApp;
+      return AtlasApp;
     case 'admin':
       // Unified admin portal
       return AdminApp;
     default:
-      // Default to Notify for now
+      // Check if subdomain is an org ID
+      if (subdomain && !['www', 'notify', 'atlas', 'admin'].includes(subdomain)) {
+        return AtlasApp;
+      }
+      // Default to Notify
       return NotifyApp;
   }
 };
