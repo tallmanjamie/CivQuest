@@ -1,7 +1,8 @@
 // src/atlas/hooks/useAtlasConfig.js
 // Hook to load Atlas configuration from Firestore organizations/{orgId}.atlasConfig
+// Supports draft preview mode via ?preview=draft query parameter
 //
-// DEBUG: Added logging to trace theme color loading issues
+// UPDATED: Added draft preview support for admin preview functionality
 
 import { useState, useEffect, useCallback } from 'react';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
@@ -45,6 +46,16 @@ const DEFAULT_CONFIG = {
 };
 
 /**
+ * Detect if preview mode is enabled from URL
+ * @returns {boolean} True if ?preview=draft is present
+ */
+export function isPreviewDraftMode() {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('preview') === 'draft';
+}
+
+/**
  * Detect organization ID from URL
  * Supports: subdomain (chesapeake.atlas.civ.quest), path (/atlas/chesapeake), query param (?org=chesapeake)
  */
@@ -83,8 +94,10 @@ export function detectOrganizationId() {
 
 /**
  * Hook to load and subscribe to Atlas configuration
- * @param {string} orgId - Organization ID (optional, auto-detected if not provided)
- * @returns {Object} { config, loading, error, orgId, setOrgId, availableMaps }
+ * Supports draft preview mode via ?preview=draft query parameter
+ * 
+ * @param {string} providedOrgId - Organization ID (optional, auto-detected if not provided)
+ * @returns {Object} { config, loading, error, orgId, setOrgId, availableMaps, isPreviewMode }
  */
 export function useAtlasConfig(providedOrgId = null) {
   const [orgId, setOrgIdState] = useState(providedOrgId || detectOrganizationId());
@@ -92,6 +105,9 @@ export function useAtlasConfig(providedOrgId = null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [availableMaps, setAvailableMaps] = useState([]);
+  
+  // Check if we're in draft preview mode
+  const [isPreviewMode] = useState(() => isPreviewDraftMode());
   
   // Allow manual org ID change
   const setOrgId = useCallback((newOrgId) => {
@@ -108,7 +124,7 @@ export function useAtlasConfig(providedOrgId = null) {
       return;
     }
 
-    console.log('[useAtlasConfig] Loading config for org:', orgId);
+    console.log('[useAtlasConfig] Loading config for org:', orgId, isPreviewMode ? '(PREVIEW MODE)' : '');
     setLoading(true);
     setError(null);
 
@@ -120,7 +136,26 @@ export function useAtlasConfig(providedOrgId = null) {
       (docSnap) => {
         if (docSnap.exists()) {
           const orgData = docSnap.data();
-          const atlasConfig = orgData.atlasConfig || {};
+          
+          // DRAFT PREVIEW SUPPORT:
+          // If ?preview=draft is in the URL, use atlasConfigDraft if it exists
+          // Otherwise fall back to atlasConfig (live)
+          let atlasConfig;
+          
+          if (isPreviewMode) {
+            // In preview mode, prefer draft config
+            if (orgData.atlasConfigDraft) {
+              atlasConfig = orgData.atlasConfigDraft;
+              console.log('[useAtlasConfig] PREVIEW MODE: Using draft config');
+            } else {
+              // No draft exists, fall back to live config
+              atlasConfig = orgData.atlasConfig || {};
+              console.log('[useAtlasConfig] PREVIEW MODE: No draft found, using live config');
+            }
+          } else {
+            // Normal mode: use live config
+            atlasConfig = orgData.atlasConfig || {};
+          }
           
           // DEBUG: Log the raw config from Firestore
           console.log('[useAtlasConfig] Raw atlasConfig from Firestore:', atlasConfig);
@@ -145,8 +180,10 @@ export function useAtlasConfig(providedOrgId = null) {
           setAvailableMaps(mergedConfig.data?.maps || []);
           setLoading(false);
           
-          // Store last used org
-          localStorage.setItem('atlas_last_org', orgId);
+          // Store last used org (but don't store if in preview mode to avoid confusion)
+          if (!isPreviewMode) {
+            localStorage.setItem('atlas_last_org', orgId);
+          }
         } else {
           console.warn('[useAtlasConfig] Organization document not found:', orgId);
           setError(`Organization "${orgId}" not found.`);
@@ -162,7 +199,7 @@ export function useAtlasConfig(providedOrgId = null) {
     );
 
     return () => unsubscribe();
-  }, [orgId]);
+  }, [orgId, isPreviewMode]);
 
   return {
     config,
@@ -170,7 +207,8 @@ export function useAtlasConfig(providedOrgId = null) {
     error,
     orgId,
     setOrgId,
-    availableMaps
+    availableMaps,
+    isPreviewMode  // NEW: Returns true if viewing draft preview
   };
 }
 

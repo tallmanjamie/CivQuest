@@ -5,7 +5,8 @@ export {
   useAtlasConfig, 
   useActiveMap, 
   detectOrganizationId,
-  getMapConfig 
+  getMapConfig,
+  isPreviewDraftMode  // NEW: Check if in draft preview mode
 } from './useAtlasConfig';
 
 export { 

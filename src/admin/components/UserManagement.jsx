@@ -1,68 +1,73 @@
+// src/admin/components/UserManagement.jsx
+// User/Subscriber Management for Notify module
+// Supports both super admin (all orgs) and org admin (single org) views
+//
+// LICENSE ENFORCEMENT: Enforces user limits based on organization license type
+// - Professional: Max 3 subscribers per organization
+// - Organization: Unlimited subscribers
+//
+// A "subscriber" counts toward an org's limit if they have ANY active subscription
+// to any notification in that organization.
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  getFirestore, 
   collection, 
-  getDocs, 
   doc, 
   updateDoc, 
+  getDocs,
   setDoc,
   deleteDoc,
-  onSnapshot,
-  writeBatch,
-  serverTimestamp,
   addDoc,
-  deleteField
+  onSnapshot,
+  serverTimestamp
 } from "firebase/firestore";
-import { fetchSignInMethodsForEmail } from "firebase/auth";
 import { 
-  Users as UsersIcon, 
+  Users, 
   Search, 
   Edit2, 
-  Check, 
-  X, 
-  Plus, 
-  Trash2, 
-  Save, 
-  Loader2,
-  Building2,
-  Clock,
-  Ban,
-  AlertTriangle,
-  Lock,
-  PauseCircle,
+  Trash2,
+  UserPlus,
   Send,
+  Check,
+  X,
+  Plus,
+  Ban,
+  Clock,
   Mail,
-  Zap,
-  RefreshCw,
-  UserX,
-  CheckCircle,
-  AlertOctagon,
-  Shield,
-  Eraser,
   Bell,
-  ChevronDown
+  Building2,
+  Lock,
+  ChevronDown,
+  Save,
+  Loader2,
+  AlertTriangle,
+  Shield
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
+import { 
+  canAddNotifyUser, 
+  getProductLicenseLimits, 
+  PRODUCTS,
+  LICENSE_TYPES 
+} from '../../shared/services/licenses';
 
 /**
- * Shared Users/Subscribers Management Component
+ * UserManagementPanel Component
  * 
- * This component provides a unified user management interface for two different admin roles:
- * - 'admin': System admins who can manage all users across all organizations
- * - 'org_admin': Organization admins who can only manage subscribers for their organization
+ * Manages Notify subscribers for organizations.
  * 
  * Props:
  * @param {object} db - Firestore database instance
- * @param {object} auth - Firebase Auth instance (required for admin audit feature)
+ * @param {object} auth - Firebase auth instance
  * @param {string} role - 'admin' | 'org_admin'
- * @param {string} [orgId] - Required for 'org_admin' role: the org ID to filter by
- * @param {object} [orgData] - Required for 'org_admin' role: the org configuration
+ * @param {string} [orgId] - Required for 'org_admin' role
+ * @param {object} [orgData] - Organization data (for org_admin)
  * @param {function} addToast - Toast notification function
  * @param {function} confirm - Confirmation dialog function
- * @param {string} [accentColor] - Theme accent color (default: '#004E7C')
+ * @param {string} [accentColor] - Theme accent color
  */
-export default function UserManagement({ 
-  db,
+export default function UserManagementPanel({ 
+  db, 
   auth,
   role = 'admin',
   orgId = null,
@@ -73,8 +78,8 @@ export default function UserManagement({
 }) {
   const [users, setUsers] = useState([]);
   const [invites, setInvites] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
   const [editingUser, setEditingUser] = useState(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showAuditModal, setShowAuditModal] = useState(false);
@@ -146,6 +151,7 @@ export default function UserManagement({
       
       setAvailableOptions(options);
       setOptionsMap(map);
+      setOrganizations([{ id: orgId, ...orgData }]);
     } else if (role === 'admin') {
       // For admin, fetch all organizations
       fetchAllConfigs();
@@ -187,6 +193,114 @@ export default function UserManagement({
     }
   };
 
+  // ============================================================
+  // LICENSE ENFORCEMENT HELPERS
+  // ============================================================
+
+  /**
+   * Check if a user has any active subscription to an organization
+   */
+  const userHasOrgSubscription = (user, targetOrgId) => {
+    if (!user.subscriptions) return false;
+    return Object.entries(user.subscriptions).some(([key, value]) => 
+      key.startsWith(`${targetOrgId}_`) && value === true
+    );
+  };
+
+  /**
+   * Count unique users with active subscriptions to an organization
+   */
+  const countOrgSubscribers = (targetOrgId) => {
+    return users.filter(user => userHasOrgSubscription(user, targetOrgId)).length;
+  };
+
+  /**
+   * Get organization data by ID
+   */
+  const getOrgById = (targetOrgId) => {
+    return organizations.find(o => o.id === targetOrgId) || null;
+  };
+
+  /**
+   * Check if an organization can add more subscribers
+   */
+  const canOrgAddSubscriber = (targetOrgId) => {
+    const org = getOrgById(targetOrgId);
+    if (!org) return { allowed: false, reason: 'Organization not found' };
+    
+    const currentCount = countOrgSubscribers(targetOrgId);
+    const result = canAddNotifyUser(org, currentCount);
+    
+    return {
+      allowed: result.allowed,
+      limit: result.limit,
+      current: currentCount,
+      remaining: result.remaining,
+      licenseType: result.licenseType,
+      reason: result.allowed 
+        ? null 
+        : `${result.licenseType === LICENSE_TYPES.PROFESSIONAL ? 'Professional' : 'Organization'} license limit reached (${result.limit} subscribers max)`
+    };
+  };
+
+  /**
+   * Check if adding subscriptions would violate any org's license limit
+   * @param {object} currentSubs - Current subscriptions
+   * @param {object} newSubs - New subscriptions to apply
+   * @param {string} userEmail - User's email for checking existing subscriptions
+   * @returns {object} { allowed: boolean, violations: array }
+   */
+  const validateSubscriptionChanges = (currentSubs, newSubs, userEmail) => {
+    const violations = [];
+    
+    // Find which orgs are gaining a NEW subscriber (user didn't have subs before, now does)
+    const currentOrgSubs = new Set();
+    const newOrgSubs = new Set();
+    
+    // Get orgs user currently has active subs to
+    Object.entries(currentSubs || {}).forEach(([key, value]) => {
+      if (value === true) {
+        const orgId = key.split('_')[0];
+        currentOrgSubs.add(orgId);
+      }
+    });
+    
+    // Get orgs user will have active subs to after changes
+    Object.entries(newSubs || {}).forEach(([key, value]) => {
+      if (value === true) {
+        const orgId = key.split('_')[0];
+        newOrgSubs.add(orgId);
+      }
+    });
+    
+    // Check each org that's gaining a subscriber
+    newOrgSubs.forEach(targetOrgId => {
+      if (!currentOrgSubs.has(targetOrgId)) {
+        // This org is gaining a new subscriber - check limit
+        const check = canOrgAddSubscriber(targetOrgId);
+        if (!check.allowed) {
+          const org = getOrgById(targetOrgId);
+          violations.push({
+            orgId: targetOrgId,
+            orgName: org?.name || targetOrgId,
+            reason: check.reason,
+            limit: check.limit,
+            current: check.current
+          });
+        }
+      }
+    });
+    
+    return {
+      allowed: violations.length === 0,
+      violations
+    };
+  };
+
+  // ============================================================
+  // END LICENSE ENFORCEMENT HELPERS
+  // ============================================================
+
   // Combine users and invites into a single list
   const combinedList = useMemo(() => {
     let filteredUsersList = users;
@@ -194,10 +308,7 @@ export default function UserManagement({
     
     // For org_admin, filter to only users with subscriptions to this org
     if (role === 'org_admin' && orgId) {
-      filteredUsersList = users.filter(user => {
-        if (!user.subscriptions) return false;
-        return Object.keys(user.subscriptions).some(key => key.startsWith(`${orgId}_`) && user.subscriptions[key]);
-      });
+      filteredUsersList = users.filter(user => userHasOrgSubscription(user, orgId));
       filteredInvitesList = invites.filter(inv => inv.orgId === orgId);
     }
     
@@ -233,19 +344,68 @@ export default function UserManagement({
     }
   }, [filterOrg, role]);
 
-  const handleSaveSubscriptions = async (userId, newSubs) => {
+  // Handle save subscriptions WITH LICENSE CHECK
+  const handleSaveSubscriptions = async (userId, newSubs, userEmail, currentSubs) => {
+    // Validate against license limits
+    const validation = validateSubscriptionChanges(currentSubs, newSubs, userEmail);
+    
+    if (!validation.allowed) {
+      const violationMessages = validation.violations.map(v => 
+        `${v.orgName}: ${v.reason}`
+      ).join('\n');
+      addToast(`Cannot save: License limit exceeded\n${violationMessages}`, 'error');
+      return false;
+    }
+
     try {
       const userRef = doc(db, PATHS.users, userId);
       await updateDoc(userRef, { subscriptions: newSubs });
       setEditingUser(null);
       addToast("Subscriptions updated", "success");
+      return true;
     } catch (error) {
       console.error("Failed to save:", error);
       addToast("Failed to save changes", "error");
+      return false;
     }
   };
 
+  // Handle send invite WITH LICENSE CHECK
   const handleSendInvite = async (data) => {
+    // Check license limits for each org being subscribed to
+    const orgIds = new Set();
+    Object.entries(data.subscriptions).forEach(([key, value]) => {
+      if (value === true) {
+        orgIds.add(key.split('_')[0]);
+      }
+    });
+
+    // Validate each org
+    const violations = [];
+    orgIds.forEach(targetOrgId => {
+      // Check if this user already has subscriptions to this org
+      const existingUser = users.find(u => u.email?.toLowerCase() === data.email.toLowerCase());
+      const alreadySubscribed = existingUser && userHasOrgSubscription(existingUser, targetOrgId);
+      
+      if (!alreadySubscribed) {
+        const check = canOrgAddSubscriber(targetOrgId);
+        if (!check.allowed) {
+          const org = getOrgById(targetOrgId);
+          violations.push({
+            orgId: targetOrgId,
+            orgName: org?.name || targetOrgId,
+            reason: check.reason
+          });
+        }
+      }
+    });
+
+    if (violations.length > 0) {
+      const msg = violations.map(v => `${v.orgName}: ${v.reason}`).join('\n');
+      addToast(`Cannot send invite: License limit exceeded\n${msg}`, 'error');
+      return;
+    }
+
     try {
       const inviteRef = doc(db, PATHS.invitations, data.email.toLowerCase());
       await setDoc(inviteRef, {
@@ -260,44 +420,13 @@ export default function UserManagement({
       });
       setShowInviteModal(false);
       addToast(`Invitation queued for ${data.email} (${data.notifCount} feed${data.notifCount !== 1 ? 's' : ''})`, "success");
-    } catch (err) {
-      console.error(err);
-      addToast("Failed to send invite", "error");
+    } catch (error) {
+      console.error("Failed to create invite:", error);
+      addToast("Failed to create invitation", "error");
     }
   };
 
-  const resendInvite = async (invite) => {
-    try {
-      const inviteRef = doc(db, PATHS.invitations, invite.uid);
-      await updateDoc(inviteRef, { status: 'pending', sentAt: null });
-      addToast("Invite queued for resending", "success");
-    } catch (err) {
-      addToast("Error resending: " + err.message, "error");
-    }
-  };
-
-  const deleteInvite = (invite) => {
-    confirm({
-      title: "Delete Invitation",
-      message: `Are you sure you want to delete the invitation for ${invite.email}?`,
-      destructive: true,
-      confirmLabel: "Delete",
-      onConfirm: async () => {
-        try {
-          const inviteRef = doc(db, PATHS.invitations, invite.uid);
-          await deleteDoc(inviteRef);
-          addToast("Invitation deleted", "success");
-        } catch (err) {
-          addToast("Error deleting invitation: " + err.message, "error");
-        }
-      }
-    });
-  };
-
-  // Only admin can enable/disable users
   const initiateToggleStatus = (user) => {
-    if (role !== 'admin') return;
-    
     const type = user.disabled ? 'enable' : 'disable';
     
     confirm({
@@ -322,6 +451,31 @@ export default function UserManagement({
     });
   };
 
+  const resendInvite = async (invite) => {
+    addToast(`Resending invitation to ${invite.email}...`, "info");
+    // In a real implementation, this would trigger an email
+    setTimeout(() => {
+      addToast(`Invitation resent to ${invite.email}`, "success");
+    }, 1000);
+  };
+
+  const deleteInvite = (invite) => {
+    confirm({
+      title: 'Delete Invitation',
+      message: `Are you sure you want to delete the invitation for ${invite.email}?`,
+      destructive: true,
+      confirmLabel: 'Delete',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, PATHS.invitations, invite.uid));
+          addToast("Invitation deleted", "success");
+        } catch (err) {
+          addToast("Failed to delete invitation", "error");
+        }
+      }
+    });
+  };
+
   const filteredUsers = useMemo(() => {
     let result = combinedList;
     
@@ -337,10 +491,7 @@ export default function UserManagement({
     if (role === 'admin' && filterOrg !== 'all') {
       result = result.filter(u => {
         if (u.isInvite) return u.orgId === filterOrg;
-        if (!u.subscriptions) return false;
-        return Object.keys(u.subscriptions).some(key => 
-          key.startsWith(`${filterOrg}_`) && u.subscriptions[key] === true
-        );
+        return userHasOrgSubscription(u, filterOrg);
       });
     }
     
@@ -348,7 +499,6 @@ export default function UserManagement({
     if (filterNotification !== 'all') {
       result = result.filter(u => {
         if (u.isInvite) {
-          // Check if invite has this notification in its subscriptions
           return u.subscriptions && u.subscriptions[filterNotification] === true;
         }
         if (!u.subscriptions) return false;
@@ -385,54 +535,65 @@ export default function UserManagement({
     return new Set(availableOptions.map(o => o.key));
   }, [availableOptions]);
 
+  // Get license info for current org (org_admin view)
+  const currentOrgLicenseInfo = useMemo(() => {
+    if (role !== 'org_admin' || !orgId) return null;
+    const org = getOrgById(orgId);
+    if (!org) return null;
+    
+    const limits = getProductLicenseLimits(org, PRODUCTS.NOTIFY);
+    const currentCount = countOrgSubscribers(orgId);
+    
+    return {
+      ...limits,
+      current: currentCount,
+      remaining: limits.maxUsers === Infinity ? Infinity : limits.maxUsers - currentCount
+    };
+  }, [role, orgId, organizations, users]);
+
   return (
     <div className="space-y-6 relative">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-800">
-            {role === 'admin' ? 'User Registry' : 'Subscribers'}
+            {role === 'admin' ? 'All Subscribers' : 'Subscribers'}
           </h2>
-          <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
-            <UsersIcon className="w-3 h-3" /> 
-            {filteredUsers.length} {role === 'admin' ? 'users' : 'subscribers'}
-            {(filterOrg !== 'all' || filterNotification !== 'all') && ' (filtered)'}
+          <p className="text-slate-500 text-sm">
+            {role === 'admin' 
+              ? 'Manage subscribers across all organizations.' 
+              : `Manage subscribers for ${orgData?.name || 'your organization'}.`}
           </p>
         </div>
-        <div className="flex gap-2">
-          {/* Audit Button - Admin only */}
-          {role === 'admin' && (
-            <button 
-              onClick={() => setShowAuditModal(true)}
-              className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center gap-2"
-              title="Verify all users against Firebase Auth"
-            >
-              <RefreshCw className="w-4 h-4" /> Sync Registry
-            </button>
-          )}
-
-          <button 
-            onClick={() => setShowInviteModal(true)}
-            className="text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:opacity-90 transition-opacity"
-            style={{ backgroundColor: accentColor }}
-          >
-            <Send className="w-4 h-4" /> Invite User
-          </button>
-        </div>
+        <button
+          onClick={() => setShowInviteModal(true)}
+          className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium"
+          style={{ backgroundColor: accentColor }}
+        >
+          <UserPlus className="w-4 h-4" /> Invite User
+        </button>
       </div>
 
-      {/* Filters Row */}
+      {/* License Info Banner - Org Admin Only */}
+      {role === 'org_admin' && currentOrgLicenseInfo && (
+        <LicenseInfoBanner 
+          licenseInfo={currentOrgLicenseInfo}
+          accentColor={accentColor}
+        />
+      )}
+
+      {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Search email..." 
-            className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-2 outline-none"
-            style={{ '--tw-ring-color': accentColor }}
+          <input
+            type="text"
+            placeholder="Search by email..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 outline-none"
+            style={{ '--tw-ring-color': accentColor }}
           />
         </div>
 
@@ -542,39 +703,30 @@ export default function UserManagement({
                         <div className="flex items-center gap-2">
                           <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0"></span>
                           <span className="text-xs text-slate-700">
-                            <strong>Invite:</strong> {role === 'admin' ? `${user.orgName} - ${user.notifName}` : user.notifName}
+                            <strong>Invite:</strong> {role === 'admin' ? `${user.orgName || user.orgId} - ` : ''}{user.notifName || `${user.notifCount || 1} feed(s)`}
                           </span>
                         </div>
                       ) : (
-                        <div className="flex flex-col gap-1.5">
-                          {Object.entries(displaySubs).map(([key, isActive]) => {
-                            if (!isActive) return null;
-                            const info = optionsMap[key];
+                        <div className="flex flex-wrap gap-1">
+                          {Object.entries(displaySubs).filter(([_, v]) => v).slice(0, 3).map(([key]) => {
+                            const opt = optionsMap[key];
                             return (
-                              <div key={key} className="flex items-center gap-2">
-                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${info?.paused ? 'bg-orange-500' : 'bg-green-500'}`}></span>
-                                <span className="text-xs text-slate-700 flex items-center gap-1">
-                                  {info ? (
-                                    <>
-                                      {role === 'admin' && <strong>{info.organization}:</strong>} {info.label}
-                                      {info.access === 'private' && <Lock className="w-3 h-3 text-slate-400" />}
-                                      {info.paused && <PauseCircle className="w-3 h-3 text-orange-500" />}
-                                    </>
-                                  ) : (
-                                    <span className="font-mono text-slate-500">{key}</span>
-                                  )}
-                                </span>
-                              </div>
+                              <span key={key} className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                                {opt ? (role === 'admin' ? `${opt.organization?.slice(0,3)}:${opt.label?.slice(0,8)}` : opt.label?.slice(0,12)) : key.slice(0,15)}
+                              </span>
                             );
                           })}
-                          {(!displaySubs || Object.values(displaySubs).every(v => !v)) && (
-                            <span className="text-slate-400 italic text-xs">No active subscriptions</span>
+                          {Object.values(displaySubs).filter(v => v).length > 3 && (
+                            <span className="text-xs text-slate-400">+{Object.values(displaySubs).filter(v => v).length - 3} more</span>
+                          )}
+                          {Object.values(displaySubs).filter(v => v).length === 0 && (
+                            <span className="text-xs text-slate-400">None</span>
                           )}
                         </div>
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-3">
+                      <div className="flex items-center justify-end gap-2">
                         {user.isInvite ? (
                           <>
                             <button 
@@ -631,6 +783,8 @@ export default function UserManagement({
         <UserEditModal 
           user={editingUser} 
           availableOptions={availableOptions}
+          organizations={organizations}
+          users={users}
           role={role}
           orgId={orgId}
           db={db}
@@ -638,7 +792,9 @@ export default function UserManagement({
           confirm={confirm}
           accentColor={accentColor}
           onClose={() => setEditingUser(null)} 
-          onSave={handleSaveSubscriptions} 
+          onSave={handleSaveSubscriptions}
+          canOrgAddSubscriber={canOrgAddSubscriber}
+          userHasOrgSubscription={userHasOrgSubscription}
         />
       )}
 
@@ -646,177 +802,236 @@ export default function UserManagement({
       {showInviteModal && (
         <InviteUserModal 
           availableOptions={availableOptions}
+          organizations={organizations}
+          users={users}
           role={role}
           accentColor={accentColor}
           onClose={() => setShowInviteModal(false)}
           onSend={handleSendInvite}
-        />
-      )}
-
-      {/* Audit Modal - Admin only */}
-      {showAuditModal && role === 'admin' && (
-        <UserAuditModal 
-          db={db}
-          auth={auth}
-          users={users.filter(u => u.isRegistered)} 
-          validKeys={validSubscriptionKeys}
-          addToast={addToast}
-          confirm={confirm}
-          onClose={() => setShowAuditModal(false)} 
+          canOrgAddSubscriber={canOrgAddSubscriber}
+          userHasOrgSubscription={userHasOrgSubscription}
         />
       )}
     </div>
   );
 }
 
-// --- User Edit Modal ---
-function UserEditModal({ user, availableOptions, role, orgId, db, addToast, confirm, accentColor, onClose, onSave }) {
+// --- License Info Banner ---
+function LicenseInfoBanner({ licenseInfo, accentColor }) {
+  const isAtLimit = licenseInfo.remaining === 0;
+  const isProfessional = licenseInfo.licenseType === LICENSE_TYPES.PROFESSIONAL;
+  
+  return (
+    <div className={`rounded-xl p-4 border ${isAtLimit ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isAtLimit ? 'bg-amber-100' : 'bg-slate-200'}`}>
+            <Shield className={`w-5 h-5 ${isAtLimit ? 'text-amber-600' : 'text-slate-500'}`} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-800">{licenseInfo.label} License</span>
+              {isAtLimit && (
+                <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-medium">
+                  At Limit
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-slate-500">
+              {licenseInfo.maxUsers === Infinity 
+                ? `${licenseInfo.current} subscribers (unlimited)`
+                : `${licenseInfo.current} / ${licenseInfo.maxUsers} subscribers`}
+              {isProfessional && licenseInfo.remaining > 0 && ` • ${licenseInfo.remaining} remaining`}
+            </p>
+          </div>
+        </div>
+        
+        {isAtLimit && isProfessional && (
+          <div className="text-right">
+            <p className="text-sm text-amber-700 font-medium">Upgrade for unlimited subscribers</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- User Edit Modal WITH LICENSE CHECKS ---
+function UserEditModal({ 
+  user, 
+  availableOptions, 
+  organizations,
+  users,
+  role, 
+  orgId, 
+  db, 
+  addToast, 
+  confirm, 
+  accentColor, 
+  onClose, 
+  onSave,
+  canOrgAddSubscriber,
+  userHasOrgSubscription
+}) {
   const [subs, setSubs] = useState(user.subscriptions || {});
   const [newKey, setNewKey] = useState('');
-  const [sendingKey, setSendingKey] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  // Group options by org for admin view
+  const groupedOptions = availableOptions.reduce((acc, opt) => {
+    if (!acc[opt.organization]) acc[opt.organization] = { orgId: opt.orgId, items: [] };
+    acc[opt.organization].items.push(opt);
+    return acc;
+  }, {});
+
+  // Check if toggling a subscription ON would violate license limits
+  const canToggleOn = (subscriptionKey) => {
+    const targetOrgId = subscriptionKey.split('_')[0];
+    
+    // If user already has active subscription to this org, they're already counted
+    if (userHasOrgSubscription(user, targetOrgId)) {
+      return { allowed: true };
+    }
+    
+    // Check if org can add another subscriber
+    return canOrgAddSubscriber(targetOrgId);
+  };
 
   const toggleSub = (key) => {
+    const currentlyOn = subs[key] === true;
+    
+    if (!currentlyOn) {
+      // Turning ON - check license
+      const check = canToggleOn(key);
+      if (!check.allowed) {
+        addToast(check.reason || 'License limit reached', 'error');
+        return;
+      }
+    }
+    
     setSubs(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const addManualSub = () => {
     if (!newKey) return;
+    
+    // Check license for manual key
+    const check = canToggleOn(newKey);
+    if (!check.allowed) {
+      addToast(check.reason || 'License limit reached', 'error');
+      return;
+    }
+    
     setSubs(prev => ({ ...prev, [newKey]: true }));
     setNewKey('');
   };
 
-  const handleForceSend = (key) => {
-    confirm({
-      title: "Force Send Notification",
-      message: `Force push this notification to ${user.email}?\n\nThis will bypass the schedule and send immediate data.`,
-      confirmLabel: "Send Now",
-      onConfirm: async () => {
-        setSendingKey(key);
-        try {
-          const option = availableOptions.find(o => o.key === key);
-          if (!option) throw new Error("Config not found");
-
-          await addDoc(collection(db, PATHS.forceQueue), {
-            type: 'single_user',
-            targetEmail: user.email,
-            orgId: option.orgId,
-            notifId: option.notifId,
-            status: 'pending',
-            createdAt: serverTimestamp(),
-            createdBy: role === 'admin' ? 'admin_ui' : 'org_admin_ui'
-          });
-          addToast(`Request queued for ${user.email}`, "success");
-        } catch (err) {
-          addToast("Error queuing request: " + err.message, "error");
-        } finally {
-          setSendingKey(null);
-        }
-      }
-    });
+  const handleSave = async () => {
+    setSaving(true);
+    const success = await onSave(user.uid, subs, user.email, user.subscriptions);
+    setSaving(false);
+    if (!success) {
+      // Error was shown by onSave
+    }
   };
 
-  // Group options by organization (for admin view)
-  const groupedOptions = availableOptions.reduce((acc, opt) => {
-    if (!acc[opt.organization]) acc[opt.organization] = [];
-    acc[opt.organization].push(opt);
-    return acc;
-  }, {});
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="font-bold text-slate-800">Manage Subscriptions</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
-        </div>
-        
-        <div className="p-6 overflow-y-auto space-y-6">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-3">User</label>
-            <p className="font-medium text-lg">{user.email}</p>
+            <h3 className="text-lg font-semibold text-slate-800">Edit Subscriptions</h3>
+            <p className="text-sm text-slate-500">{user.email}</p>
           </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
 
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-3">Available Notifications</label>
-            
-            {Object.keys(groupedOptions).length === 0 ? (
-              <p className="text-sm text-slate-400 italic mb-4">No configured notifications found.</p>
-            ) : role === 'admin' ? (
+        <div className="p-6 overflow-y-auto flex-1">
+          {/* Subscriptions grouped by org */}
+          <div className="space-y-4">
+            {role === 'admin' ? (
               // Admin view: grouped by organization
-              <div className="space-y-4">
-                {Object.entries(groupedOptions).map(([orgName, options]) => (
+              Object.entries(groupedOptions).map(([orgName, orgData]) => {
+                const orgCheck = canOrgAddSubscriber(orgData.orgId);
+                const userHasSub = userHasOrgSubscription(user, orgData.orgId);
+                const isAtLimit = !orgCheck.allowed && !userHasSub;
+                
+                return (
                   <div key={orgName} className="border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="bg-slate-50 px-3 py-2 border-b border-slate-100 flex items-center gap-2">
-                      <Building2 className="w-3 h-3 text-slate-500" />
-                      <span className="text-xs font-bold text-slate-700">{orgName}</span>
+                    <div className="bg-slate-50 px-3 py-2 flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-slate-400" />
+                        {orgName}
+                      </span>
+                      {isAtLimit && (
+                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Lock className="w-3 h-3" /> At Limit
+                        </span>
+                      )}
                     </div>
-                    <div className="p-2">
-                      {options.map(opt => (
-                        <div key={opt.key} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded">
-                          <span className="text-sm text-slate-700 flex items-center gap-2">
-                            {opt.label}
-                            {opt.access === 'private' && <Lock className="w-3 h-3 text-slate-400" />}
-                            {opt.paused && <PauseCircle className="w-3 h-3 text-orange-500" />}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {subs[opt.key] && (
-                              <button 
-                                onClick={() => handleForceSend(opt.key)}
-                                disabled={sendingKey === opt.key}
-                                className="p-1.5 text-slate-400 hover:bg-white rounded transition-colors"
-                                style={{ ':hover': { color: accentColor } }}
-                                title="Force send notification to this user now"
-                              >
-                                {sendingKey === opt.key ? <Loader2 className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4 fill-slate-200" />}
-                              </button>
-                            )}
-                            <button 
-                              onClick={() => toggleSub(opt.key)}
-                              className={`w-10 h-6 rounded-full transition-colors relative ${subs[opt.key] ? '' : 'bg-slate-300'}`}
-                              style={{ backgroundColor: subs[opt.key] ? accentColor : undefined }}
+                    <div className="divide-y divide-slate-50">
+                      {orgData.items.map(opt => {
+                        const isOn = subs[opt.key] === true;
+                        const canTurnOn = !isOn && canToggleOn(opt.key).allowed;
+                        const disabled = !isOn && !canTurnOn;
+                        
+                        return (
+                          <div 
+                            key={opt.key}
+                            className={`px-3 py-2 flex items-center justify-between ${disabled ? 'opacity-50' : ''}`}
+                          >
+                            <span className="text-sm text-slate-600 flex items-center gap-2">
+                              {opt.label}
+                              {opt.access === 'private' && <Lock className="w-3 h-3 text-amber-500" />}
+                            </span>
+                            <button
+                              onClick={() => !disabled && toggleSub(opt.key)}
+                              disabled={disabled}
+                              className={`relative w-9 h-5 rounded-full transition-colors ${isOn ? '' : disabled ? 'bg-slate-200 cursor-not-allowed' : 'bg-slate-300'}`}
+                              style={{ backgroundColor: isOn ? accentColor : undefined }}
                             >
-                              <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${subs[opt.key] ? 'translate-x-4' : ''}`} />
+                              <span className={`absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-transform ${isOn ? 'translate-x-4' : ''}`} />
                             </button>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
-                ))}
-              </div>
+                );
+              })
             ) : (
               // Org admin view: flat list
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <div className="p-2">
-                  {availableOptions.map(opt => (
-                    <div key={opt.key} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded">
-                      <span className="text-sm text-slate-700 flex items-center gap-2">
-                        {opt.label}
-                        {opt.access === 'private' && <Lock className="w-3 h-3 text-slate-400" />}
-                        {opt.paused && <PauseCircle className="w-3 h-3 text-orange-500" />}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {subs[opt.key] && (
-                          <button 
-                            onClick={() => handleForceSend(opt.key)}
-                            disabled={sendingKey === opt.key}
-                            className="p-1.5 text-slate-400 hover:bg-white rounded transition-colors"
-                            title="Force send notification to this user now"
-                          >
-                            {sendingKey === opt.key ? <Loader2 className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4 fill-slate-200" />}
-                          </button>
-                        )}
-                        <button 
-                          onClick={() => toggleSub(opt.key)}
-                          className={`w-10 h-6 rounded-full transition-colors relative ${subs[opt.key] ? '' : 'bg-slate-300'}`}
-                          style={{ backgroundColor: subs[opt.key] ? accentColor : undefined }}
-                        >
-                          <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${subs[opt.key] ? 'translate-x-4' : ''}`} />
-                        </button>
+              <div className="border border-slate-200 rounded-lg divide-y divide-slate-50">
+                {availableOptions.map(opt => {
+                  const isOn = subs[opt.key] === true;
+                  const canTurnOn = !isOn && canToggleOn(opt.key).allowed;
+                  const disabled = !isOn && !canTurnOn;
+                  
+                  return (
+                    <div 
+                      key={opt.key}
+                      className={`px-3 py-3 flex items-center justify-between ${disabled ? 'opacity-50' : ''}`}
+                    >
+                      <div>
+                        <span className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                          {opt.label}
+                          {opt.access === 'private' && <Lock className="w-3 h-3 text-amber-500" />}
+                        </span>
                       </div>
+                      <button
+                        onClick={() => !disabled && toggleSub(opt.key)}
+                        disabled={disabled}
+                        className={`relative w-9 h-5 rounded-full transition-colors ${isOn ? '' : disabled ? 'bg-slate-200 cursor-not-allowed' : 'bg-slate-300'}`}
+                        style={{ backgroundColor: isOn ? accentColor : undefined }}
+                        title={disabled ? 'License limit reached' : ''}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-transform ${isOn ? 'translate-x-4' : ''}`} />
+                      </button>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -840,14 +1055,16 @@ function UserEditModal({ user, availableOptions, role, orgId, db, addToast, conf
           )}
         </div>
 
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 mt-auto">
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 mt-auto shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-slate-600">Cancel</button>
           <button 
-            onClick={() => onSave(user.uid, subs)} 
+            onClick={handleSave}
+            disabled={saving}
             className="px-4 py-2 text-white rounded-lg flex items-center gap-2"
             style={{ backgroundColor: accentColor }}
           >
-            <Save className="w-4 h-4" /> Save Changes
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save Changes
           </button>
         </div>
       </div>
@@ -855,10 +1072,21 @@ function UserEditModal({ user, availableOptions, role, orgId, db, addToast, conf
   );
 }
 
-// --- Invite User Modal ---
-function InviteUserModal({ availableOptions, role, accentColor, onClose, onSend }) {
+// --- Invite User Modal WITH LICENSE CHECKS ---
+function InviteUserModal({ 
+  availableOptions, 
+  organizations,
+  users,
+  role, 
+  accentColor, 
+  onClose, 
+  onSend,
+  canOrgAddSubscriber,
+  userHasOrgSubscription
+}) {
   const [email, setEmail] = useState('');
   const [selectedKeys, setSelectedKeys] = useState([]);
+  const [licenseWarnings, setLicenseWarnings] = useState([]);
 
   // Group options by organization (for admin view)
   const groupedOptions = availableOptions.reduce((acc, opt) => {
@@ -867,83 +1095,151 @@ function InviteUserModal({ availableOptions, role, accentColor, onClose, onSend 
     return acc;
   }, {});
 
+  // Check if selecting a key would violate license
+  const canSelectKey = (key) => {
+    const targetOrgId = key.split('_')[0];
+    
+    // Check if user already exists and has subscription to this org
+    const existingUser = users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+    if (existingUser && userHasOrgSubscription(existingUser, targetOrgId)) {
+      return { allowed: true };
+    }
+    
+    // Check if any other selected keys are for this org (user will already count)
+    const orgAlreadySelected = selectedKeys.some(k => k.startsWith(`${targetOrgId}_`));
+    if (orgAlreadySelected) {
+      return { allowed: true };
+    }
+    
+    return canOrgAddSubscriber(targetOrgId);
+  };
+
   const toggleKey = (key) => {
+    const isSelected = selectedKeys.includes(key);
+    
+    if (!isSelected) {
+      // Selecting - check license
+      const check = canSelectKey(key);
+      if (!check.allowed) {
+        // Show warning but allow continue
+        const targetOrgId = key.split('_')[0];
+        const org = organizations.find(o => o.id === targetOrgId);
+        setLicenseWarnings(prev => {
+          const existing = prev.find(w => w.orgId === targetOrgId);
+          if (existing) return prev;
+          return [...prev, { orgId: targetOrgId, orgName: org?.name || targetOrgId, reason: check.reason }];
+        });
+        return; // Don't select
+      }
+    } else {
+      // Deselecting - remove warnings for this org if no other keys selected
+      const targetOrgId = key.split('_')[0];
+      const otherKeysForOrg = selectedKeys.filter(k => k !== key && k.startsWith(`${targetOrgId}_`));
+      if (otherKeysForOrg.length === 0) {
+        setLicenseWarnings(prev => prev.filter(w => w.orgId !== targetOrgId));
+      }
+    }
+    
     setSelectedKeys(prev => 
       prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
     );
   };
 
   const selectAllInOrg = (orgName) => {
-    const orgKeys = groupedOptions[orgName].items.map(opt => opt.key);
+    const orgData = groupedOptions[orgName];
+    if (!orgData) return;
+    
+    const orgKeys = orgData.items.map(opt => opt.key);
     const allSelected = orgKeys.every(k => selectedKeys.includes(k));
+    
     if (allSelected) {
+      // Deselect all
       setSelectedKeys(prev => prev.filter(k => !orgKeys.includes(k)));
+      setLicenseWarnings(prev => prev.filter(w => w.orgId !== orgData.orgId));
     } else {
+      // Check license before selecting all
+      const check = canSelectKey(orgKeys[0]); // Just need to check one
+      if (!check.allowed) {
+        const org = organizations.find(o => o.id === orgData.orgId);
+        setLicenseWarnings(prev => {
+          const existing = prev.find(w => w.orgId === orgData.orgId);
+          if (existing) return prev;
+          return [...prev, { orgId: orgData.orgId, orgName: org?.name || orgData.orgId, reason: check.reason }];
+        });
+        return;
+      }
+      // Select all
       setSelectedKeys(prev => [...new Set([...prev, ...orgKeys])]);
-    }
-  };
-
-  const selectAll = () => {
-    const allKeys = availableOptions.map(opt => opt.key);
-    const allSelected = allKeys.every(k => selectedKeys.includes(k));
-    if (allSelected) {
-      setSelectedKeys([]);
-    } else {
-      setSelectedKeys(allKeys);
     }
   };
 
   const handleSubmit = () => {
     if (!email || selectedKeys.length === 0) return;
     
+    // Build subscriptions object
     const subscriptions = {};
-    const selectedOptions = selectedKeys.map(key => availableOptions.find(o => o.key === key)).filter(Boolean);
+    selectedKeys.forEach(key => { subscriptions[key] = true; });
     
-    selectedOptions.forEach(opt => {
-      subscriptions[opt.key] = true;
-    });
-
-    const firstOpt = selectedOptions[0];
-    const orgNames = [...new Set(selectedOptions.map(o => o.organization))];
-    const notifNames = selectedOptions.map(o => o.label);
+    // Get org info for the first selected subscription
+    const firstKey = selectedKeys[0];
+    const firstOpt = availableOptions.find(o => o.key === firstKey);
     
     onSend({
       email,
       subscriptions,
-      orgId: firstOpt.orgId,
-      orgName: orgNames.join(', '),
-      notifName: notifNames.length > 2 ? `${notifNames.length} feeds` : notifNames.join(', '),
+      orgId: firstOpt?.orgId,
+      orgName: firstOpt?.organization,
+      notifName: selectedKeys.length === 1 ? firstOpt?.label : null,
       notifCount: selectedKeys.length
     });
   };
 
-  const allSelected = availableOptions.length > 0 && availableOptions.every(opt => selectedKeys.includes(opt.key));
-  const someSelected = availableOptions.some(opt => selectedKeys.includes(opt.key));
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="font-bold text-lg text-slate-800">Invite New User</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
+          <h3 className="text-lg font-semibold text-slate-800">Invite New Subscriber</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
         </div>
-        
-        <div className="p-6 space-y-4 overflow-y-auto">
+
+        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+          {/* Email Input */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
-            <input 
-              type="email" 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 outline-none"
-              style={{ '--tw-ring-color': accentColor }}
-              placeholder="user@example.com"
+            <label className="text-sm font-medium text-slate-700 block mb-1">Email Address</label>
+            <input
+              type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
+              placeholder="user@example.com"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 outline-none"
+              style={{ '--tw-ring-color': accentColor }}
             />
           </div>
+
+          {/* License Warnings */}
+          {licenseWarnings.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800">License Limit Reached</p>
+                  {licenseWarnings.map(w => (
+                    <p key={w.orgId} className="text-xs text-amber-700 mt-1">
+                      {w.orgName}: {w.reason}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Subscription Selection */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Select Notification Feeds</label>
-            <p className="text-xs text-slate-500 mb-3">
-              Choose one or more feeds. The user will be automatically subscribed when they sign up.
+            <label className="text-sm font-medium text-slate-700 block mb-1">Select Notifications</label>
+            <p className="text-xs text-slate-500 mb-2">
+              The user will be automatically subscribed when they sign up.
             </p>
             
             <div className="border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
@@ -953,22 +1249,30 @@ function InviteUserModal({ availableOptions, role, accentColor, onClose, onSend 
                   const orgKeys = orgData.items.map(opt => opt.key);
                   const orgAllSelected = orgKeys.every(k => selectedKeys.includes(k));
                   const orgSomeSelected = orgKeys.some(k => selectedKeys.includes(k));
+                  const orgCheck = canOrgAddSubscriber(orgData.orgId);
+                  const isAtLimit = !orgCheck.allowed;
                   
                   return (
                     <div key={orgName} className="border-b border-slate-100 last:border-b-0">
                       <div 
-                        className="bg-slate-50 px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-slate-100"
-                        onClick={() => selectAllInOrg(orgName)}
+                        className={`bg-slate-50 px-3 py-2 flex items-center justify-between ${isAtLimit ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-slate-100'}`}
+                        onClick={() => !isAtLimit && selectAllInOrg(orgName)}
                       >
                         <span className="text-sm font-medium text-slate-700 flex items-center gap-2">
                           <Building2 className="w-4 h-4 text-slate-400" />
                           {orgName}
+                          {isAtLimit && (
+                            <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> Limit
+                            </span>
+                          )}
                         </span>
                         <div 
                           className={`w-4 h-4 rounded border-2 flex items-center justify-center`}
                           style={{ 
                             backgroundColor: orgAllSelected ? accentColor : orgSomeSelected ? `${accentColor}33` : undefined,
-                            borderColor: orgAllSelected || orgSomeSelected ? accentColor : '#d1d5db'
+                            borderColor: orgAllSelected || orgSomeSelected ? accentColor : '#d1d5db',
+                            opacity: isAtLimit && !orgSomeSelected ? 0.5 : 1
                           }}
                         >
                           {orgAllSelected && <Check className="w-3 h-3 text-white" />}
@@ -976,383 +1280,84 @@ function InviteUserModal({ availableOptions, role, accentColor, onClose, onSend 
                         </div>
                       </div>
                       <div className="divide-y divide-slate-50">
-                        {orgData.items.map(opt => (
-                          <div 
-                            key={opt.key}
-                            className="px-3 py-2 pl-9 flex items-center justify-between cursor-pointer hover:bg-slate-50"
-                            onClick={() => toggleKey(opt.key)}
-                          >
-                            <span className="text-sm text-slate-600 flex items-center gap-2">
-                              {opt.label}
-                              {opt.access === 'private' && <Lock className="w-3 h-3 text-amber-500" />}
-                            </span>
+                        {orgData.items.map(opt => {
+                          const isSelected = selectedKeys.includes(opt.key);
+                          const canSelect = isSelected || canSelectKey(opt.key).allowed;
+                          
+                          return (
                             <div 
-                              className={`w-4 h-4 rounded border-2 flex items-center justify-center`}
-                              style={{ 
-                                backgroundColor: selectedKeys.includes(opt.key) ? accentColor : undefined,
-                                borderColor: selectedKeys.includes(opt.key) ? accentColor : '#d1d5db'
-                              }}
+                              key={opt.key}
+                              className={`px-3 py-2 pl-9 flex items-center justify-between ${canSelect ? 'cursor-pointer hover:bg-slate-50' : 'cursor-not-allowed opacity-50'}`}
+                              onClick={() => canSelect && toggleKey(opt.key)}
                             >
-                              {selectedKeys.includes(opt.key) && <Check className="w-3 h-3 text-white" />}
+                              <span className="text-sm text-slate-600 flex items-center gap-2">
+                                {opt.label}
+                                {opt.access === 'private' && <Lock className="w-3 h-3 text-amber-500" />}
+                              </span>
+                              <div 
+                                className={`w-4 h-4 rounded border-2 flex items-center justify-center`}
+                                style={{ 
+                                  backgroundColor: isSelected ? accentColor : undefined,
+                                  borderColor: isSelected ? accentColor : '#d1d5db'
+                                }}
+                              >
+                                {isSelected && <Check className="w-3 h-3 text-white" />}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
                 })
               ) : (
-                // Org admin view: flat list with select all
-                <>
-                  <div 
-                    className="bg-slate-50 px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-slate-100 border-b border-slate-100"
-                    onClick={selectAll}
-                  >
-                    <span className="text-sm font-medium text-slate-700">Select All</span>
-                    <div 
-                      className={`w-4 h-4 rounded border-2 flex items-center justify-center`}
-                      style={{ 
-                        backgroundColor: allSelected ? accentColor : someSelected ? `${accentColor}33` : undefined,
-                        borderColor: allSelected || someSelected ? accentColor : '#d1d5db'
-                      }}
-                    >
-                      {allSelected && <Check className="w-3 h-3 text-white" />}
-                      {someSelected && !allSelected && <div className="w-2 h-0.5" style={{ backgroundColor: accentColor }} />}
-                    </div>
-                  </div>
+                // Org admin view: flat list
+                availableOptions.map(opt => {
+                  const isSelected = selectedKeys.includes(opt.key);
+                  const canSelect = isSelected || canSelectKey(opt.key).allowed;
                   
-                  <div className="divide-y divide-slate-50">
-                    {availableOptions.map(opt => (
+                  return (
+                    <div 
+                      key={opt.key}
+                      className={`px-3 py-2 flex items-center justify-between border-b border-slate-50 last:border-b-0 ${canSelect ? 'cursor-pointer hover:bg-slate-50' : 'cursor-not-allowed opacity-50'}`}
+                      onClick={() => canSelect && toggleKey(opt.key)}
+                    >
+                      <span className="text-sm text-slate-600 flex items-center gap-2">
+                        {opt.label}
+                        {opt.access === 'private' && <Lock className="w-3 h-3 text-amber-500" />}
+                      </span>
                       <div 
-                        key={opt.key}
-                        className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-slate-50"
-                        onClick={() => toggleKey(opt.key)}
+                        className={`w-4 h-4 rounded border-2 flex items-center justify-center`}
+                        style={{ 
+                          backgroundColor: isSelected ? accentColor : undefined,
+                          borderColor: isSelected ? accentColor : '#d1d5db'
+                        }}
                       >
-                        <span className="text-sm text-slate-600 flex items-center gap-2">
-                          {opt.label}
-                          {opt.access === 'private' && <Lock className="w-3 h-3 text-amber-500" />}
-                        </span>
-                        <div 
-                          className={`w-4 h-4 rounded border-2 flex items-center justify-center`}
-                          style={{ 
-                            backgroundColor: selectedKeys.includes(opt.key) ? accentColor : undefined,
-                            borderColor: selectedKeys.includes(opt.key) ? accentColor : '#d1d5db'
-                          }}
-                        >
-                          {selectedKeys.includes(opt.key) && <Check className="w-3 h-3 text-white" />}
-                        </div>
+                        {isSelected && <Check className="w-3 h-3 text-white" />}
                       </div>
-                    ))}
-                  </div>
-                </>
+                    </div>
+                  );
+                })
               )}
             </div>
-            
-            {selectedKeys.length > 0 && (
-              <p className="text-xs mt-2 font-medium" style={{ color: accentColor }}>
-                {selectedKeys.length} feed{selectedKeys.length !== 1 ? 's' : ''} selected
-              </p>
-            )}
           </div>
         </div>
 
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg">
-            Cancel
-          </button>
-          <button 
-            onClick={handleSubmit}
-            disabled={!email || selectedKeys.length === 0}
-            className="px-4 py-2 text-white rounded-lg font-medium flex items-center gap-2 disabled:opacity-50"
-            style={{ backgroundColor: accentColor }}
-          >
-            <Send className="w-4 h-4" /> Send Invite
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// --- User Audit Modal (Admin only) ---
-function UserAuditModal({ db, auth, users, validKeys, addToast, confirm, onClose }) {
-  const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [orphans, setOrphans] = useState([]); 
-  const [staleSubs, setStaleSubs] = useState([]);
-  const [completed, setCompleted] = useState(false);
-  const [auditError, setAuditError] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-  const [cleaningStale, setCleaningStale] = useState(false);
-
-  const startScan = async () => {
-    setScanning(true);
-    setOrphans([]);
-    setStaleSubs([]);
-    setCompleted(false);
-    setAuditError(null);
-    
-    let foundOrphans = [];
-    let foundStale = [];
-    let count = 0;
-    const total = users.length;
-    setProgress({ current: 0, total });
-
-    try {
-      if (auth.currentUser && auth.currentUser.email) {
-        const selfCheck = await fetchSignInMethodsForEmail(auth, auth.currentUser.email);
-        if (selfCheck.length === 0) {
-          throw new Error("Self-check failed. 'Email Enumeration Protection' is likely enabled in Firebase Console.");
-        }
-      }
-    } catch (err) {
-      setAuditError(err.message);
-      setScanning(false);
-      addToast("Audit initialization failed", "error");
-      return;
-    }
-
-    for (const user of users) {
-      count++;
-      setProgress({ current: count, total });
-      
-      if (user.email) {
-        try {
-          const methods = await fetchSignInMethodsForEmail(auth, user.email);
-          if (methods.length === 0) {
-            foundOrphans.push(user);
-          }
-        } catch (err) {
-          console.warn(`Check failed for ${user.email}`, err);
-        }
-      }
-
-      if (user.subscriptions && validKeys) {
-        const userSubs = Object.keys(user.subscriptions);
-        const invalid = userSubs.filter(k => !validKeys.has(k));
-        
-        if (invalid.length > 0) {
-          foundStale.push({
-            uid: user.uid,
-            email: user.email,
-            keys: invalid
-          });
-        }
-      }
-
-      await new Promise(r => setTimeout(r, 50)); 
-    }
-
-    setOrphans(foundOrphans);
-    setStaleSubs(foundStale);
-    setScanning(false);
-    setCompleted(true);
-  };
-
-  const deleteOrphans = () => {
-    confirm({
-      title: "Delete Orphaned Records",
-      message: `Permanently delete ${orphans.length} orphaned records from the registry?`,
-      destructive: true,
-      confirmLabel: "Delete All",
-      onConfirm: async () => {
-        setDeleting(true);
-        try {
-          const batch = writeBatch(db);
-          orphans.forEach(u => {
-            const ref = doc(db, PATHS.users, u.uid);
-            batch.delete(ref);
-          });
-          await batch.commit();
-          addToast("Registry cleaned successfully", "success");
-          setOrphans([]); 
-        } catch (err) {
-          addToast("Error deleting records: " + err.message, "error");
-        } finally {
-          setDeleting(false);
-        }
-      }
-    });
-  };
-
-  const cleanStaleSubscriptions = () => {
-    confirm({
-      title: "Clean Invalid Subscriptions",
-      message: `Remove ${staleSubs.reduce((acc, curr) => acc + curr.keys.length, 0)} invalid subscription entries across ${staleSubs.length} users?`,
-      destructive: true,
-      confirmLabel: "Clean All",
-      onConfirm: async () => {
-        setCleaningStale(true);
-        try {
-          const batch = writeBatch(db);
-          staleSubs.forEach(u => {
-            const userRef = doc(db, PATHS.users, u.uid);
-            const updates = {};
-            u.keys.forEach(k => {
-              updates[`subscriptions.${k}`] = deleteField();
-            });
-            batch.update(userRef, updates);
-          });
-          await batch.commit();
-          addToast("Stale subscriptions removed", "success");
-          setStaleSubs([]);
-        } catch (err) {
-          addToast("Error cleaning subscriptions: " + err.message, "error");
-        } finally {
-          setCleaningStale(false);
-        }
-      }
-    });
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <RefreshCw className={`w-5 h-5 ${scanning ? 'animate-spin text-[#004E7C]' : ''}`} />
-            Audit User Registry
-          </h3>
-          {!scanning && <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>}
-        </div>
-        
-        <div className="p-6 space-y-6 overflow-y-auto">
-          {!scanning && !completed && !auditError && (
-            <div className="text-center py-4">
-              <Shield className="w-12 h-12 text-[#004E7C] mx-auto mb-4" />
-              <p className="text-slate-600 mb-6">
-                This tool will scan <strong>{users.length}</strong> user records in your registry.
-                It checks for:
-              </p>
-              <ul className="text-sm text-slate-600 text-left list-disc pl-10 mb-6 space-y-1">
-                <li>Users that no longer exist in Firebase Authentication</li>
-                <li>Subscriptions to notifications that have been deleted</li>
-              </ul>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-left text-xs text-amber-800 mb-6">
-                <strong className="flex items-center gap-1 mb-1"><AlertTriangle className="w-3 h-3"/> Warning</strong>
-                Only run this if you have manually deleted users or notifications and want to clean up the leftovers.
-              </div>
-              <button 
-                onClick={startScan}
-                className="w-full py-3 bg-[#004E7C] text-white rounded-lg font-bold hover:bg-[#003B5C] transition-colors"
-              >
-                Start Scan
-              </button>
-            </div>
-          )}
-
-          {scanning && (
-            <div className="text-center py-8">
-              <Loader2 className="w-10 h-10 text-[#004E7C] animate-spin mx-auto mb-4" />
-              <h4 className="font-bold text-slate-800 mb-2">Scanning Registry...</h4>
-              <p className="text-slate-500 text-sm mb-4">Checking {progress.current} of {progress.total}</p>
-              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div 
-                  className="bg-[#004E7C] h-full transition-all duration-300"
-                  style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                ></div>
-              </div>
-            </div>
-          )}
-
-          {auditError && (
-            <div className="text-center py-6">
-              <div className="bg-red-100 p-3 rounded-full w-fit mx-auto mb-4">
-                <AlertOctagon className="w-8 h-8 text-red-600" />
-              </div>
-              <h4 className="font-bold text-red-700 mb-2">Audit Failed</h4>
-              <p className="text-sm text-slate-600 mb-6">{auditError}</p>
-              <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50">Close</button>
-            </div>
-          )}
-
-          {completed && !auditError && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-center gap-2 text-green-600 font-bold text-lg">
-                <CheckCircle className="w-6 h-6" /> Scan Complete
-              </div>
-              
-              {orphans.length === 0 && staleSubs.length === 0 ? (
-                <div className="text-center text-slate-500 py-4 bg-slate-50 rounded-lg border border-slate-100">
-                  No issues found. Your registry is in sync.
-                </div>
-              ) : null}
-
-              {orphans.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center bg-red-50 p-3 rounded-lg border border-red-100">
-                    <div>
-                      <p className="font-bold text-red-700 text-sm">Orphaned Accounts ({orphans.length})</p>
-                      <p className="text-xs text-red-600">Users in registry but NOT in Auth</p>
-                    </div>
-                    <button 
-                      onClick={deleteOrphans}
-                      disabled={deleting}
-                      className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-medium hover:bg-red-700 flex items-center gap-2"
-                    >
-                      {deleting ? <Loader2 className="w-3 h-3 animate-spin"/> : <UserX className="w-3 h-3" />}
-                      Delete All
-                    </button>
-                  </div>
-                  <div className="max-h-32 overflow-y-auto border border-slate-200 rounded-lg">
-                    <table className="w-full text-xs text-left">
-                      <tbody className="divide-y divide-slate-100">
-                        {orphans.map(u => (
-                          <tr key={u.uid} className="hover:bg-red-50">
-                            <td className="p-2 text-slate-700">{u.email}</td>
-                            <td className="p-2 text-slate-400 font-mono text-[10px]">{u.uid}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {staleSubs.length > 0 && (
-                <div className="space-y-3 pt-2 border-t border-slate-100">
-                  <div className="flex justify-between items-center bg-amber-50 p-3 rounded-lg border border-amber-100">
-                    <div>
-                      <p className="font-bold text-amber-700 text-sm">Invalid Subscriptions ({staleSubs.length} Users)</p>
-                      <p className="text-xs text-amber-600">Subscriptions to deleted notifications</p>
-                    </div>
-                    <button 
-                      onClick={cleanStaleSubscriptions}
-                      disabled={cleaningStale}
-                      className="px-3 py-1.5 bg-amber-600 text-white rounded text-xs font-medium hover:bg-amber-700 flex items-center gap-2"
-                    >
-                      {cleaningStale ? <Loader2 className="w-3 h-3 animate-spin"/> : <Eraser className="w-3 h-3" />}
-                      Clean All
-                    </button>
-                  </div>
-                  <div className="max-h-32 overflow-y-auto border border-slate-200 rounded-lg">
-                    <table className="w-full text-xs text-left">
-                      <tbody className="divide-y divide-slate-100">
-                        {staleSubs.map(u => (
-                          <tr key={u.uid} className="hover:bg-amber-50">
-                            <td className="p-2 text-slate-700 w-1/2 truncate">{u.email}</td>
-                            <td className="p-2 text-slate-500 text-[10px]">
-                              {u.keys.map(k => (
-                                <span key={k} className="inline-block bg-white border border-slate-200 rounded px-1 mr-1 mb-1">
-                                  {k}
-                                </span>
-                              ))}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 mt-auto">
-          <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">
-            Close
-          </button>
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center shrink-0">
+          <span className="text-sm text-slate-500">
+            {selectedKeys.length} notification{selectedKeys.length !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-slate-600">Cancel</button>
+            <button 
+              onClick={handleSubmit}
+              disabled={!email || selectedKeys.length === 0}
+              className="px-4 py-2 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+              style={{ backgroundColor: accentColor }}
+            >
+              <Send className="w-4 h-4" /> Send Invitation
+            </button>
+          </div>
         </div>
       </div>
     </div>

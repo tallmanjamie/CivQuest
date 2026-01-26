@@ -1,6 +1,8 @@
 // src/admin/components/AtlasAdminSection.jsx
 // Atlas Admin Section - integrates into AdminApp
 // Provides atlas configuration management for both super_admin and org_admin roles
+//
+// UPDATED: MapEditor wrapper now passes orgData for license enforcement
 
 import React, { useState } from 'react';
 import { 
@@ -82,14 +84,15 @@ export default function AtlasAdminSection({
             confirm={confirm}
             accentColor={accentColor}
             AtlasSettingsModal={AtlasSettingsEditor}
-            MapEditModal={({ data, onClose, onSave }) => (
+            // UPDATED: MapEditor wrapper now passes orgData for license enforcement
+            MapEditModal={({ data, orgData: passedOrgData, onClose, onSave }) => (
               <MapEditor
                 data={data}
+                orgData={passedOrgData}
                 onClose={onClose}
                 onSave={onSave}
                 accentColor={accentColor}
                 onOpenServiceFinder={(type) => handleOpenServiceFinder((url) => {
-                  // Handle service finder callback based on type
                   console.log('Selected service:', url, 'for type:', type);
                 })}
               />
@@ -130,7 +133,6 @@ export default function AtlasAdminSection({
 
       case 'preview':
         // Atlas preview (link to atlas app) - only for org_admin
-        // Super admins use preview links from Configuration tab
         if (!hasAtlasConfig) {
           return (
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">

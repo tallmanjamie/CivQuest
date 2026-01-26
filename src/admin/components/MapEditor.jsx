@@ -1,6 +1,10 @@
 // src/admin/components/MapEditor.jsx
 // Modal for editing individual Atlas map configurations
 // Handles webmap settings, endpoint, columns, search fields, geocoder
+//
+// LICENSE ENFORCEMENT: Enforces public/private visibility based on organization license
+// - Professional: Private only (no public maps allowed)
+// - Organization: Public or private allowed
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -25,8 +29,15 @@ import {
   Link2,
   Settings,
   HelpCircle,
-  Check
+  Check,
+  Shield
 } from 'lucide-react';
+import { 
+  canHavePublicMaps, 
+  getProductLicenseLimits, 
+  PRODUCTS,
+  LICENSE_TYPES 
+} from '../../shared/services/licenses';
 
 /**
  * MapEditor Modal
@@ -41,6 +52,7 @@ import {
  * 
  * Props:
  * @param {object} data - The map configuration object to edit
+ * @param {object} orgData - Organization data for license checking
  * @param {function} onClose - Called when modal is closed
  * @param {function} onSave - Called with updated map config when saved
  * @param {string} [accentColor] - Theme accent color
@@ -48,18 +60,26 @@ import {
  */
 export default function MapEditor({ 
   data, 
+  orgData,
   onClose, 
   onSave,
   accentColor = '#004E7C',
   onOpenServiceFinder
 }) {
+  // Check license constraints
+  // IMPORTANT: Default to restrictive (false) when orgData is missing
+  // This ensures super admins can't accidentally bypass license limits
+  const canBePublic = orgData ? canHavePublicMaps(orgData) : false;
+  const licenseLimits = orgData ? getProductLicenseLimits(orgData, PRODUCTS.ATLAS) : null;
+
   // Clone the data to avoid mutating props
   const [mapConfig, setMapConfig] = useState(() => ({
     name: '',
     searchPlaceholder: 'Search for properties...',
     enabledModes: ['chat', 'map', 'table'],
     defaultMode: 'chat',
-    access: 'public',
+    // If can't be public, force private
+    access: canBePublic ? (data?.access || 'public') : 'private',
     webMap: {
       portalUrl: 'https://www.arcgis.com',
       itemId: ''
@@ -72,7 +92,9 @@ export default function MapEditor({
       enabled: false,
       url: ''
     },
-    ...data
+    ...data,
+    // Override access if license doesn't allow public
+    ...((!canBePublic && data?.access === 'public') ? { access: 'private' } : {})
   }));
 
   // Active tab
@@ -81,127 +103,166 @@ export default function MapEditor({
   // Validation errors
   const [errors, setErrors] = useState({});
 
+  // Show license warning if map was public but license changed
+  const [showLicenseWarning, setShowLicenseWarning] = useState(
+    !canBePublic && data?.access === 'public'
+  );
+
   // Update field
   const updateField = (field, value) => {
-    setMapConfig(prev => ({ ...prev, [field]: value }));
+    // Prevent setting access to public if license doesn't allow
+    if (field === 'access' && value === 'public' && !canBePublic) {
+      return; // Silently ignore - button should be disabled anyway
+    }
+    
+    setMapConfig(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    
+    // Clear error when field is updated
+    if (errors[field]) {
+      setErrors(prev => {
+        const updated = { ...prev };
+        delete updated[field];
+        return updated;
+      });
+    }
   };
 
   // Update nested field
   const updateNestedField = (parent, field, value) => {
     setMapConfig(prev => ({
       ...prev,
-      [parent]: { ...prev[parent], [field]: value }
+      [parent]: {
+        ...prev[parent],
+        [field]: value
+      }
     }));
   };
 
   // Toggle mode
-  const toggleMode = (mode) => {
-    const current = mapConfig.enabledModes || [];
-    if (current.includes(mode)) {
-      // Remove mode (but keep at least one)
-      if (current.length > 1) {
-        updateField('enabledModes', current.filter(m => m !== mode));
+  const toggleMode = (modeId) => {
+    setMapConfig(prev => {
+      const modes = prev.enabledModes || [];
+      if (modes.includes(modeId)) {
+        // Can't remove if it's the only mode or if it's the default
+        if (modes.length === 1 || prev.defaultMode === modeId) return prev;
+        return { ...prev, enabledModes: modes.filter(m => m !== modeId) };
+      } else {
+        return { ...prev, enabledModes: [...modes, modeId] };
       }
-    } else {
-      updateField('enabledModes', [...current, mode]);
-    }
+    });
   };
 
-  // Search Fields Management
+  // Search fields management
   const addSearchField = () => {
     setMapConfig(prev => ({
       ...prev,
-      searchFields: [...(prev.searchFields || []), { 
-        field: '', 
-        label: '', 
-        type: 'text',
-        searchable: true 
-      }]
+      searchFields: [
+        ...(prev.searchFields || []),
+        { field: '', label: '', type: 'text' }
+      ]
     }));
   };
 
-  const updateSearchField = (index, key, value) => {
-    const updated = [...(mapConfig.searchFields || [])];
-    updated[index] = { ...updated[index], [key]: value };
-    updateField('searchFields', updated);
+  const updateSearchField = (index, field, value) => {
+    setMapConfig(prev => ({
+      ...prev,
+      searchFields: prev.searchFields.map((sf, i) => 
+        i === index ? { ...sf, [field]: value } : sf
+      )
+    }));
   };
 
   const removeSearchField = (index) => {
-    updateField('searchFields', mapConfig.searchFields.filter((_, i) => i !== index));
+    setMapConfig(prev => ({
+      ...prev,
+      searchFields: prev.searchFields.filter((_, i) => i !== index)
+    }));
   };
 
-  // Table Columns Management
+  // Table columns management
   const addTableColumn = () => {
     setMapConfig(prev => ({
       ...prev,
-      tableColumns: [...(prev.tableColumns || []), { 
-        field: '', 
-        headerName: '', 
-        width: 150,
-        sortable: true,
-        filter: true
-      }]
+      tableColumns: [
+        ...(prev.tableColumns || []),
+        { field: '', headerName: '', width: 150, sortable: true, filter: true }
+      ]
     }));
   };
 
-  const updateTableColumn = (index, key, value) => {
-    const updated = [...(mapConfig.tableColumns || [])];
-    updated[index] = { ...updated[index], [key]: value };
-    updateField('tableColumns', updated);
+  const updateTableColumn = (index, field, value) => {
+    setMapConfig(prev => ({
+      ...prev,
+      tableColumns: prev.tableColumns.map((col, i) => 
+        i === index ? { ...col, [field]: value } : col
+      )
+    }));
   };
 
   const removeTableColumn = (index) => {
-    updateField('tableColumns', mapConfig.tableColumns.filter((_, i) => i !== index));
-  };
-
-  // Autocomplete Management
-  const addAutocompleteField = () => {
     setMapConfig(prev => ({
       ...prev,
-      autocomplete: [...(prev.autocomplete || []), { 
-        field: '', 
-        label: '',
-        maxSuggestions: 10 
-      }]
+      tableColumns: prev.tableColumns.filter((_, i) => i !== index)
     }));
   };
 
-  const updateAutocompleteField = (index, key, value) => {
-    const updated = [...(mapConfig.autocomplete || [])];
-    updated[index] = { ...updated[index], [key]: value };
-    updateField('autocomplete', updated);
+  // Autocomplete management
+  const addAutocomplete = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      autocomplete: [
+        ...(prev.autocomplete || []),
+        { field: '', label: '', maxSuggestions: 10 }
+      ]
+    }));
   };
 
-  const removeAutocompleteField = (index) => {
-    updateField('autocomplete', mapConfig.autocomplete.filter((_, i) => i !== index));
+  const updateAutocomplete = (index, field, value) => {
+    setMapConfig(prev => ({
+      ...prev,
+      autocomplete: prev.autocomplete.map((ac, i) => 
+        i === index ? { ...ac, [field]: value } : ac
+      )
+    }));
   };
 
-  // Validate form
-  const validate = () => {
+  const removeAutocomplete = (index) => {
+    setMapConfig(prev => ({
+      ...prev,
+      autocomplete: prev.autocomplete.filter((_, i) => i !== index)
+    }));
+  };
+
+  // Validate and save
+  const handleSave = () => {
     const newErrors = {};
     
     if (!mapConfig.name?.trim()) {
       newErrors.name = 'Map name is required';
     }
     
-    if (!mapConfig.webMap?.itemId?.trim() && !mapConfig.endpoint?.trim()) {
-      newErrors.source = 'Either a WebMap ID or Feature Service endpoint is required';
+    if (!mapConfig.endpoint?.trim()) {
+      newErrors.endpoint = 'Feature service endpoint is required';
     }
     
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // Handle save
-  const handleSave = () => {
-    if (!validate()) return;
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      // Switch to the tab with the first error
+      if (newErrors.name) setActiveTab('basic');
+      else if (newErrors.endpoint) setActiveTab('data');
+      return;
+    }
+    
     onSave(mapConfig);
   };
 
-  // Tab configuration
+  // Tab definitions
   const tabs = [
     { id: 'basic', label: 'Basic', icon: Settings },
-    { id: 'source', label: 'Data Source', icon: Layers },
+    { id: 'data', label: 'Data Source', icon: Link2 },
     { id: 'search', label: 'Search', icon: Search },
     { id: 'table', label: 'Table', icon: Table2 },
     { id: 'geocoder', label: 'Geocoder', icon: MapPin }
@@ -215,26 +276,54 @@ export default function MapEditor({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">
-              {data?.name ? `Edit Map: ${data.name}` : 'New Map'}
-            </h2>
-            <p className="text-sm text-slate-500">Configure map settings and data sources</p>
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <div 
+              className="w-10 h-10 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: `${accentColor}15` }}
+            >
+              <Layers className="w-5 h-5" style={{ color: accentColor }} />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">
+                {data?.name ? 'Edit Map' : 'Add Map'}
+              </h2>
+              <p className="text-sm text-slate-500">Configure map settings and data source</p>
+            </div>
           </div>
           <button 
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* License Warning Banner */}
+        {showLicenseWarning && (
+          <div className="mx-6 mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-800">Map Access Changed</p>
+              <p className="text-xs text-amber-700 mt-1">
+                This map was previously set to public, but your {licenseLimits?.label || 'Professional'} license 
+                only allows private maps. The access level has been changed to private.
+              </p>
+            </div>
+            <button 
+              onClick={() => setShowLicenseWarning(false)}
+              className="p-1 hover:bg-amber-100 rounded text-amber-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Tabs */}
-        <div className="border-b border-slate-200 px-4">
+        <div className="px-6 pt-4 border-b border-slate-200 shrink-0">
           <div className="flex gap-1">
             {tabs.map(tab => {
               const Icon = tab.icon;
@@ -242,7 +331,7 @@ export default function MapEditor({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                     activeTab === tab.id
                       ? 'border-current text-slate-800'
                       : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -258,7 +347,7 @@ export default function MapEditor({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-6">
           {/* Basic Settings Tab */}
           {activeTab === 'basic' && (
             <div className="space-y-6">
@@ -300,12 +389,17 @@ export default function MapEditor({
                     <button
                       type="button"
                       onClick={() => updateField('access', 'public')}
+                      disabled={!canBePublic}
                       className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-                        mapConfig.access === 'public'
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                          : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                        !canBePublic
+                          ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                          : mapConfig.access === 'public'
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                            : 'border-slate-300 text-slate-600 hover:bg-slate-50'
                       }`}
+                      title={!canBePublic ? 'Public maps require Organization license' : ''}
                     >
+                      {!canBePublic && <Lock className="w-4 h-4" />}
                       <Eye className="w-4 h-4" />
                       Public
                     </button>
@@ -322,11 +416,23 @@ export default function MapEditor({
                       Private
                     </button>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {mapConfig.access === 'private' 
-                      ? 'Requires ArcGIS authentication to access'
-                      : 'Accessible without login'}
-                  </p>
+                  
+                  {/* License info message */}
+                  {!canBePublic ? (
+                    <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                      <Shield className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700">
+                        <span className="font-medium">{licenseLimits?.label || 'Professional'} License:</span> Only private maps are allowed. 
+                        Upgrade to Organization license for public maps.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 mt-1">
+                      {mapConfig.access === 'private' 
+                        ? 'Requires ArcGIS authentication to access'
+                        : 'Accessible without login'}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -361,12 +467,11 @@ export default function MapEditor({
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
                           isEnabled
                             ? 'border-sky-500 bg-sky-50 text-sky-700'
-                            : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                            : 'border-slate-300 text-slate-600 hover:bg-slate-50'
                         }`}
                       >
                         <Icon className="w-4 h-4" />
                         {mode.label}
-                        {isEnabled && <Check className="w-4 h-4" />}
                       </button>
                     );
                   })}
@@ -376,24 +481,43 @@ export default function MapEditor({
           )}
 
           {/* Data Source Tab */}
-          {activeTab === 'source' && (
+          {activeTab === 'data' && (
             <div className="space-y-6">
-              {errors.source && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4" />
-                  {errors.source}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Feature Service Endpoint *
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={mapConfig.endpoint}
+                    onChange={(e) => updateField('endpoint', e.target.value)}
+                    placeholder="https://services.arcgis.com/.../FeatureServer/0"
+                    className={`flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-opacity-50 ${
+                      errors.endpoint ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
+                    }`}
+                  />
+                  {onOpenServiceFinder && (
+                    <button
+                      type="button"
+                      onClick={onOpenServiceFinder}
+                      className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600"
+                    >
+                      <Search className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-              )}
+                {errors.endpoint && <p className="text-xs text-red-500 mt-1">{errors.endpoint}</p>}
+              </div>
 
-              {/* WebMap Configuration */}
-              <div className="p-4 border border-slate-200 rounded-lg">
-                <h3 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
-                  <Map className="w-5 h-5" style={{ color: accentColor }} />
-                  WebMap Configuration
-                </h3>
+              <div className="p-4 bg-slate-50 rounded-lg">
+                <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                  <Globe className="w-4 h-4" />
+                  WebMap Configuration (Optional)
+                </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       Portal URL
                     </label>
                     <input
@@ -401,76 +525,20 @@ export default function MapEditor({
                       value={mapConfig.webMap?.portalUrl || ''}
                       onChange={(e) => updateNestedField('webMap', 'portalUrl', e.target.value)}
                       placeholder="https://www.arcgis.com"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
                       WebMap Item ID
                     </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={mapConfig.webMap?.itemId || ''}
-                        onChange={(e) => updateNestedField('webMap', 'itemId', e.target.value)}
-                        placeholder="abc123def456..."
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
-                      />
-                      {onOpenServiceFinder && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenServiceFinder('webmap')}
-                          className="px-3 py-2 border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
-                          title="Browse ArcGIS"
-                        >
-                          <Search className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                {mapConfig.webMap?.itemId && (
-                  <a
-                    href={`${mapConfig.webMap.portalUrl || 'https://www.arcgis.com'}/home/item.html?id=${mapConfig.webMap.itemId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 mt-2 text-sm text-sky-600 hover:text-sky-800"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    View in ArcGIS Online
-                  </a>
-                )}
-              </div>
-
-              {/* Feature Service Endpoint */}
-              <div className="p-4 border border-slate-200 rounded-lg">
-                <h3 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
-                  <Layers className="w-5 h-5" style={{ color: accentColor }} />
-                  Feature Service Endpoint
-                </h3>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Query Endpoint URL
-                    <span className="text-slate-400 font-normal ml-2">(for search and table)</span>
-                  </label>
-                  <div className="flex gap-2">
                     <input
-                      type="url"
-                      value={mapConfig.endpoint || ''}
-                      onChange={(e) => updateField('endpoint', e.target.value)}
-                      placeholder="https://services.arcgis.com/.../FeatureServer/0"
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                      type="text"
+                      value={mapConfig.webMap?.itemId || ''}
+                      onChange={(e) => updateNestedField('webMap', 'itemId', e.target.value)}
+                      placeholder="abc123..."
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
                     />
-                    {onOpenServiceFinder && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenServiceFinder('layer')}
-                        className="px-3 py-2 border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
-                        title="Browse Services"
-                      >
-                        <Search className="w-4 h-4" />
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -480,56 +548,51 @@ export default function MapEditor({
           {/* Search Tab */}
           {activeTab === 'search' && (
             <div className="space-y-6">
-              {/* Autocomplete Fields */}
+              {/* Autocomplete */}
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-medium text-slate-800">Autocomplete Fields</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    Autocomplete Fields
+                  </label>
                   <button
                     type="button"
-                    onClick={addAutocompleteField}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50"
+                    onClick={addAutocomplete}
+                    className="text-sm flex items-center gap-1 hover:underline"
+                    style={{ color: accentColor }}
                   >
                     <Plus className="w-4 h-4" /> Add Field
                   </button>
                 </div>
-                <p className="text-sm text-slate-500 mb-3">
-                  Fields used for typeahead suggestions while typing
-                </p>
-                
                 {(mapConfig.autocomplete || []).length === 0 ? (
-                  <div className="p-4 text-center text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
-                    No autocomplete fields configured
-                  </div>
+                  <p className="text-sm text-slate-500 italic">No autocomplete fields configured</p>
                 ) : (
                   <div className="space-y-2">
-                    {mapConfig.autocomplete.map((field, idx) => (
-                      <div key={idx} className="flex gap-2 items-center p-2 bg-slate-50 rounded-lg">
-                        <GripVertical className="w-4 h-4 text-slate-300" />
+                    {mapConfig.autocomplete.map((ac, idx) => (
+                      <div key={idx} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
                         <input
                           type="text"
-                          value={field.field}
-                          onChange={(e) => updateAutocompleteField(idx, 'field', e.target.value)}
-                          placeholder="FIELD_NAME"
-                          className="flex-1 px-2 py-1.5 text-sm border border-slate-300 rounded font-mono"
+                          value={ac.field}
+                          onChange={(e) => updateAutocomplete(idx, 'field', e.target.value)}
+                          placeholder="FIELD"
+                          className="w-32 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
                         />
                         <input
                           type="text"
-                          value={field.label}
-                          onChange={(e) => updateAutocompleteField(idx, 'label', e.target.value)}
-                          placeholder="Display Label"
-                          className="flex-1 px-2 py-1.5 text-sm border border-slate-300 rounded"
+                          value={ac.label}
+                          onChange={(e) => updateAutocomplete(idx, 'label', e.target.value)}
+                          placeholder="Label"
+                          className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
                         />
                         <input
                           type="number"
-                          value={field.maxSuggestions || 10}
-                          onChange={(e) => updateAutocompleteField(idx, 'maxSuggestions', parseInt(e.target.value))}
-                          className="w-20 px-2 py-1.5 text-sm border border-slate-300 rounded"
-                          title="Max suggestions"
+                          value={ac.maxSuggestions || 10}
+                          onChange={(e) => updateAutocomplete(idx, 'maxSuggestions', parseInt(e.target.value))}
+                          className="w-16 px-2 py-1 text-sm border border-slate-300 rounded"
                         />
                         <button
                           type="button"
-                          onClick={() => removeAutocompleteField(idx)}
-                          className="p-1.5 text-slate-400 hover:text-red-500"
+                          onClick={() => removeAutocomplete(idx)}
+                          className="p-1 text-slate-400 hover:text-red-500"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -541,47 +604,43 @@ export default function MapEditor({
 
               {/* Search Fields */}
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-medium text-slate-800">Search Fields</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    Search Fields
+                  </label>
                   <button
                     type="button"
                     onClick={addSearchField}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50"
+                    className="text-sm flex items-center gap-1 hover:underline"
+                    style={{ color: accentColor }}
                   >
                     <Plus className="w-4 h-4" /> Add Field
                   </button>
                 </div>
-                <p className="text-sm text-slate-500 mb-3">
-                  Fields searchable via the search box
-                </p>
-                
                 {(mapConfig.searchFields || []).length === 0 ? (
-                  <div className="p-4 text-center text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
-                    No search fields configured
-                  </div>
+                  <p className="text-sm text-slate-500 italic">No search fields configured</p>
                 ) : (
                   <div className="space-y-2">
-                    {mapConfig.searchFields.map((field, idx) => (
-                      <div key={idx} className="flex gap-2 items-center p-2 bg-slate-50 rounded-lg">
-                        <GripVertical className="w-4 h-4 text-slate-300" />
+                    {mapConfig.searchFields.map((sf, idx) => (
+                      <div key={idx} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
                         <input
                           type="text"
-                          value={field.field}
+                          value={sf.field}
                           onChange={(e) => updateSearchField(idx, 'field', e.target.value)}
-                          placeholder="FIELD_NAME"
-                          className="flex-1 px-2 py-1.5 text-sm border border-slate-300 rounded font-mono"
+                          placeholder="FIELD"
+                          className="w-32 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
                         />
                         <input
                           type="text"
-                          value={field.label}
+                          value={sf.label}
                           onChange={(e) => updateSearchField(idx, 'label', e.target.value)}
-                          placeholder="Display Label"
-                          className="flex-1 px-2 py-1.5 text-sm border border-slate-300 rounded"
+                          placeholder="Label"
+                          className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
                         />
                         <select
-                          value={field.type || 'text'}
+                          value={sf.type || 'text'}
                           onChange={(e) => updateSearchField(idx, 'type', e.target.value)}
-                          className="w-28 px-2 py-1.5 text-sm border border-slate-300 rounded"
+                          className="w-24 px-2 py-1 text-sm border border-slate-300 rounded"
                         >
                           <option value="text">Text</option>
                           <option value="number">Number</option>
@@ -590,7 +649,7 @@ export default function MapEditor({
                         <button
                           type="button"
                           onClick={() => removeSearchField(idx)}
-                          className="p-1.5 text-slate-400 hover:text-red-500"
+                          className="p-1 text-slate-400 hover:text-red-500"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -606,44 +665,33 @@ export default function MapEditor({
           {activeTab === 'table' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-medium text-slate-800">Table Columns</h3>
-                  <p className="text-sm text-slate-500">Configure visible columns in Table view</p>
-                </div>
+                <label className="text-sm font-medium text-slate-700">
+                  Table Columns
+                </label>
                 <button
                   type="button"
                   onClick={addTableColumn}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50"
+                  className="text-sm flex items-center gap-1 hover:underline"
+                  style={{ color: accentColor }}
                 >
                   <Plus className="w-4 h-4" /> Add Column
                 </button>
               </div>
-
+              
               {(mapConfig.tableColumns || []).length === 0 ? (
-                <div className="p-6 text-center text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
-                  <Table2 className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                  <p>No columns configured</p>
-                  <p className="text-xs mt-1">Add columns to display in the table view</p>
-                </div>
+                <p className="text-sm text-slate-500 italic">No table columns configured</p>
               ) : (
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  {/* Header */}
-                  <div className="grid grid-cols-12 gap-2 p-2 bg-slate-100 text-xs font-medium text-slate-600 uppercase">
-                    <div className="col-span-1"></div>
-                    <div className="col-span-3">Field Name</div>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
+                    <div className="col-span-3">Field</div>
                     <div className="col-span-3">Header</div>
                     <div className="col-span-1">Width</div>
                     <div className="col-span-1 text-center">Sort</div>
                     <div className="col-span-1 text-center">Filter</div>
                     <div className="col-span-2"></div>
                   </div>
-                  
-                  {/* Rows */}
                   {mapConfig.tableColumns.map((col, idx) => (
-                    <div key={idx} className="grid grid-cols-12 gap-2 p-2 border-t border-slate-200 items-center hover:bg-slate-50">
-                      <div className="col-span-1">
-                        <GripVertical className="w-4 h-4 text-slate-300 cursor-move" />
-                      </div>
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg">
                       <div className="col-span-3">
                         <input
                           type="text"
@@ -713,35 +761,25 @@ export default function MapEditor({
                     onChange={(e) => updateNestedField('geocoder', 'enabled', e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                   />
-                  <span className="font-medium text-slate-800">Enable Geocoding</span>
+                  <span className="text-sm font-medium text-slate-700">Enable Geocoding</span>
                 </label>
-                <p className="text-sm text-slate-500 mt-1 ml-7">
-                  Allow address-to-coordinate conversion for search
+                <p className="text-xs text-slate-500 mt-1 ml-7">
+                  Allow users to search by address using a geocoding service
                 </p>
               </div>
 
               {mapConfig.geocoder?.enabled && (
-                <div className="pl-7 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
-                      Geocoder Service URL
-                    </label>
-                    <input
-                      type="url"
-                      value={mapConfig.geocoder?.url || ''}
-                      onChange={(e) => updateNestedField('geocoder', 'url', e.target.value)}
-                      placeholder="https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">
-                      Leave empty to use ArcGIS World Geocoder
-                    </p>
-                  </div>
-
-                  <div className="p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm text-sky-800">
-                    <HelpCircle className="w-4 h-4 inline mr-1" />
-                    Geocoding helps users search by address even when the data source doesn't have an address field.
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Geocoder URL
+                  </label>
+                  <input
+                    type="url"
+                    value={mapConfig.geocoder?.url || ''}
+                    onChange={(e) => updateNestedField('geocoder', 'url', e.target.value)}
+                    placeholder="https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                  />
                 </div>
               )}
             </div>
@@ -749,21 +787,22 @@ export default function MapEditor({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 flex justify-end gap-3">
+        <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3 shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+            className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium"
             style={{ backgroundColor: accentColor }}
           >
-            <Save className="w-4 h-4" /> Save Map
+            <Save className="w-4 h-4" />
+            Save Map
           </button>
         </div>
       </div>

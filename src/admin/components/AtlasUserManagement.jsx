@@ -1,8 +1,12 @@
 // src/admin/components/AtlasUserManagement.jsx
 // Atlas User Management - Manage user access to Atlas maps
 // Uses the same user store as Notify but tracks Atlas access separately
+// 
+// LICENSE ENFORCEMENT: Enforces user limits based on organization license type
+// - Professional: Max 3 users
+// - Organization: Unlimited users
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   collection, 
   doc, 
@@ -33,9 +37,16 @@ import {
   RefreshCw,
   AlertCircle,
   Shield,
-  Clock
+  Clock,
+  Lock
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
+import { 
+  canAddAtlasUser, 
+  getProductLicenseLimits, 
+  PRODUCTS,
+  LICENSE_TYPES 
+} from '../../shared/services/licenses';
 
 /**
  * Atlas User Management Component
@@ -132,6 +143,26 @@ export default function AtlasUserManagement({
     return user.atlasAccess?.[targetOrgId] || null;
   };
 
+  // Count current Atlas users for an organization
+  const getAtlasUserCount = (targetOrgId) => {
+    return users.filter(user => hasAtlasAccess(user, targetOrgId)).length;
+  };
+
+  // Get license limits for an organization
+  const getOrgLicenseLimits = (targetOrgId) => {
+    const org = organizations.find(o => o.id === targetOrgId);
+    if (!org) return null;
+    return getProductLicenseLimits(org, PRODUCTS.ATLAS);
+  };
+
+  // Check if organization can add more Atlas users
+  const canOrgAddUser = (targetOrgId) => {
+    const org = organizations.find(o => o.id === targetOrgId);
+    if (!org) return { allowed: false, limit: 0, remaining: 0 };
+    const currentCount = getAtlasUserCount(targetOrgId);
+    return canAddAtlasUser(org, currentCount);
+  };
+
   // Filter users based on search and filters
   const filteredUsers = users.filter(user => {
     // Search filter
@@ -156,8 +187,20 @@ export default function AtlasUserManagement({
     return matchesSearch;
   });
 
-  // Grant Atlas access
+  // Grant Atlas access with license check
   const handleGrantAccess = async (userId, userEmail, targetOrgId, mapIds = null) => {
+    // Check license limits before granting access
+    const licenseCheck = canOrgAddUser(targetOrgId);
+    
+    if (!licenseCheck.allowed) {
+      const limits = getOrgLicenseLimits(targetOrgId);
+      addToast(
+        `Cannot add user: ${limits?.label || 'Professional'} license limit reached (${limits?.maxUsers || 3} users max). Upgrade to Organization license for unlimited users.`,
+        'error'
+      );
+      return;
+    }
+
     try {
       const userRef = doc(db, PATHS.users, userId);
       const accessData = {
@@ -201,14 +244,32 @@ export default function AtlasUserManagement({
     });
   };
 
-  // Add new user with Atlas access
+  // Add new user with Atlas access (with license check)
   const handleAddUser = async (email, targetOrgId, mapIds = null) => {
+    // Check license limits before adding user
+    const licenseCheck = canOrgAddUser(targetOrgId);
+    
+    if (!licenseCheck.allowed) {
+      const limits = getOrgLicenseLimits(targetOrgId);
+      addToast(
+        `Cannot add user: ${limits?.label || 'Professional'} license limit reached (${limits?.maxUsers || 3} users max). Upgrade to Organization license for unlimited users.`,
+        'error'
+      );
+      return;
+    }
+
     try {
       // Check if user already exists
       const usersRef = collection(db, PATHS.users);
       const existingUser = users.find(u => u.email?.toLowerCase() === email.toLowerCase());
       
       if (existingUser) {
+        // Check if user already has access (don't count them twice)
+        if (hasAtlasAccess(existingUser, targetOrgId)) {
+          addToast(`${email} already has Atlas access`, 'warning');
+          setShowAddModal(false);
+          return;
+        }
         // Grant access to existing user
         await handleGrantAccess(existingUser.id, email, targetOrgId, mapIds);
       } else {
@@ -266,6 +327,59 @@ export default function AtlasUserManagement({
     addToast('Users exported to CSV', 'success');
   };
 
+  // License info banner component
+  const LicenseInfoBanner = ({ targetOrgId }) => {
+    const limits = getOrgLicenseLimits(targetOrgId);
+    const currentCount = getAtlasUserCount(targetOrgId);
+    const canAdd = canOrgAddUser(targetOrgId);
+    
+    if (!limits) return null;
+
+    const isProfessional = limits.type === LICENSE_TYPES.PROFESSIONAL;
+    const isAtLimit = !canAdd.allowed;
+
+    return (
+      <div className={`rounded-lg p-3 flex items-start gap-3 ${
+        isAtLimit 
+          ? 'bg-amber-50 border border-amber-200' 
+          : isProfessional 
+            ? 'bg-blue-50 border border-blue-200'
+            : 'bg-emerald-50 border border-emerald-200'
+      }`}>
+        <Shield className={`w-5 h-5 shrink-0 mt-0.5 ${
+          isAtLimit 
+            ? 'text-amber-600' 
+            : isProfessional 
+              ? 'text-blue-600'
+              : 'text-emerald-600'
+        }`} />
+        <div className={`text-sm ${
+          isAtLimit 
+            ? 'text-amber-800' 
+            : isProfessional 
+              ? 'text-blue-800'
+              : 'text-emerald-800'
+        }`}>
+          <p className="font-medium">
+            {limits.label} License
+            {isProfessional && ` • ${currentCount}/${limits.maxUsers} users`}
+            {!isProfessional && ` • ${currentCount} users (unlimited)`}
+          </p>
+          {isAtLimit && (
+            <p className="mt-1 text-xs">
+              User limit reached. Contact your administrator to upgrade to Organization license for unlimited users.
+            </p>
+          )}
+          {isProfessional && !isAtLimit && canAdd.remaining !== null && (
+            <p className="mt-1 text-xs">
+              {canAdd.remaining} user slot{canAdd.remaining !== 1 ? 's' : ''} remaining
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Render for admin role (all organizations)
   if (role === 'admin') {
     return (
@@ -305,15 +419,16 @@ export default function AtlasUserManagement({
               style={{ '--tw-ring-color': accentColor }}
             />
           </div>
-          
+
           <select
             value={filterOrg}
             onChange={(e) => setFilterOrg(e.target.value)}
-            className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2"
+            className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
+            style={{ '--tw-ring-color': accentColor }}
           >
             <option value="all">All Organizations</option>
             {organizations.map(org => (
-              <option key={org.id} value={org.id}>{org.name}</option>
+              <option key={org.id} value={org.id}>{org.name || org.id}</option>
             ))}
           </select>
 
@@ -328,6 +443,9 @@ export default function AtlasUserManagement({
             Atlas users only
           </label>
         </div>
+
+        {/* License Info Banner (when org is selected) */}
+        {filterOrg !== 'all' && <LicenseInfoBanner targetOrgId={filterOrg} />}
 
         {/* Users Table */}
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -360,6 +478,7 @@ export default function AtlasUserManagement({
                     organizations={organizations}
                     filterOrg={filterOrg}
                     accentColor={accentColor}
+                    canOrgAddUser={canOrgAddUser}
                     onGrantAccess={(targetOrgId) => handleGrantAccess(user.id, user.email, targetOrgId)}
                     onRevokeAccess={(targetOrgId) => handleRevokeAccess(user.id, user.email, targetOrgId)}
                   />
@@ -373,6 +492,8 @@ export default function AtlasUserManagement({
         {showAddModal && (
           <AddAtlasUserModal
             organizations={organizations}
+            canOrgAddUser={canOrgAddUser}
+            getOrgLicenseLimits={getOrgLicenseLimits}
             onClose={() => setShowAddModal(false)}
             onSave={handleAddUser}
             accentColor={accentColor}
@@ -386,6 +507,7 @@ export default function AtlasUserManagement({
   const maps = getOrgMaps(orgId);
   const orgAtlasUsers = users.filter(user => hasAtlasAccess(user, orgId));
   const orgFilteredUsers = filteredUsers;
+  const licenseCheck = canOrgAddUser(orgId);
 
   return (
     <div className="space-y-6">
@@ -405,14 +527,31 @@ export default function AtlasUserManagement({
             <Download className="w-4 h-4" /> Export
           </button>
           <button 
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium"
+            onClick={() => {
+              if (!licenseCheck.allowed) {
+                const limits = getOrgLicenseLimits(orgId);
+                addToast(
+                  `Cannot add user: ${limits?.label || 'Professional'} license limit reached (${limits?.maxUsers || 3} users max).`,
+                  'error'
+                );
+                return;
+              }
+              setShowAddModal(true);
+            }}
+            disabled={!licenseCheck.allowed}
+            className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium transition-colors ${
+              !licenseCheck.allowed ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
             style={{ backgroundColor: accentColor }}
           >
+            {!licenseCheck.allowed && <Lock className="w-4 h-4" />}
             <UserPlus className="w-4 h-4" /> Add User
           </button>
         </div>
       </div>
+
+      {/* License Info Banner */}
+      <LicenseInfoBanner targetOrgId={orgId} />
 
       {/* Search and Filter */}
       <div className="flex flex-wrap gap-4 items-center">
@@ -529,9 +668,14 @@ export default function AtlasUserManagement({
                       ) : (
                         <button
                           onClick={() => handleGrantAccess(user.id, user.email, orgId)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-white rounded-lg transition-colors"
+                          disabled={!licenseCheck.allowed}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm text-white rounded-lg transition-colors ${
+                            !licenseCheck.allowed ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
                           style={{ backgroundColor: accentColor }}
+                          title={!licenseCheck.allowed ? 'User limit reached' : 'Grant Atlas access'}
                         >
+                          {!licenseCheck.allowed && <Lock className="w-3 h-3" />}
                           <UserPlus className="w-4 h-4" /> Grant Access
                         </button>
                       )}
@@ -549,6 +693,8 @@ export default function AtlasUserManagement({
         <AddAtlasUserModal
           organizations={[{ id: orgId, name: orgData?.name }]}
           defaultOrg={orgId}
+          canOrgAddUser={canOrgAddUser}
+          getOrgLicenseLimits={getOrgLicenseLimits}
           onClose={() => setShowAddModal(false)}
           onSave={handleAddUser}
           accentColor={accentColor}
@@ -559,7 +705,7 @@ export default function AtlasUserManagement({
 }
 
 // --- User Row for Admin View ---
-function UserRowAdmin({ user, organizations, filterOrg, accentColor, onGrantAccess, onRevokeAccess }) {
+function UserRowAdmin({ user, organizations, filterOrg, accentColor, canOrgAddUser, onGrantAccess, onRevokeAccess }) {
   const [expanded, setExpanded] = useState(false);
   
   // Get orgs this user has access to
@@ -571,6 +717,7 @@ function UserRowAdmin({ user, organizations, filterOrg, accentColor, onGrantAcce
     // Show single org view
     const hasAccess = user.atlasAccess?.[filterOrg]?.enabled === true;
     const access = user.atlasAccess?.[filterOrg];
+    const canAdd = canOrgAddUser(filterOrg);
     
     return (
       <tr className="hover:bg-slate-50">
@@ -586,9 +733,7 @@ function UserRowAdmin({ user, organizations, filterOrg, accentColor, onGrantAcce
               <Check className="w-3 h-3" /> Active
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-500">
-              <X className="w-3 h-3" /> No Access
-            </span>
+            <span className="text-xs text-slate-400">No access</span>
           )}
         </td>
         <td className="px-4 py-3 text-right">
@@ -602,9 +747,14 @@ function UserRowAdmin({ user, organizations, filterOrg, accentColor, onGrantAcce
           ) : (
             <button
               onClick={() => onGrantAccess(filterOrg)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-white rounded-lg transition-colors"
+              disabled={!canAdd.allowed}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm text-white rounded-lg transition-colors ${
+                !canAdd.allowed ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
               style={{ backgroundColor: accentColor }}
+              title={!canAdd.allowed ? 'User limit reached' : 'Grant access'}
             >
+              {!canAdd.allowed && <Lock className="w-3 h-3" />}
               <UserPlus className="w-4 h-4" /> Grant
             </button>
           )}
@@ -624,33 +774,34 @@ function UserRowAdmin({ user, organizations, filterOrg, accentColor, onGrantAcce
           </div>
         </td>
         <td className="px-4 py-3">
-          <div className="flex flex-wrap gap-1">
-            {userOrgAccess.length > 0 ? (
-              userOrgAccess.slice(0, 3).map(org => (
-                <span key={org.id} className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">
-                  {org.name}
+          {userOrgAccess.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {userOrgAccess.slice(0, 3).map(org => (
+                <span key={org.id} className="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">
+                  {org.name || org.id}
                 </span>
-              ))
-            ) : (
-              <span className="text-xs text-slate-400">No Atlas access</span>
-            )}
-            {userOrgAccess.length > 3 && (
-              <span className="text-xs text-slate-500">+{userOrgAccess.length - 3} more</span>
-            )}
-          </div>
+              ))}
+              {userOrgAccess.length > 3 && (
+                <span className="text-xs text-slate-500">+{userOrgAccess.length - 3} more</span>
+              )}
+            </div>
+          ) : (
+            <span className="text-xs text-slate-400">No access</span>
+          )}
         </td>
         <td className="px-4 py-3 text-right">
-          <button className="text-sm text-slate-500 hover:text-slate-700">
-            {expanded ? 'Collapse' : 'Expand'}
+          <button className="text-slate-400 hover:text-slate-600">
+            {expanded ? '▼' : '▶'}
           </button>
         </td>
       </tr>
       {expanded && (
-        <tr>
-          <td colSpan={3} className="px-4 py-3 bg-slate-50">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+        <tr className="bg-slate-50">
+          <td colSpan="3" className="px-4 py-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               {organizations.map(org => {
                 const hasAccess = user.atlasAccess?.[org.id]?.enabled === true;
+                const canAdd = canOrgAddUser(org.id);
                 return (
                   <div key={org.id} className="flex items-center justify-between p-2 bg-white rounded border border-slate-200">
                     <span className="text-sm text-slate-700 truncate">{org.name}</span>
@@ -665,11 +816,12 @@ function UserRowAdmin({ user, organizations, filterOrg, accentColor, onGrantAcce
                     ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); onGrantAccess(org.id); }}
-                        className="p-1 hover:bg-slate-100 rounded"
-                        style={{ color: accentColor }}
-                        title="Grant access"
+                        disabled={!canAdd.allowed}
+                        className={`p-1 hover:bg-slate-100 rounded ${!canAdd.allowed ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        style={{ color: canAdd.allowed ? accentColor : undefined }}
+                        title={canAdd.allowed ? 'Grant access' : 'User limit reached'}
                       >
-                        <UserPlus className="w-4 h-4" />
+                        {!canAdd.allowed ? <Lock className="w-4 h-4 text-slate-400" /> : <UserPlus className="w-4 h-4" />}
                       </button>
                     )}
                   </div>
@@ -684,14 +836,21 @@ function UserRowAdmin({ user, organizations, filterOrg, accentColor, onGrantAcce
 }
 
 // --- Add Atlas User Modal ---
-function AddAtlasUserModal({ organizations, defaultOrg, onClose, onSave, accentColor }) {
+function AddAtlasUserModal({ organizations, defaultOrg, canOrgAddUser, getOrgLicenseLimits, onClose, onSave, accentColor }) {
   const [email, setEmail] = useState('');
   const [selectedOrg, setSelectedOrg] = useState(defaultOrg || '');
   const [saving, setSaving] = useState(false);
 
+  const licenseCheck = selectedOrg ? canOrgAddUser(selectedOrg) : { allowed: true };
+  const limits = selectedOrg ? getOrgLicenseLimits(selectedOrg) : null;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !selectedOrg) return;
+    
+    if (!licenseCheck.allowed) {
+      return; // Button should be disabled, but double-check
+    }
     
     setSaving(true);
     await onSave(email, selectedOrg);
@@ -724,7 +883,7 @@ function AddAtlasUserModal({ organizations, defaultOrg, onClose, onSave, accentC
               If this user already exists, Atlas access will be granted to their existing account.
             </p>
           </div>
-          
+
           {organizations.length > 1 && (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Organization</label>
@@ -732,32 +891,70 @@ function AddAtlasUserModal({ organizations, defaultOrg, onClose, onSave, accentC
                 value={selectedOrg}
                 onChange={(e) => setSelectedOrg(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2"
+                style={{ '--tw-ring-color': accentColor }}
                 required
               >
                 <option value="">Select organization...</option>
                 {organizations.map(org => (
-                  <option key={org.id} value={org.id}>{org.name}</option>
+                  <option key={org.id} value={org.id}>{org.name || org.id}</option>
                 ))}
               </select>
             </div>
           )}
-          
+
+          {/* License limit warning */}
+          {selectedOrg && !licenseCheck.allowed && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+              <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-800">
+                <p className="font-medium">User Limit Reached</p>
+                <p className="text-xs mt-1">
+                  This organization's {limits?.label || 'Professional'} license allows a maximum of {limits?.maxUsers || 3} users.
+                  Contact your administrator to upgrade to Organization license.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* License info */}
+          {selectedOrg && licenseCheck.allowed && limits && (
+            <div className={`rounded-lg p-3 flex items-start gap-2 ${
+              limits.type === LICENSE_TYPES.PROFESSIONAL 
+                ? 'bg-blue-50 border border-blue-200' 
+                : 'bg-emerald-50 border border-emerald-200'
+            }`}>
+              <Shield className={`w-4 h-4 shrink-0 mt-0.5 ${
+                limits.type === LICENSE_TYPES.PROFESSIONAL ? 'text-blue-600' : 'text-emerald-600'
+              }`} />
+              <div className={`text-sm ${
+                limits.type === LICENSE_TYPES.PROFESSIONAL ? 'text-blue-800' : 'text-emerald-800'
+              }`}>
+                <p className="font-medium">{limits.label} License</p>
+                {licenseCheck.remaining !== null && (
+                  <p className="text-xs mt-1">
+                    {licenseCheck.remaining} user slot{licenseCheck.remaining !== 1 ? 's' : ''} remaining
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
+              className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={saving || !email || !selectedOrg}
-              className="px-4 py-2 text-white rounded-lg font-medium disabled:opacity-50 flex items-center gap-2"
+              disabled={saving || !email || !selectedOrg || !licenseCheck.allowed}
+              className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium disabled:opacity-50"
               style={{ backgroundColor: accentColor }}
             >
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Grant Atlas Access
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+              Add User
             </button>
           </div>
         </form>

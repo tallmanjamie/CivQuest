@@ -30,6 +30,7 @@ import {
 // Hooks
 import { useAtlasConfig, useActiveMap, detectOrganizationId } from './hooks/useAtlasConfig';
 import { useArcGISAuth } from './hooks/useArcGISAuth';
+import PreviewBanner, { usePreviewBannerPadding } from './components/PreviewBanner';
 
 // Components
 import MapView from './components/MapView';
@@ -228,9 +229,12 @@ function SearchToolbar({
  */
 export default function AtlasApp() {
   // Configuration & Auth
-  const { config, loading: configLoading, error: configError, orgId, setOrgId, availableMaps } = useAtlasConfig();
+  const { config, loading: configLoading, error: configError, orgId, setOrgId, availableMaps, isPreviewMode } = useAtlasConfig();
   const { activeMap, activeMapIndex, setActiveMap } = useActiveMap(config);
   const { user: arcgisUser, loading: authLoading, signIn, signOut, isAuthenticated } = useArcGISAuth();
+  
+  // Add padding to body when preview banner is shown
+  usePreviewBannerPadding(isPreviewMode);
   
   // UI State
   const [mode, setMode] = useState('chat');
@@ -448,6 +452,9 @@ export default function AtlasApp() {
   
   return (
     <AtlasContext.Provider value={contextValue}>
+      {/* Preview Mode Banner - shown when ?preview=draft is in URL */}
+      {isPreviewMode && <PreviewBanner orgId={orgId} />}
+      
       {/* Apply CSS variables for theme colors */}
       <div className="h-dvh flex flex-col bg-slate-100 font-sans" style={cssVars}>
         {/* Header */}

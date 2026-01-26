@@ -9,3 +9,5 @@ export { default as LoadingScreen } from './LoadingScreen';
 export { default as ErrorScreen } from './ErrorScreen';
 export { default as WelcomeScreen } from './WelcomeScreen';
 export { default as OrgSelector } from './OrgSelector';
+// src/atlas/components/index.js
+export { default as PreviewBanner, usePreviewBannerPadding } from './PreviewBanner';

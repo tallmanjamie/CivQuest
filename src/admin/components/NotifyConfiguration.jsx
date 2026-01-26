@@ -1,6 +1,9 @@
 // src/admin/components/NotifyConfiguration.jsx
-// Notification Configuration Management with Initialization UI
-// Manages notification rules with initialize/uninitialize workflow similar to Atlas
+// Notification configuration management for Notify module
+// Supports both super admin (all orgs) and org admin (single org) views
+//
+// UPDATED: Now passes orgData to NotificationEditModal for license enforcement
+// This ensures license limits apply even when super admin edits notifications
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -8,38 +11,35 @@ import {
   doc, 
   updateDoc, 
   onSnapshot,
-  addDoc,
-  deleteField
-} from "firebase/firestore";
+  deleteField,
+  serverTimestamp
+} from 'firebase/firestore';
 import { 
-  Plus, 
-  Trash2, 
-  Edit2,
-  Lock,
-  PauseCircle,
-  ExternalLink,
-  Play,
-  Copy,
-  Building2,
-  X,
-  Wand2,
-  Bell,
+  Building2, 
+  Bell, 
   BellOff,
-  ChevronDown,
+  Plus, 
+  Edit2, 
+  Trash2, 
+  Copy,
+  ChevronDown, 
   ChevronRight,
-  PowerOff,
-  AlertTriangle,
-  Zap,
+  Play,
+  Pause,
+  Globe,
+  Lock,
   Calendar,
-  Clock
+  Clock,
+  Zap
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
 
 /**
- * Notify Configuration Management Component with Initialization UI
+ * NotifyConfiguration Component
  * 
- * This component provides a unified configuration interface for notification management
- * with an initialize/uninitialize workflow similar to Atlas.
+ * Manages notification configurations for organizations.
+ * Super Admin: View and edit all organizations' notifications
+ * Org Admin: View and edit only their organization's notifications
  * 
  * Props:
  * @param {object} db - Firestore database instance
@@ -91,8 +91,8 @@ export default function NotifyConfiguration({
   };
 
   // Toggle org expansion
-  const toggleOrgExpansion = (orgId) => {
-    setExpandedOrgs(prev => ({ ...prev, [orgId]: !prev[orgId] }));
+  const toggleOrgExpansion = (targetOrgId) => {
+    setExpandedOrgs(prev => ({ ...prev, [targetOrgId]: !prev[targetOrgId] }));
   };
 
   // Default notification template
@@ -100,7 +100,7 @@ export default function NotifyConfiguration({
     id: "new_notification",
     name: "New Notification",
     type: "monthly",
-    access: "public",
+    access: "private", // Default to private for safety
     paused: false,
     runDay: 1,
     lag: 0,
@@ -123,7 +123,7 @@ export default function NotifyConfiguration({
   const handleInitializeNotify = async (targetOrgId, orgName) => {
     confirm({
       title: "Initialize Notify",
-      message: `This will enable notifications for "${orgName}". You can then add notification rules to send email alerts to subscribers. Continue?`,
+      message: `This will enable notifications for "${orgName}". You can then add notification rules to send email alerts to subscribers.`,
       confirmLabel: "Initialize",
       onConfirm: async () => {
         try {
@@ -132,24 +132,24 @@ export default function NotifyConfiguration({
             notifyEnabled: true,
             notifications: []
           });
-          addToast("Notify initialized successfully", "success");
+          addToast("Notify initialized", "success");
         } catch (err) {
-          addToast("Error initializing: " + err.message, "error");
+          addToast("Error: " + err.message, "error");
         }
       }
     });
   };
 
-  // Uninitialize Notify for an organization
+  // Uninitialize Notify (remove config)
   const handleUninitializeNotify = async (targetOrgId, orgName, notificationCount) => {
     if (notificationCount > 0) {
-      addToast("Cannot uninitialize Notify while notification rules exist. Delete all rules first.", "error");
+      addToast("Cannot uninitialize while notifications exist. Delete all notifications first.", "error");
       return;
     }
-
+    
     confirm({
       title: "Uninitialize Notify",
-      message: `This will disable notifications for "${orgName}". This action cannot be undone. Continue?`,
+      message: `This will disable notifications for "${orgName}". All Notify configuration will be removed. Continue?`,
       destructive: true,
       confirmLabel: "Uninitialize",
       onConfirm: async () => {
@@ -159,58 +159,71 @@ export default function NotifyConfiguration({
             notifyEnabled: deleteField(),
             notifications: deleteField()
           });
-          addToast("Notify has been disabled", "success");
+          addToast("Notify uninitialized", "success");
         } catch (err) {
-          addToast("Error uninitializing: " + err.message, "error");
+          addToast("Error: " + err.message, "error");
         }
       }
     });
   };
 
-  // Update notification
+  // Update notifications array for an organization
   const handleUpdateNotification = async (targetOrgId, updatedNotifications) => {
-    const docRef = doc(db, PATHS.organizations, targetOrgId);
-    await updateDoc(docRef, { notifications: updatedNotifications });
-    setEditingNotification(null);
-    addToast("Notification rules updated", "success");
+    try {
+      const docRef = doc(db, PATHS.organizations, targetOrgId);
+      await updateDoc(docRef, { notifications: updatedNotifications });
+      setEditingNotification(null);
+      addToast("Notification saved", "success");
+    } catch (err) {
+      addToast("Error: " + err.message, "error");
+    }
   };
 
-  // Delete notification
-  const handleDeleteNotification = (targetOrgId, notifIndex, notifName, allNotifications) => {
+  // Delete a notification
+  const handleDeleteNotification = (targetOrgId, idx, notifName, allNotifications) => {
     confirm({
-      title: "Delete Notification Rule",
-      message: `Are you sure you want to delete "${notifName}"? This action cannot be undone.`,
+      title: "Delete Notification",
+      message: `Are you sure you want to delete "${notifName}"? Subscribers will no longer receive this notification.`,
       destructive: true,
-      confirmLabel: "Delete Rule",
+      confirmLabel: "Delete",
       onConfirm: async () => {
+        const updated = allNotifications.filter((_, i) => i !== idx);
         try {
-          const notifications = [...allNotifications];
-          notifications.splice(notifIndex, 1);
           const docRef = doc(db, PATHS.organizations, targetOrgId);
-          await updateDoc(docRef, { notifications });
-          addToast("Notification rule deleted", "success");
+          await updateDoc(docRef, { notifications: updated });
+          addToast("Notification deleted", "success");
         } catch (err) {
-          addToast("Error deleting rule: " + err.message, "error");
+          addToast("Error: " + err.message, "error");
         }
       }
     });
   };
 
-  // Force run broadcast
+  // Force run a broadcast
   const handleForceRunBroadcast = (targetOrgId, notifId, notifName) => {
     confirm({
-      title: "Run Broadcast?",
-      message: `This will immediately send "${notifName}" to all subscribers. Continue?`,
+      title: "Force Run Broadcast",
+      message: `This will immediately run "${notifName}" and send emails to all subscribers. Continue?`,
       confirmLabel: "Run Now",
       onConfirm: async () => {
         try {
-          await addDoc(collection(db, 'force_queue'), {
+          const forceRef = doc(db, 'force_queue', `${targetOrgId}_${notifId}_${Date.now()}`);
+          await updateDoc(forceRef, {
             orgId: targetOrgId,
             notificationId: notifId,
-            requestedAt: new Date(),
+            requestedAt: serverTimestamp(),
             status: 'pending'
+          }).catch(() => {
+            // If doc doesn't exist, create it
+            const { setDoc } = require('firebase/firestore');
+            return setDoc(forceRef, {
+              orgId: targetOrgId,
+              notificationId: notifId,
+              requestedAt: serverTimestamp(),
+              status: 'pending'
+            });
           });
-          addToast("Broadcast queued successfully!", "success");
+          addToast("Broadcast queued", "success");
         } catch (err) {
           addToast("Error: " + err.message, "error");
         }
@@ -219,7 +232,7 @@ export default function NotifyConfiguration({
   };
 
   // Duplicate notification
-  const handleDuplicateNotification = (targetOrgId, notif, allNotifications) => {
+  const handleDuplicateNotification = (targetOrgId, notif, allNotifications, targetOrgData) => {
     const duplicatedNotif = {
       ...notif,
       id: `${notif.id}_copy_${Date.now()}`,
@@ -234,6 +247,7 @@ export default function NotifyConfiguration({
     };
     setEditingNotification({ 
       orgId: targetOrgId, 
+      orgData: targetOrgData, // Include org data for license checking
       notificationIndex: -1, 
       data: duplicatedNotif, 
       allNotifications 
@@ -241,9 +255,10 @@ export default function NotifyConfiguration({
   };
 
   // Add new notification
-  const handleAddNotification = (targetOrgId, allNotifications) => {
+  const handleAddNotification = (targetOrgId, allNotifications, targetOrgData) => {
     setEditingNotification({ 
       orgId: targetOrgId, 
+      orgData: targetOrgData, // Include org data for license checking
       notificationIndex: -1, 
       data: {...defaultNotifTemplate, id: `notif_${Date.now()}`}, 
       allNotifications 
@@ -251,9 +266,10 @@ export default function NotifyConfiguration({
   };
 
   // Edit existing notification
-  const handleEditNotification = (targetOrgId, idx, data, allNotifications) => {
+  const handleEditNotification = (targetOrgId, idx, data, allNotifications, targetOrgData) => {
     setEditingNotification({ 
       orgId: targetOrgId, 
+      orgData: targetOrgData, // Include org data for license checking
       notificationIndex: idx, 
       data, 
       allNotifications 
@@ -269,6 +285,11 @@ export default function NotifyConfiguration({
       updated[editingNotification.notificationIndex] = newData;
     }
     handleUpdateNotification(editingNotification.orgId, updated);
+  };
+
+  // Helper: Get org data by ID (for super admin)
+  const getOrgById = (targetOrgId) => {
+    return organizations.find(o => o.id === targetOrgId) || null;
   };
 
   // Loading state
@@ -312,18 +333,20 @@ export default function NotifyConfiguration({
                 onInitialize={() => handleInitializeNotify(org.id, org.name)}
                 onUninitialize={() => handleUninitializeNotify(org.id, org.name, org.notifications?.length || 0)}
                 onForceRun={(notifId, notifName) => handleForceRunBroadcast(org.id, notifId, notifName)}
-                onEditNotification={(idx, data) => handleEditNotification(org.id, idx, data, org.notifications)}
+                onEditNotification={(idx, data) => handleEditNotification(org.id, idx, data, org.notifications, org)}
                 onDeleteNotification={(idx, name) => handleDeleteNotification(org.id, idx, name, org.notifications)}
-                onDuplicateNotification={(notif) => handleDuplicateNotification(org.id, notif, org.notifications)}
-                onAddNotification={() => handleAddNotification(org.id, org.notifications || [])}
+                onDuplicateNotification={(notif) => handleDuplicateNotification(org.id, notif, org.notifications, org)}
+                onAddNotification={() => handleAddNotification(org.id, org.notifications || [], org)}
               />
             ))}
           </div>
         )}
 
+        {/* Notification Edit Modal - NOW PASSES orgData */}
         {editingNotification && NotificationEditModal && (
           <NotificationEditModal 
             data={editingNotification.data}
+            orgData={editingNotification.orgData}
             onClose={() => setEditingNotification(null)}
             onSave={handleSaveNotification}
           />
@@ -340,26 +363,30 @@ export default function NotifyConfiguration({
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Notification Configuration</h2>
-          <p className="text-slate-500 text-sm">Manage notification rules for {orgData?.name}.</p>
+          <h2 className="text-xl font-bold text-slate-800">Notifications</h2>
+          <p className="text-slate-500 text-sm">
+            Configure notification rules for your organization.
+          </p>
         </div>
+        
         {hasConfig && (
           <div className="flex gap-2">
             {onOpenWizard && (
-              <button 
+              <button
                 onClick={onOpenWizard}
-                className="flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors font-medium"
-                style={{ backgroundColor: accentColor }}
+                className="flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium"
               >
-                <Wand2 className="w-4 h-4" /> Notification Wizard
+                <Zap className="w-4 h-4" />
+                Wizard
               </button>
             )}
-            <button 
-              onClick={() => handleAddNotification(orgId, notifications)} 
-              className="flex items-center gap-2 px-4 py-2 text-white rounded-lg transition-colors font-medium"
+            <button
+              onClick={() => handleAddNotification(orgId, notifications, orgData)}
+              className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium"
               style={{ backgroundColor: accentColor }}
             >
-              <Plus className="w-4 h-4" /> Add Notification
+              <Plus className="w-4 h-4" />
+              Add Notification
             </button>
           </div>
         )}
@@ -368,11 +395,9 @@ export default function NotifyConfiguration({
       {/* Not Initialized State */}
       {!hasConfig ? (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
-          <Bell className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <BellOff className="w-16 h-16 text-slate-300 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-slate-700 mb-2">Notify Not Configured</h3>
-          <p className="text-slate-500 mb-6">
-            Initialize Notify to enable email notification rules for your organization's subscribers.
-          </p>
+          <p className="text-slate-500 mb-6">Initialize Notify to start sending email notifications to subscribers.</p>
           <button
             onClick={() => handleInitializeNotify(orgId, orgData?.name)}
             className="px-6 py-2 text-white rounded-lg font-medium"
@@ -383,69 +408,40 @@ export default function NotifyConfiguration({
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Notifications Card */}
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <div>
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                  <Building2 className="w-5 h-5" style={{ color: accentColor }} />
-                  {orgData?.name}
-                </h3>
-                <p className="text-xs text-slate-400 font-mono">{orgId}</p>
-              </div>
-              <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">
-                {notifications.length} notification{notifications.length !== 1 ? 's' : ''}
-              </span>
+          {/* Notification List */}
+          {notifications.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
+              <Bell className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-slate-500">No notifications configured yet.</p>
+              <p className="text-sm text-slate-400 mt-1">Click "Add Notification" to create your first one.</p>
             </div>
-            <div className="p-4">
-              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Notification Types</h4>
-              {notifications.length > 0 ? (
-                <div className="space-y-2">
-                  {notifications.map((notif, idx) => (
-                    <NotificationRow
-                      key={idx}
-                      notif={notif}
-                      idx={idx}
-                      orgId={orgId}
-                      accentColor={accentColor}
-                      addToast={addToast}
-                      onForceRun={() => handleForceRunBroadcast(orgId, notif.id, notif.name)}
-                      onEdit={() => handleEditNotification(orgId, idx, notif, notifications)}
-                      onDelete={() => handleDeleteNotification(orgId, idx, notif.name, notifications)}
-                      onDuplicate={() => handleDuplicateNotification(orgId, notif, notifications)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-slate-500">
-                  <Bell className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <p className="text-sm">No notification rules configured.</p>
-                  <button
-                    onClick={() => handleAddNotification(orgId, notifications)}
-                    className="mt-3 text-sm font-medium hover:underline"
-                    style={{ color: accentColor }}
-                  >
-                    Add your first notification
-                  </button>
-                </div>
-              )}
+          ) : (
+            <div className="grid gap-3">
+              {notifications.map((notif, idx) => (
+                <NotificationCard
+                  key={notif.id || idx}
+                  notification={notif}
+                  accentColor={accentColor}
+                  onEdit={() => handleEditNotification(orgId, idx, notif, notifications, orgData)}
+                  onDelete={() => handleDeleteNotification(orgId, idx, notif.name, notifications)}
+                  onDuplicate={() => handleDuplicateNotification(orgId, notif, notifications, orgData)}
+                  onForceRun={() => handleForceRunBroadcast(orgId, notif.id, notif.name)}
+                />
+              ))}
             </div>
-          </div>
+          )}
 
-          {/* Uninitialize Option - Only shown when no notifications exist */}
+          {/* Uninitialize Option */}
           {notifications.length === 0 && (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <PowerOff className="w-5 h-5 text-slate-400" />
-                  <div>
-                    <h4 className="font-medium text-slate-700">Uninitialize Notify</h4>
-                    <p className="text-sm text-slate-500">Disable notifications for this organization.</p>
-                  </div>
+                <div>
+                  <h4 className="font-medium text-slate-700">Uninitialize Notify</h4>
+                  <p className="text-sm text-slate-500">Remove Notify configuration from this organization.</p>
                 </div>
                 <button
                   onClick={() => handleUninitializeNotify(orgId, orgData?.name, 0)}
-                  className="px-4 py-2 text-red-600 border border-red-200 rounded-lg hover:bg-red-50 text-sm font-medium"
+                  className="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
                 >
                   Uninitialize
                 </button>
@@ -455,13 +451,98 @@ export default function NotifyConfiguration({
         </div>
       )}
 
+      {/* Notification Edit Modal - PASSES orgData */}
       {editingNotification && NotificationEditModal && (
         <NotificationEditModal 
           data={editingNotification.data}
+          orgData={editingNotification.orgData || orgData}
           onClose={() => setEditingNotification(null)}
           onSave={handleSaveNotification}
         />
       )}
+    </div>
+  );
+}
+
+// --- Notification Card Component ---
+function NotificationCard({ notification, accentColor, onEdit, onDelete, onDuplicate, onForceRun }) {
+  const scheduleLabels = {
+    monthly: 'Monthly',
+    weekly: 'Weekly',
+    daily: 'Daily',
+    immediate: 'Immediate'
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <h4 className="font-semibold text-slate-800">{notification.name}</h4>
+            {notification.paused && (
+              <span className="flex items-center gap-1 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                <Pause className="w-3 h-3" />
+                Paused
+              </span>
+            )}
+            {notification.access === 'public' || notification.isPublic ? (
+              <span className="flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                <Globe className="w-3 h-3" />
+                Public
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                <Lock className="w-3 h-3" />
+                Private
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-500 mb-2">{notification.description || 'No description'}</p>
+          <div className="flex items-center gap-4 text-xs text-slate-400">
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              {scheduleLabels[notification.type] || notification.type}
+            </span>
+            {notification.runTime && (
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {notification.runTime}
+              </span>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-1 ml-4">
+          <button
+            onClick={onForceRun}
+            className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg"
+            title="Force Run"
+          >
+            <Play className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onDuplicate}
+            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
+            title="Duplicate"
+          >
+            <Copy className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onEdit}
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+            title="Edit"
+          >
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -524,13 +605,13 @@ function OrganizationNotifyCard({
       {expanded && (
         <div className="border-t border-slate-100">
           {!hasNotifyConfig ? (
-            // Not initialized - show initialize button
-            <div className="p-8 text-center bg-slate-50">
-              <Bell className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <p className="text-slate-600 mb-4">Notify is not configured for this organization.</p>
+            // Not initialized - show Initialize button
+            <div className="p-6 text-center">
+              <BellOff className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-slate-500 mb-4">Notify is not initialized for this organization.</p>
               <button
                 onClick={(e) => { e.stopPropagation(); onInitialize(); }}
-                className="px-4 py-2 text-white rounded-lg font-medium text-sm"
+                className="px-4 py-2 text-white rounded-lg font-medium"
                 style={{ backgroundColor: accentColor }}
               >
                 Initialize Notify
@@ -538,152 +619,98 @@ function OrganizationNotifyCard({
             </div>
           ) : (
             // Initialized - show notifications
-            <div className="p-4">
-              {notificationCount > 0 ? (
-                <div className="space-y-2">
-                  {notifications.map((notif, idx) => (
-                    <NotificationRow
-                      key={idx}
-                      notif={notif}
-                      idx={idx}
-                      orgId={org.id}
-                      accentColor={accentColor}
-                      onForceRun={() => onForceRun(notif.id, notif.name)}
-                      onEdit={() => onEditNotification(idx, notif)}
-                      onDelete={() => onDeleteNotification(idx, notif.name)}
-                      onDuplicate={() => onDuplicateNotification(notif)}
-                    />
-                  ))}
+            <div className="p-4 space-y-3">
+              {/* Add Notification Button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onAddNotification(); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg"
+                  style={{ backgroundColor: accentColor + '15', color: accentColor }}
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Notification
+                </button>
+              </div>
+
+              {/* Notification List */}
+              {notifications.length === 0 ? (
+                <div className="text-center py-6 text-slate-400">
+                  <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No notifications configured</p>
                 </div>
               ) : (
-                <p className="text-sm text-slate-400 italic">No notifications configured.</p>
+                <div className="space-y-2">
+                  {notifications.map((notif, idx) => (
+                    <div 
+                      key={notif.id || idx}
+                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-slate-700 truncate">{notif.name}</span>
+                          {notif.paused && (
+                            <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                              Paused
+                            </span>
+                          )}
+                          {(notif.access === 'public' || notif.isPublic) ? (
+                            <Globe className="w-3 h-3 text-blue-500" title="Public" />
+                          ) : (
+                            <Lock className="w-3 h-3 text-slate-400" title="Private" />
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400 truncate">{notif.description || notif.id}</p>
+                      </div>
+                      <div className="flex items-center gap-1 ml-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onForceRun(notif.id, notif.name); }}
+                          className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-white rounded"
+                          title="Force Run"
+                        >
+                          <Play className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDuplicateNotification(notif); }}
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded"
+                          title="Duplicate"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onEditNotification(idx, notif); }}
+                          className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-white rounded"
+                          title="Edit"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDeleteNotification(idx, notif.name); }}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-white rounded"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-              
-              {/* Actions */}
-              <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onAddNotification(); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-dashed border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50"
-                >
-                  <Plus className="w-4 h-4" /> Add Notification
-                </button>
-                
-                {notificationCount === 0 && (
-                  <button 
+
+              {/* Uninitialize Option */}
+              {notifications.length === 0 && (
+                <div className="pt-2 border-t border-slate-100 mt-4">
+                  <button
                     onClick={(e) => { e.stopPropagation(); onUninitialize(); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg"
+                    className="text-xs text-slate-400 hover:text-red-500"
                   >
-                    <PowerOff className="w-4 h-4" /> Uninitialize
+                    Uninitialize Notify
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-// --- Notification Row ---
-function NotificationRow({ 
-  notif, 
-  idx, 
-  orgId, 
-  accentColor, 
-  addToast,
-  onForceRun, 
-  onEdit, 
-  onDelete, 
-  onDuplicate 
-}) {
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-  const getFrequencyText = (notif) => {
-    const lagText = notif.lag > 0 ? ` (${notif.lag}d lag)` : '';
-    if (notif.type === 'monthly') {
-      return `Day ${notif.runDay}${lagText}`;
-    } else if (notif.type === 'weekly') {
-      return `${days[notif.runDay]}${lagText}`;
-    } else if (notif.type === 'daily') {
-      return `Daily${lagText}`;
-    }
-    return notif.type;
-  };
-
-  const copySubscribeLink = () => {
-    const link = `${window.location.origin}/notify/${orgId}/${notif.id}`;
-    navigator.clipboard.writeText(link);
-    if (addToast) {
-      addToast("Link copied!", "success");
-    }
-  };
-
-  return (
-    <div className="group p-3 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {notif.paused ? (
-            <PauseCircle className="w-5 h-5 text-orange-500" />
-          ) : (
-            <Bell className="w-5 h-5" style={{ color: accentColor }} />
-          )}
-          <span className="font-medium text-slate-700">{notif.name}</span>
-          {notif.access === 'private' && (
-            <Lock className="w-3.5 h-3.5 text-slate-400" />
-          )}
-        </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button 
-            onClick={onForceRun}
-            className="p-1.5 text-slate-400 hover:bg-white rounded transition-all"
-            title="Run Now"
-          >
-            <Zap className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={copySubscribeLink}
-            className="p-1.5 text-slate-400 hover:bg-white rounded transition-all"
-            title="Copy Subscribe Link"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={onDuplicate}
-            className="p-1.5 text-slate-400 hover:bg-white rounded transition-all"
-            title="Duplicate"
-          >
-            <Copy className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={onEdit}
-            className="p-1.5 text-slate-400 hover:bg-white rounded transition-all"
-            title="Edit"
-          >
-            <Edit2 className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={onDelete}
-            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-white rounded transition-all"
-            title="Delete"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-      
-      <div className="flex gap-2 pl-7 mt-1">
-        <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded text-slate-600 uppercase">{notif.type}</span>
-        <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded text-slate-600 font-mono">
-          {getFrequencyText(notif)}
-        </span>
-        {notif.access === 'private' && (
-          <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded uppercase font-bold">Private</span>
-        )}
-        {notif.paused && (
-          <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded uppercase font-bold">Paused</span>
-        )}
-      </div>
     </div>
   );
 }

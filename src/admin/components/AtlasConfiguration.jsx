@@ -1,60 +1,49 @@
 // src/admin/components/AtlasConfiguration.jsx
-// Atlas Configuration Management with Draft/Publish Workflow
-// Manages atlas UI, messages, basemaps, and map configurations
-// Changes are saved to draft until explicitly published
+// Atlas configuration management component
+// Supports both super admin (all orgs) and org admin (single org) views
+//
+// UPDATED: Now passes orgData to MapEditModal for license enforcement
+// This ensures license limits apply even when super admin edits maps
+//
+// The draft/publish workflow:
+// 1. Edits are saved to atlasConfigDraft
+// 2. Preview shows the draft configuration
+// 3. Publish copies draft to live (atlasConfig)
+// 4. Discard removes the draft, reverting to live
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   collection, 
   doc, 
   updateDoc, 
   onSnapshot,
   deleteField
-} from "firebase/firestore";
+} from 'firebase/firestore';
 import { 
+  Building2, 
+  Map, 
   Plus, 
+  Edit2, 
   Trash2, 
-  Edit2,
-  Map,
-  Layers,
-  Globe,
-  Palette,
-  MessageSquare,
-  Settings,
-  Building2,
   Copy,
-  Eye,
-  EyeOff,
-  ChevronDown,
+  ChevronDown, 
   ChevronRight,
-  ExternalLink,
-  Image,
-  MapPin,
-  Table2,
-  Wand2,
-  PowerOff,
-  AlertTriangle,
-  Upload,
-  RotateCcw,
-  CheckCircle2,
+  Settings,
+  Eye,
+  Globe,
+  Lock,
   Clock,
+  Send,
+  RotateCcw,
   FileEdit,
-  Send
+  AlertTriangle,
+  PowerOff,
+  ExternalLink
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
 
 /**
- * Atlas Configuration Management Component with Draft/Publish Workflow
- * 
- * Data Structure:
- * - atlasConfig: The LIVE configuration that Atlas app uses
- * - atlasConfigDraft: The DRAFT configuration that admins edit
- * 
- * Workflow:
- * 1. Edits are saved to atlasConfigDraft
- * 2. Preview shows the draft configuration
- * 3. Publish copies draft to live (atlasConfig)
- * 4. Discard removes the draft, reverting to live
+ * AtlasConfiguration Component
  * 
  * Props:
  * @param {object} db - Firestore database instance
@@ -94,7 +83,6 @@ export default function AtlasConfiguration({
           ...docSnap.data() 
         }));
         setOrganizations(orgs);
-        // All orgs collapsed by default for super admin
         setLoading(false);
       });
       return () => unsubscribe();
@@ -140,7 +128,7 @@ export default function AtlasConfiguration({
     searchPlaceholder: "Search for properties...",
     enabledModes: ["chat", "map", "table"],
     defaultMode: "chat",
-    access: "public",
+    access: "private", // Default to private for safety
     webMap: {
       portalUrl: "https://www.arcgis.com",
       itemId: ""
@@ -231,7 +219,7 @@ export default function AtlasConfiguration({
     });
   };
 
-  // Initialize atlas config for an org (creates as draft first)
+  // Initialize atlas config for an org
   const handleInitializeAtlas = async (targetOrgId, orgName) => {
     confirm({
       title: "Initialize Atlas Configuration",
@@ -247,7 +235,6 @@ export default function AtlasConfiguration({
             }
           };
           const docRef = doc(db, PATHS.organizations, targetOrgId);
-          // Initialize directly to live since there's nothing to preview yet
           await updateDoc(docRef, { atlasConfig: config });
           addToast("Atlas configuration initialized", "success");
         } catch (err) {
@@ -257,7 +244,7 @@ export default function AtlasConfiguration({
     });
   };
 
-  // Uninitialize atlas config for an org (only if no maps)
+  // Uninitialize atlas config for an org
   const handleUninitializeAtlas = async (targetOrgId, orgName, workingConfig, hasDraft) => {
     const mapCount = workingConfig?.data?.maps?.length || 0;
     
@@ -268,7 +255,7 @@ export default function AtlasConfiguration({
 
     confirm({
       title: "Uninitialize Atlas",
-      message: `This will remove the Atlas configuration for "${orgName}". All settings (UI, messages, basemaps) will be lost. This action cannot be undone. Continue?`,
+      message: `This will remove the Atlas configuration for "${orgName}". All settings will be lost. Continue?`,
       destructive: true,
       confirmLabel: "Uninitialize",
       onConfirm: async () => {
@@ -287,24 +274,30 @@ export default function AtlasConfiguration({
     });
   };
 
-  // Edit settings - creates draft from live if needed
-  const handleEditSettings = (targetOrgId, liveConfig, draftConfig) => {
+  // Edit settings
+  const handleEditSettings = (targetOrgId, liveConfig, draftConfig, targetOrgData) => {
     const configToEdit = draftConfig || liveConfig;
-    setEditingSettings({ orgId: targetOrgId, data: configToEdit, liveConfig });
+    setEditingSettings({ 
+      orgId: targetOrgId, 
+      orgData: targetOrgData,
+      data: configToEdit, 
+      liveConfig 
+    });
   };
 
-  // Save settings - saves to draft
+  // Save settings
   const handleSaveSettings = (updatedConfig) => {
     if (editingSettings) {
       handleSaveToDraft(editingSettings.orgId, updatedConfig);
     }
   };
 
-  // Edit map - creates draft from live if needed
-  const handleEditMap = (targetOrgId, mapIdx, map, liveConfig, draftConfig) => {
+  // Edit map - NOW INCLUDES orgData for license checking
+  const handleEditMap = (targetOrgId, mapIdx, map, liveConfig, draftConfig, targetOrgData) => {
     const configToEdit = draftConfig || liveConfig;
     setEditingMap({ 
-      orgId: targetOrgId, 
+      orgId: targetOrgId,
+      orgData: targetOrgData, // Include org data for license checking
       mapIdx, 
       data: map, 
       atlasConfig: configToEdit,
@@ -312,7 +305,7 @@ export default function AtlasConfiguration({
     });
   };
 
-  // Save map - saves to draft
+  // Save map
   const handleSaveMap = (updatedMap) => {
     if (editingMap) {
       const updatedConfig = { ...editingMap.atlasConfig };
@@ -323,8 +316,8 @@ export default function AtlasConfiguration({
     }
   };
 
-  // Add new map - saves to draft
-  const handleAddMap = (targetOrgId, liveConfig, draftConfig) => {
+  // Add new map - NOW INCLUDES orgData
+  const handleAddMap = (targetOrgId, liveConfig, draftConfig, targetOrgData) => {
     const configToUse = draftConfig || liveConfig;
     const newMap = { ...defaultMapTemplate };
     const updatedConfig = { ...configToUse };
@@ -332,13 +325,12 @@ export default function AtlasConfiguration({
     maps.push(newMap);
     updatedConfig.data = { ...updatedConfig.data, maps };
     
-    // Save to draft and open editor
     handleSaveToDraft(targetOrgId, updatedConfig);
     
-    // Open the new map for editing after a brief delay
     setTimeout(() => {
       setEditingMap({
         orgId: targetOrgId,
+        orgData: targetOrgData, // Include org data for license checking
         mapIdx: maps.length - 1,
         data: newMap,
         atlasConfig: updatedConfig,
@@ -347,11 +339,11 @@ export default function AtlasConfiguration({
     }, 100);
   };
 
-  // Delete map - saves to draft
+  // Delete map
   const handleDeleteMap = (targetOrgId, mapIndex, mapName, liveConfig, draftConfig) => {
     confirm({
       title: "Delete Map",
-      message: `Are you sure you want to delete "${mapName}"? This change will be saved to draft.`,
+      message: `Are you sure you want to delete "${mapName}"? This cannot be undone.`,
       destructive: true,
       confirmLabel: "Delete",
       onConfirm: async () => {
@@ -365,19 +357,31 @@ export default function AtlasConfiguration({
     });
   };
 
-  // Duplicate map - saves to draft
-  const handleDuplicateMap = (targetOrgId, map, liveConfig, draftConfig) => {
+  // Duplicate map - NOW INCLUDES orgData
+  const handleDuplicateMap = (targetOrgId, map, liveConfig, draftConfig, targetOrgData) => {
     const configToUse = draftConfig || liveConfig;
-    const duplicatedMap = { 
-      ...JSON.parse(JSON.stringify(map)), 
-      name: `${map.name} (Copy)` 
+    const newMap = { 
+      ...map, 
+      name: `${map.name} (Copy)`,
+      access: 'private' // Force private for duplicates to be safe
     };
     const updatedConfig = { ...configToUse };
     const maps = [...(updatedConfig.data?.maps || [])];
-    maps.push(duplicatedMap);
+    maps.push(newMap);
     updatedConfig.data = { ...updatedConfig.data, maps };
+    
     handleSaveToDraft(targetOrgId, updatedConfig);
-    addToast(`Map "${map.name}" duplicated`, "success");
+    
+    setTimeout(() => {
+      setEditingMap({
+        orgId: targetOrgId,
+        orgData: targetOrgData, // Include org data for license checking
+        mapIdx: maps.length - 1,
+        data: newMap,
+        atlasConfig: updatedConfig,
+        liveConfig
+      });
+    }, 100);
   };
 
   // Loading state
@@ -401,7 +405,6 @@ export default function AtlasConfiguration({
           </div>
         </div>
 
-        {/* Organization Cards */}
         {organizations.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <Building2 className="w-12 h-12 mx-auto mb-3 text-slate-300" />
@@ -423,11 +426,11 @@ export default function AtlasConfiguration({
                   getWorkingConfig(org),
                   hasUnpublishedChanges(org)
                 )}
-                onEditSettings={() => handleEditSettings(org.id, org.atlasConfig, org.atlasConfigDraft)}
-                onAddMap={() => handleAddMap(org.id, org.atlasConfig, org.atlasConfigDraft)}
-                onEditMap={(idx, map) => handleEditMap(org.id, idx, map, org.atlasConfig, org.atlasConfigDraft)}
+                onEditSettings={() => handleEditSettings(org.id, org.atlasConfig, org.atlasConfigDraft, org)}
+                onAddMap={() => handleAddMap(org.id, org.atlasConfig, org.atlasConfigDraft, org)}
+                onEditMap={(idx, map) => handleEditMap(org.id, idx, map, org.atlasConfig, org.atlasConfigDraft, org)}
                 onDeleteMap={(idx, name) => handleDeleteMap(org.id, idx, name, org.atlasConfig, org.atlasConfigDraft)}
-                onDuplicateMap={(map) => handleDuplicateMap(org.id, map, org.atlasConfig, org.atlasConfigDraft)}
+                onDuplicateMap={(map) => handleDuplicateMap(org.id, map, org.atlasConfig, org.atlasConfigDraft, org)}
                 onPublish={() => handlePublish(org.id, org.name, org.atlasConfigDraft)}
                 onDiscardDraft={() => handleDiscardDraft(org.id, org.name)}
                 hasUnpublishedChanges={hasUnpublishedChanges(org)}
@@ -442,15 +445,17 @@ export default function AtlasConfiguration({
         {editingSettings && AtlasSettingsModal && (
           <AtlasSettingsModal 
             data={editingSettings.data}
+            orgData={editingSettings.orgData}
             onClose={() => setEditingSettings(null)}
             onSave={handleSaveSettings}
           />
         )}
 
-        {/* Map Edit Modal */}
+        {/* Map Edit Modal - NOW PASSES orgData */}
         {editingMap && MapEditModal && (
           <MapEditModal 
             data={editingMap.data}
+            orgData={editingMap.orgData}
             onClose={() => setEditingMap(null)}
             onSave={handleSaveMap}
           />
@@ -476,7 +481,6 @@ export default function AtlasConfiguration({
           </p>
         </div>
         
-        {/* Publish/Discard Actions */}
         {hasDraft && (
           <div className="flex items-center gap-2">
             <DraftStatusBadge />
@@ -504,7 +508,7 @@ export default function AtlasConfiguration({
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
           <Map className="w-16 h-16 text-slate-300 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-slate-700 mb-2">Atlas Not Configured</h3>
-          <p className="text-slate-500 mb-6">Initialize Atlas to enable interactive mapping and data exploration for your organization.</p>
+          <p className="text-slate-500 mb-6">Initialize Atlas to enable interactive mapping.</p>
           <button
             onClick={() => handleInitializeAtlas(orgId, orgData?.name)}
             className="px-6 py-2 text-white rounded-lg font-medium"
@@ -523,43 +527,37 @@ export default function AtlasConfiguration({
                 <div className="flex-1">
                   <h4 className="font-medium text-amber-800">You have unpublished changes</h4>
                   <p className="text-sm text-amber-700 mt-1">
-                    Your changes are saved as a draft. Use <strong>Preview</strong> to see how they look, 
-                    then <strong>Publish</strong> to make them live.
+                    Use <strong>Preview</strong> to see how they look, then <strong>Publish</strong> to make them live.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Atlas Overview Card */}
-          <AtlasOverviewCard 
+          {/* Atlas Overview */}
+          <AtlasOverviewCard
             atlasConfig={workingConfig}
             liveConfig={liveConfig}
             hasDraft={hasDraft}
             accentColor={accentColor}
-            onEditSettings={() => handleEditSettings(orgId, liveConfig, orgData?.atlasConfigDraft)}
+            onEditSettings={() => handleEditSettings(orgId, liveConfig, orgData?.atlasConfigDraft, orgData)}
           />
 
           {/* Maps Section */}
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <div className="flex items-center gap-2">
-                <Layers className="w-5 h-5" style={{ color: accentColor }} />
-                <h3 className="font-bold text-slate-800">Maps</h3>
-                <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">
-                  {workingConfig?.data?.maps?.length || 0}
-                </span>
-              </div>
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-semibold text-slate-800">Maps</h3>
               <button
-                onClick={() => handleAddMap(orgId, liveConfig, orgData?.atlasConfigDraft)}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm text-white rounded-lg"
-                style={{ backgroundColor: accentColor }}
+                onClick={() => handleAddMap(orgId, liveConfig, orgData?.atlasConfigDraft, orgData)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg"
+                style={{ backgroundColor: accentColor + '15', color: accentColor }}
               >
-                <Plus className="w-4 h-4" /> Add Map
+                <Plus className="w-4 h-4" />
+                Add Map
               </button>
             </div>
             <div className="p-4">
-              {workingConfig?.data?.maps && workingConfig.data.maps.length > 0 ? (
+              {workingConfig?.data?.maps?.length > 0 ? (
                 <div className="space-y-2">
                   {workingConfig.data.maps.map((map, idx) => (
                     <MapRow
@@ -567,9 +565,9 @@ export default function AtlasConfiguration({
                       map={map}
                       idx={idx}
                       accentColor={accentColor}
-                      onEdit={() => handleEditMap(orgId, idx, map, liveConfig, orgData?.atlasConfigDraft)}
+                      onEdit={() => handleEditMap(orgId, idx, map, liveConfig, orgData?.atlasConfigDraft, orgData)}
                       onDelete={() => handleDeleteMap(orgId, idx, map.name, liveConfig, orgData?.atlasConfigDraft)}
-                      onDuplicate={() => handleDuplicateMap(orgId, map, liveConfig, orgData?.atlasConfigDraft)}
+                      onDuplicate={() => handleDuplicateMap(orgId, map, liveConfig, orgData?.atlasConfigDraft, orgData)}
                     />
                   ))}
                 </div>
@@ -577,19 +575,12 @@ export default function AtlasConfiguration({
                 <div className="text-center py-8 text-slate-500">
                   <Map className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                   <p className="text-sm">No maps configured.</p>
-                  <button
-                    onClick={() => handleAddMap(orgId, liveConfig, orgData?.atlasConfigDraft)}
-                    className="mt-3 text-sm font-medium hover:underline"
-                    style={{ color: accentColor }}
-                  >
-                    Add your first map
-                  </button>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Uninitialize Option - Only shown when no maps exist */}
+          {/* Uninitialize Option */}
           {(!workingConfig?.data?.maps || workingConfig.data.maps.length === 0) && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
               <div className="flex items-start gap-3">
@@ -597,11 +588,11 @@ export default function AtlasConfiguration({
                 <div className="flex-1">
                   <h4 className="font-medium text-amber-800">Remove Atlas Configuration</h4>
                   <p className="text-sm text-amber-700 mt-1">
-                    Since there are no maps configured, you can uninitialize Atlas to remove all settings.
+                    Since there are no maps configured, you can uninitialize Atlas.
                   </p>
                   <button
                     onClick={() => handleUninitializeAtlas(orgId, orgData?.name, workingConfig, hasDraft)}
-                    className="mt-3 flex items-center gap-2 px-3 py-1.5 text-sm bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 transition-colors font-medium"
+                    className="mt-3 flex items-center gap-2 px-3 py-1.5 text-sm bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 font-medium"
                   >
                     <PowerOff className="w-4 h-4" />
                     Uninitialize Atlas
@@ -613,19 +604,21 @@ export default function AtlasConfiguration({
         </div>
       )}
 
-      {/* Atlas Settings Modal */}
+      {/* Settings Modal - PASSES orgData */}
       {editingSettings && AtlasSettingsModal && (
         <AtlasSettingsModal 
           data={editingSettings.data}
+          orgData={editingSettings.orgData || orgData}
           onClose={() => setEditingSettings(null)}
           onSave={handleSaveSettings}
         />
       )}
 
-      {/* Map Edit Modal */}
+      {/* Map Edit Modal - PASSES orgData */}
       {editingMap && MapEditModal && (
         <MapEditModal 
           data={editingMap.data}
+          orgData={editingMap.orgData || orgData}
           onClose={() => setEditingMap(null)}
           onSave={handleSaveMap}
         />
@@ -647,60 +640,37 @@ function DraftStatusBadge() {
 // --- Atlas Overview Card ---
 function AtlasOverviewCard({ atlasConfig, liveConfig, hasDraft, accentColor, onEditSettings }) {
   const ui = atlasConfig?.ui || {};
-  const messages = atlasConfig?.messages || {};
   
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-        <div className="flex items-center gap-2">
-          <Settings className="w-5 h-5" style={{ color: accentColor }} />
-          <h3 className="font-bold text-slate-800">General Settings</h3>
-          {hasDraft && (
-            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-              Modified
-            </span>
-          )}
-        </div>
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+      <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+        <h3 className="font-semibold text-slate-800">Settings Overview</h3>
         <button
           onClick={onEditSettings}
-          className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-white rounded transition-all"
-          title="Edit Settings"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium"
         >
-          <Edit2 className="w-4 h-4" />
+          <Settings className="w-4 h-4" />
+          Edit Settings
         </button>
       </div>
-      <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* UI Settings */}
-        <div className="space-y-2">
-          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-            <Palette className="w-3 h-3" /> UI Theme
-          </h4>
-          <div className="space-y-1 text-sm">
-            <p><span className="text-slate-500">Title:</span> {ui.title || '-'}</p>
-            <p><span className="text-slate-500">Header:</span> {ui.headerTitle || '-'}</p>
-            <p><span className="text-slate-500">Theme:</span> {ui.themeColor || 'sky'}</p>
-          </div>
+      <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div>
+          <span className="text-slate-500">Title</span>
+          <p className="font-medium text-slate-800">{ui.headerTitle || 'Not set'}</p>
         </div>
-        
-        {/* Messages */}
-        <div className="space-y-2">
-          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-            <MessageSquare className="w-3 h-3" /> Messages
-          </h4>
-          <div className="space-y-1 text-sm">
-            <p><span className="text-slate-500">Welcome:</span> {messages.welcomeTitle || '-'}</p>
-            <p><span className="text-slate-500">Examples:</span> {messages.exampleQuestions?.length || 0}</p>
-          </div>
+        <div>
+          <span className="text-slate-500">Theme</span>
+          <p className="font-medium text-slate-800 capitalize">{ui.themeColor || 'Sky'}</p>
         </div>
-        
-        {/* Basemaps */}
-        <div className="space-y-2">
-          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-            <Globe className="w-3 h-3" /> Basemaps
-          </h4>
-          <div className="space-y-1 text-sm">
-            <p><span className="text-slate-500">Count:</span> {atlasConfig?.basemaps?.length || 0}</p>
-          </div>
+        <div>
+          <span className="text-slate-500">Default Mode</span>
+          <p className="font-medium text-slate-800 capitalize">{ui.defaultMode || 'Chat'}</p>
+        </div>
+        <div>
+          <span className="text-slate-500">Status</span>
+          <p className={`font-medium ${hasDraft ? 'text-amber-600' : 'text-emerald-600'}`}>
+            {hasDraft ? 'Has Draft' : 'Published'}
+          </p>
         </div>
       </div>
     </div>
@@ -709,26 +679,29 @@ function AtlasOverviewCard({ atlasConfig, liveConfig, hasDraft, accentColor, onE
 
 // --- Map Row ---
 function MapRow({ map, idx, accentColor, onEdit, onDelete, onDuplicate }) {
-  const modesDisplay = map.enabledModes?.join(', ') || 'None';
-  
   return (
-    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" 
-             style={{ backgroundColor: `${accentColor}15`, color: accentColor }}>
-          <Map className="w-4 h-4" />
+    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-slate-700 truncate">{map.name}</span>
+          {map.access === 'public' ? (
+            <span className="flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+              <Globe className="w-3 h-3" />
+              Public
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-xs bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">
+              <Lock className="w-3 h-3" />
+              Private
+            </span>
+          )}
         </div>
-        <div>
-          <p className="font-medium text-slate-800">{map.name}</p>
-          <p className="text-xs text-slate-500">
-            {map.access === 'private' ? '🔒 Private' : '🌐 Public'} • Modes: {modesDisplay}
-          </p>
-        </div>
+        <p className="text-xs text-slate-400 truncate">{map.endpoint || 'No endpoint configured'}</p>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 ml-2">
         <button
           onClick={onDuplicate}
-          className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-white rounded"
+          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded"
           title="Duplicate"
         >
           <Copy className="w-4 h-4" />
@@ -742,7 +715,7 @@ function MapRow({ map, idx, accentColor, onEdit, onDelete, onDuplicate }) {
         </button>
         <button
           onClick={onDelete}
-          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-white rounded"
           title="Delete"
         >
           <Trash2 className="w-4 h-4" />
@@ -752,18 +725,18 @@ function MapRow({ map, idx, accentColor, onEdit, onDelete, onDuplicate }) {
   );
 }
 
-// --- Organization Atlas Card (for Admin view) ---
-function OrganizationAtlasCard({
-  org,
-  expanded,
-  onToggle,
-  accentColor,
+// --- Organization Atlas Card (Admin view) ---
+function OrganizationAtlasCard({ 
+  org, 
+  expanded, 
+  onToggle, 
+  accentColor, 
   onInitialize,
   onUninitialize,
   onEditSettings,
-  onAddMap,
-  onEditMap,
-  onDeleteMap,
+  onAddMap, 
+  onEditMap, 
+  onDeleteMap, 
   onDuplicateMap,
   onPublish,
   onDiscardDraft,
@@ -771,137 +744,114 @@ function OrganizationAtlasCard({
   workingConfig,
   liveConfig
 }) {
-  const hasAtlasConfig = workingConfig || liveConfig;
+  const hasAtlasConfig = !!workingConfig;
   const mapCount = workingConfig?.data?.maps?.length || 0;
-  const canUninitialize = hasAtlasConfig && mapCount === 0;
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-      {/* Header */}
+      {/* Card Header */}
       <div 
         className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-50"
         onClick={onToggle}
       >
         <div className="flex items-center gap-3">
-          {expanded ? (
-            <ChevronDown className="w-5 h-5 text-slate-400" />
-          ) : (
-            <ChevronRight className="w-5 h-5 text-slate-400" />
-          )}
-          <Building2 className="w-5 h-5" style={{ color: accentColor }} />
+          <button className="text-slate-400">
+            {expanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+          </button>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-800">{org.name}</h3>
-              {hasAtlasConfig && (
-                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
-                  Atlas Enabled
-                </span>
-              )}
+              <Building2 className="w-4 h-4" style={{ color: accentColor }} />
+              <h3 className="font-bold text-slate-800">{org.name || org.id}</h3>
               {hasUnpublishedChanges && (
-                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <Clock className="w-3 h-3" /> Draft
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                  Draft
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500">
-              {hasAtlasConfig 
-                ? `${mapCount} map${mapCount !== 1 ? 's' : ''} configured`
-                : 'Atlas not initialized'
-              }
-            </p>
+            <p className="text-xs text-slate-400 font-mono">{org.id}</p>
           </div>
         </div>
-        
-        {/* Quick Actions in Header */}
-        {hasAtlasConfig && (
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            {hasUnpublishedChanges && (
-              <>
-                <button
-                  onClick={onDiscardDraft}
-                  className="flex items-center gap-1 px-2 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50"
-                >
-                  <RotateCcw className="w-3 h-3" /> Discard
-                </button>
-                <button
-                  onClick={onPublish}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-white rounded"
-                  style={{ backgroundColor: accentColor }}
-                >
-                  <Send className="w-3 h-3" /> Publish
-                </button>
-              </>
-            )}
-            <a
-              href={`/atlas?org=${org.id}${hasUnpublishedChanges ? '&preview=draft' : ''}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 px-2 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50"
-            >
-              <ExternalLink className="w-3 h-3" /> Preview
-            </a>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {hasAtlasConfig ? (
+            <span className="flex items-center gap-1 text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">
+              <Map className="w-3 h-3" />
+              {mapCount} map{mapCount !== 1 ? 's' : ''}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-full">
+              Not initialized
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Content */}
+      {/* Expanded Content */}
       {expanded && (
-        <div className="p-4 border-t border-slate-100">
+        <div className="border-t border-slate-100">
           {!hasAtlasConfig ? (
-            <div className="text-center py-6">
-              <Map className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-              <p className="text-sm text-slate-500 mb-3">Atlas not initialized for this organization.</p>
+            <div className="p-6 text-center">
+              <Map className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-slate-500 mb-4">Atlas is not initialized.</p>
               <button
                 onClick={(e) => { e.stopPropagation(); onInitialize(); }}
-                className="px-4 py-2 text-white text-sm rounded-lg font-medium"
+                className="px-4 py-2 text-white rounded-lg font-medium"
                 style={{ backgroundColor: accentColor }}
               >
                 Initialize Atlas
               </button>
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* Draft Notice */}
+            <div className="p-4 space-y-4">
+              {/* Draft Actions */}
               {hasUnpublishedChanges && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
-                  <FileEdit className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                  <p className="text-sm text-amber-700">
-                    This organization has unpublished changes. Preview to review, then publish to make live.
-                  </p>
+                <div className="flex items-center justify-between bg-amber-50 p-3 rounded-lg">
+                  <div className="flex items-center gap-2 text-amber-800">
+                    <FileEdit className="w-4 h-4" />
+                    <span className="text-sm font-medium">Unpublished changes</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDiscardDraft(); }}
+                      className="px-3 py-1 text-xs border border-amber-300 text-amber-700 rounded hover:bg-amber-100"
+                    >
+                      Discard
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPublish(); }}
+                      className="px-3 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                    >
+                      Publish
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {/* Quick Actions */}
-              <div className="flex gap-2 flex-wrap">
+              {/* Settings Row */}
+              <div className="flex items-center justify-between">
                 <button
                   onClick={(e) => { e.stopPropagation(); onEditSettings(); }}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50"
+                  className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800"
                 >
-                  <Settings className="w-3.5 h-3.5" /> Settings
+                  <Settings className="w-4 h-4" />
+                  Edit Settings
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); onAddMap(); }}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-white rounded-lg"
-                  style={{ backgroundColor: accentColor }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg"
+                  style={{ backgroundColor: accentColor + '15', color: accentColor }}
                 >
-                  <Plus className="w-3.5 h-3.5" /> Add Map
+                  <Plus className="w-4 h-4" />
+                  Add Map
                 </button>
-                {canUninitialize && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onUninitialize(); }}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50"
-                  >
-                    <PowerOff className="w-3.5 h-3.5" /> Uninitialize
-                  </button>
-                )}
               </div>
 
               {/* Maps List */}
-              {mapCount > 0 && (
+              {mapCount === 0 ? (
+                <div className="text-center py-4 text-slate-400">
+                  <p className="text-sm">No maps configured</p>
+                </div>
+              ) : (
                 <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    Maps ({mapCount})
-                  </h4>
                   {workingConfig.data.maps.map((map, idx) => (
                     <MapRow
                       key={idx}
@@ -916,29 +866,43 @@ function OrganizationAtlasCard({
                 </div>
               )}
 
-              {/* Overview Stats */}
-              <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-100">
-                <div className="text-center">
-                  <p className="text-lg font-bold text-slate-800">{mapCount}</p>
-                  <p className="text-xs text-slate-500">Maps</p>
+              {/* Preview Links */}
+              {mapCount > 0 && (
+                <div className="flex gap-2 pt-2 border-t border-slate-100">
+                  <a
+                    href={`/atlas?org=${org.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Preview Live
+                  </a>
+                  {hasUnpublishedChanges && (
+                    <a
+                      href={`/atlas?org=${org.id}&preview=draft`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-700"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview Draft
+                    </a>
+                  )}
                 </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-slate-800">
-                    {workingConfig?.basemaps?.length || 0}
-                  </p>
-                  <p className="text-xs text-slate-500">Basemaps</p>
+              )}
+
+              {/* Uninitialize */}
+              {mapCount === 0 && (
+                <div className="pt-2 border-t border-slate-100">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onUninitialize(); }}
+                    className="text-xs text-slate-400 hover:text-red-500"
+                  >
+                    Uninitialize Atlas
+                  </button>
                 </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-slate-800">
-                    {hasUnpublishedChanges ? (
-                      <span className="text-amber-600">Draft</span>
-                    ) : (
-                      <span className="text-emerald-600">Live</span>
-                    )}
-                  </p>
-                  <p className="text-xs text-slate-500">Status</p>
-                </div>
-              </div>
+              )}
             </div>
           )}
         </div>
