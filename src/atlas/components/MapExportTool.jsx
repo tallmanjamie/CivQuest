@@ -15,7 +15,7 @@
 // - Client-side layout rendering with title, legend, scalebar, north arrow, images
 // - No external print service dependency - uses native screenshot capture
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   X,
   Printer,
@@ -27,7 +27,6 @@ import {
   AlertCircle,
   Check,
   Ruler,
-  Move,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useExportArea } from '../hooks/useExportArea';
@@ -60,10 +59,6 @@ const PRESET_SCALES = [
   { value: 100, label: '1" = 100\'' },
   { value: 200, label: '1" = 200\'' },
   { value: 500, label: '1" = 500\'' },
-  { value: 1000, label: '1" = 1,000\'' },
-  { value: 2000, label: '1" = 2,000\'' },
-  { value: 5000, label: '1" = 5,000\'' },
-  { value: 10000, label: '1" = 10,000\'' },
   { value: 'custom', label: 'Custom...' }
 ];
 
@@ -314,10 +309,17 @@ export default function MapExportTool({
   const [exportProgress, setExportProgress] = useState('');
 
   // Get selected template
-  const selectedTemplate = useMemo(() => 
+  const selectedTemplate = useMemo(() =>
     availableTemplates.find(t => t.id === selectedTemplateId),
     [availableTemplates, selectedTemplateId]
   );
+
+  // Disable export area display when in auto mode
+  useEffect(() => {
+    if (scaleMode === null) {
+      setShowExportArea(false);
+    }
+  }, [scaleMode]);
 
   // Get effective scale (feet per inch)
   const effectiveScale = useMemo(() => {
@@ -727,23 +729,23 @@ export default function MapExportTool({
   // No templates available
   if (availableTemplates.length === 0) {
     return (
-      <div className="bg-white rounded-xl shadow-lg border border-slate-200 w-80">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+      <div className="bg-white rounded-xl shadow-lg border border-slate-200 w-72">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200">
           <div className="flex items-center gap-2">
-            <Printer className="w-5 h-5" style={{ color: accentColor }} />
-            <h3 className="font-semibold text-slate-800">Export Map</h3>
+            <Printer className="w-4 h-4" style={{ color: accentColor }} />
+            <h3 className="font-semibold text-sm text-slate-800">Export Map</h3>
           </div>
           <button
             onClick={onClose || onToggle}
             className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-6 text-center">
-          <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-3" />
-          <h4 className="font-medium text-slate-700 mb-2">No Export Templates</h4>
-          <p className="text-sm text-slate-500">
+        <div className="p-4 text-center">
+          <AlertCircle className="w-10 h-10 text-amber-400 mx-auto mb-2" />
+          <h4 className="font-medium text-sm text-slate-700 mb-1">No Export Templates</h4>
+          <p className="text-xs text-slate-500">
             No export templates have been configured for this map.
           </p>
         </div>
@@ -753,31 +755,31 @@ export default function MapExportTool({
 
   // Main panel
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-slate-200 w-80">
+    <div className="bg-white rounded-xl shadow-lg border border-slate-200 w-72">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200">
         <div className="flex items-center gap-2">
-          <Printer className="w-5 h-5" style={{ color: accentColor }} />
-          <h3 className="font-semibold text-slate-800">Export Map</h3>
+          <Printer className="w-4 h-4" style={{ color: accentColor }} />
+          <h3 className="font-semibold text-sm text-slate-800">Export Map</h3>
         </div>
         <button
           onClick={onClose || onToggle}
           className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600"
         >
-          <X className="w-5 h-5" />
+          <X className="w-4 h-4" />
         </button>
       </div>
 
       {/* Content */}
-      <div className="p-4 space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+      <div className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
         {/* Template Selection */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Template</label>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Template</label>
           <div className="relative">
             <select
               value={selectedTemplateId || ''}
               onChange={(e) => setSelectedTemplateId(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg appearance-none bg-white pr-10 text-sm"
+              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg appearance-none bg-white pr-8 text-sm"
             >
               {availableTemplates.map(t => (
                 <option key={t.id} value={t.id}>
@@ -785,26 +787,26 @@ export default function MapExportTool({
                 </option>
               ))}
             </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
         </div>
 
         {/* Map Title */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Map Title</label>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Map Title</label>
           <input
             type="text"
             value={mapTitle}
             onChange={(e) => setMapTitle(e.target.value)}
             placeholder="Enter map title..."
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm"
           />
         </div>
 
         {/* Output Format */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Output Format</label>
-          <div className="flex gap-2">
+          <label className="block text-xs font-medium text-slate-700 mb-1">Format</label>
+          <div className="flex gap-1.5">
             {OUTPUT_FORMATS.map(format => {
               const Icon = format.icon;
               const isSelected = outputFormat === format.id;
@@ -812,11 +814,11 @@ export default function MapExportTool({
                 <button
                   key={format.id}
                   onClick={() => setOutputFormat(format.id)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors
+                  className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border text-sm font-medium transition-colors
                     ${isSelected ? 'border-transparent text-white' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
                   style={isSelected ? { backgroundColor: accentColor } : {}}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="w-3.5 h-3.5" />
                   {format.label}
                 </button>
               );
@@ -824,12 +826,27 @@ export default function MapExportTool({
           </div>
         </div>
 
-        {/* Map Scale */}
+        {/* Map Scale with Export Area Toggle */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            <Ruler className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
-            Map Scale
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-slate-700">
+              <Ruler className="w-3 h-3 inline mr-1 -mt-0.5" />
+              Scale
+            </label>
+            {/* Show Export Area toggle - only visible when not in auto mode */}
+            {scaleMode !== null && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500">Show Area</span>
+                <button
+                  onClick={() => setShowExportArea(!showExportArea)}
+                  className={`relative w-8 h-4 rounded-full transition-colors ${showExportArea ? '' : 'bg-slate-200'}`}
+                  style={showExportArea ? { backgroundColor: accentColor } : {}}
+                >
+                  <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${showExportArea ? 'left-4' : 'left-0.5'}`} />
+                </button>
+              </div>
+            )}
+          </div>
           <div className="relative">
             <select
               value={scaleMode === 'custom' ? 'custom' : (scaleMode ?? '')}
@@ -839,84 +856,68 @@ export default function MapExportTool({
                 else if (val === '') setScaleMode(null);
                 else setScaleMode(parseInt(val, 10));
               }}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg appearance-none bg-white pr-10 text-sm"
+              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg appearance-none bg-white pr-8 text-sm"
             >
               {PRESET_SCALES.map(p => (
                 <option key={String(p.value)} value={p.value ?? ''}>{p.label}</option>
               ))}
             </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
-          
+
           {scaleMode === 'custom' && (
-            <div className="mt-2 flex items-center gap-2">
-              <span className="text-sm text-slate-600">1" =</span>
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <span className="text-xs text-slate-600">1" =</span>
               <input
                 type="number"
                 value={customScale}
                 onChange={(e) => setCustomScale(e.target.value)}
                 placeholder="500"
                 min="1"
-                className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+                className="flex-1 px-2 py-1 border border-slate-300 rounded-lg text-sm"
               />
-              <span className="text-sm text-slate-600">feet</span>
+              <span className="text-xs text-slate-600">ft</span>
             </div>
           )}
-
-        </div>
-
-        {/* Export Area Toggle */}
-        <div className="flex items-center justify-between py-1">
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-            <Move className="w-3.5 h-3.5" />
-            Show Export Area
-          </label>
-          <button
-            onClick={() => setShowExportArea(!showExportArea)}
-            className={`relative w-11 h-6 rounded-full transition-colors ${showExportArea ? '' : 'bg-slate-200'}`}
-            style={showExportArea ? { backgroundColor: accentColor } : {}}
-          >
-            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${showExportArea ? 'left-6' : 'left-1'}`} />
-          </button>
         </div>
 
         {/* Progress */}
         {exportProgress && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
-            <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
-            <p className="text-sm text-blue-700">{exportProgress}</p>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 flex items-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />
+            <p className="text-xs text-blue-700">{exportProgress}</p>
           </div>
         )}
 
         {/* Error */}
         {exportError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-start gap-2">
+            <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-red-800">Export Failed</p>
-              <p className="text-xs text-red-600 mt-0.5 break-words">{exportError}</p>
+              <p className="text-xs font-medium text-red-800">Export Failed</p>
+              <p className="text-xs text-red-600 break-words">{exportError}</p>
             </div>
-            <button onClick={() => setExportError(null)} className="p-1 hover:bg-red-100 rounded text-red-400">
-              <X className="w-3.5 h-3.5" />
+            <button onClick={() => setExportError(null)} className="p-0.5 hover:bg-red-100 rounded text-red-400">
+              <X className="w-3 h-3" />
             </button>
           </div>
         )}
 
         {/* Success */}
         {exportSuccess && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-            <Check className="w-4 h-4 text-green-500" />
-            <p className="text-sm text-green-700">Export complete! Check your downloads.</p>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-2 flex items-center gap-2">
+            <Check className="w-3.5 h-3.5 text-green-500" />
+            <p className="text-xs text-green-700">Export complete! Check downloads.</p>
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+      <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 rounded-b-xl">
         <button
           onClick={handleExport}
           disabled={isExporting || !selectedTemplate || !exportArea}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ backgroundColor: accentColor }}
         >
           {isExporting ? (

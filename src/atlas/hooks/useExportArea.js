@@ -113,20 +113,20 @@ export function useExportArea(mapView, template, scale, visible, accentColor = '
   const updateGraphic = useCallback(async () => {
     if (!mapView) return;
 
+    // Always calculate export area (needed for export even when not visible)
+    const area = calculateExportArea();
+    setExportArea(area);
+
     // Remove existing graphic if not visible
     if (!visible || !template) {
       if (exportAreaGraphicRef.current && graphicsLayerRef.current) {
         graphicsLayerRef.current.remove(exportAreaGraphicRef.current);
         exportAreaGraphicRef.current = null;
       }
-      setExportArea(null);
       return;
     }
 
-    const area = calculateExportArea();
     if (!area) return;
-
-    setExportArea(area);
 
     try {
       // Dynamically import ArcGIS modules
@@ -205,16 +205,16 @@ export function useExportArea(mapView, template, scale, visible, accentColor = '
     updateGraphic();
   }, [updateGraphic]);
 
-  // Also update when map view changes (pan/zoom)
+  // Also update when map view changes (pan/zoom) - for auto scale mode
   useEffect(() => {
-    if (!mapView || !visible || scale) return; // Only for auto scale
+    if (!mapView || scale) return; // Only for auto scale (scale is null)
 
     const handle = mapView.watch('extent', () => {
       updateGraphic();
     });
 
     return () => handle.remove();
-  }, [mapView, visible, scale, updateGraphic]);
+  }, [mapView, scale, updateGraphic]);
 
   // Cleanup on unmount
   useEffect(() => {
