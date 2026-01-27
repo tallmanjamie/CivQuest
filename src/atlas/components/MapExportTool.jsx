@@ -1,6 +1,6 @@
 // src/atlas/components/MapExportTool.jsx
-// Map Export Tool - Hybrid approach:
-// 1. Use ESRI print service to generate high-quality map image (PNG)
+// Map Export Tool - Screenshot-based approach:
+// 1. Use ArcGIS MapView.takeScreenshot() to capture the map
 // 2. Compose final layout client-side using canvas + jsPDF
 //
 // REQUIRED PACKAGES:
@@ -13,12 +13,7 @@
 // - Custom map scale (1" = X feet)
 // - Custom map title
 // - Client-side layout rendering with title, legend, scalebar, north arrow, images
-//
-// FIX NOTES:
-// - Feature service URLs must include the layer index (e.g., /FeatureServer/0)
-// - Map service layers should use visibleLayers for sublayers
-// - Vector tile layers are NOT supported in operationalLayers by most print services
-// - Vector tile layers in baseMap need: type, layerType, styleUrl
+// - No external print service dependency - uses native screenshot capture
 
 import React, { useState, useMemo, useCallback } from 'react';
 import {
@@ -36,9 +31,6 @@ import {
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useExportArea } from '../hooks/useExportArea';
-
-// Default print service URL
-const DEFAULT_PRINT_SERVICE_URL = 'https://maps.civ.quest/arcgis/rest/services/Utilities/PrintingTools/GPServer/Export%20Web%20Map%20Task';
 
 // Page sizes in inches
 const PAGE_DIMENSIONS = {
@@ -282,9 +274,6 @@ export default function MapExportTool({
   onClose,
   accentColor = '#004E7C'
 }) {
-  // Get print service URL
-  const printServiceUrl = atlasConfig?.printServiceUrl || DEFAULT_PRINT_SERVICE_URL;
-
   // Get available templates for this map
   const availableTemplates = useMemo(() => {
     console.group('🖨️ MapExportTool - Template Filtering');
@@ -402,269 +391,112 @@ export default function MapExportTool({
   }, [mapView]);
 
   /**
-   * Build Web Map JSON for the print service (map only, no layout)
-   * 
-   * IMPORTANT NOTES from ESRI ExportWebMap specification:
-   * - Vector tile layers need: type, layerType, styleUrl (only in baseMap, and only supported by Pro-published services)
-   * - Feature service URLs MUST include the layer index (e.g., /FeatureServer/0)
-   * - Map service sublayers use visibleLayers array
-   * - All layers must have proper URLs accessible by the print server
+   * Capture map screenshot using ArcGIS MapView.takeScreenshot()
+   *
+   * This approach:
+   * 1. Temporarily hides the export area graphic
+   * 2. Zooms to the export extent
+   * 3. Takes a high-quality screenshot
+   * 4. Returns the captured image as an HTMLImageElement
    */
-  const buildWebMapJson = useCallback((mapWidthPx, mapHeightPx) => {
-    if (!exportArea || !mapView) return null;
+  const captureMapScreenshot = useCallback(async (mapWidthPx, mapHeightPx) => {
+    if (!exportArea || !mapView) {
+      throw new Error('Unable to capture map: missing export area or map view');
+    }
 
-    // Collect basemap layer IDs to exclude from operational layers
-    const basemapLayerIds = new Set();
-    mapView.map.basemap?.baseLayers?.forEach(layer => {
-      basemapLayerIds.add(layer.id);
-    });
-    mapView.map.basemap?.referenceLayers?.forEach(layer => {
-      basemapLayerIds.add(layer.id);
-    });
+    console.log('🖨️ Capturing map screenshot...');
+    console.log('🖨️ Export area:', exportArea);
+    console.log('🖨️ Target size:', mapWidthPx, 'x', mapHeightPx, 'px');
 
-    // Get operational layers - skip graphics layers AND basemap layers
-    const operationalLayers = [];
-    mapView.map.allLayers.forEach(layer => {
-      if (!layer.visible || layer.id === 'export-area-layer' || layer.type === 'graphics') return;
-      if (layer.id.startsWith('atlas-')) return;
-      // Skip basemap layers - they should only be in baseMap
-      if (basemapLayerIds.has(layer.id)) return;
+    // Find and hide the export area layer temporarily
+    const exportAreaLayer = mapView.map.findLayerById('export-area-layer');
+    const wasExportAreaVisible = exportAreaLayer?.visible;
+    if (exportAreaLayer) {
+      exportAreaLayer.visible = false;
+    }
 
-      // Skip vector tile layers in operational layers - they are NOT supported
-      // Per ESRI: "Vector Tile Layers are only supported by Printing Services published from ArcGIS Pro"
-      // And even then, they should be in baseMap, not operationalLayers
-      if (layer.type === 'vector-tile') {
-        console.log('🖨️ Skipping vector tile layer in operationalLayers (not supported):', layer.title);
-        return;
-      }
+    // Save current view state
+    const originalCenter = mapView.center.clone();
+    const originalZoom = mapView.zoom;
+    const originalExtent = mapView.extent.clone();
 
-      if (layer.url) {
-        let layerUrl = layer.url;
-        
-        // For feature layers, MUST ensure we have the layer index
-        // The print service requires /FeatureServer/0 format, not just /FeatureServer
-        if (layer.type === 'feature') {
-          // Check if URL already has a layer index
-          const hasLayerIndex = /\/\d+\/?$/.test(layerUrl);
-          if (!hasLayerIndex) {
-            // Get layerId from the layer, default to 0
-            const layerId = layer.layerId ?? 0;
-            // Ensure URL ends with FeatureServer or MapServer before adding index
-            if (layerUrl.includes('FeatureServer') || layerUrl.includes('MapServer')) {
-              layerUrl = `${layerUrl.replace(/\/$/, '')}/${layerId}`;
+    try {
+      // Import Extent module
+      const Extent = (await import('@arcgis/core/geometry/Extent')).default;
+
+      // Create extent for the export area
+      const targetExtent = new Extent({
+        xmin: exportArea.xmin,
+        ymin: exportArea.ymin,
+        xmax: exportArea.xmax,
+        ymax: exportArea.ymax,
+        spatialReference: mapView.spatialReference
+      });
+
+      console.log('🖨️ Zooming to export extent...');
+
+      // Zoom to the export area extent (without animation for speed)
+      await mapView.goTo(targetExtent, { animate: false });
+
+      // Wait for the view to finish updating and tiles to load
+      await mapView.whenLayerView(mapView.map.basemap?.baseLayers?.getItemAt(0)).catch(() => {});
+
+      // Additional wait to ensure all tiles are loaded
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Wait for any pending updates
+      if (mapView.updating) {
+        await new Promise(resolve => {
+          const handle = mapView.watch('updating', (updating) => {
+            if (!updating) {
+              handle.remove();
+              resolve();
             }
-          }
-          console.log('🖨️ Adding feature layer:', layer.title, 'url:', layerUrl);
-          
-          operationalLayers.push({
-            id: layer.id,
-            title: layer.title || layer.id,
-            url: layerUrl,
-            visibility: true,
-            opacity: layer.opacity ?? 1
           });
-          return;
-        }
-        
-        // For map image layers (dynamic map services)
-        if (layer.type === 'map-image') {
-          const layerDef = {
-            id: layer.id,
-            title: layer.title || layer.id,
-            url: layerUrl,
-            visibility: true,
-            opacity: layer.opacity ?? 1
-          };
-          
-          // Get visible sublayers if available - use visibleLayers array
-          if (layer.sublayers) {
-            const visibleIds = [];
-            layer.sublayers.forEach(sub => {
-              if (sub.visible) {
-                visibleIds.push(sub.id);
-              }
-            });
-            if (visibleIds.length > 0) {
-              layerDef.visibleLayers = visibleIds;
-            }
-          }
-          
-          console.log('🖨️ Adding map image layer:', layer.title, 'url:', layerUrl, 'visibleLayers:', layerDef.visibleLayers);
-          operationalLayers.push(layerDef);
-          return;
-        }
-        
-        // For tile layers (cached map services)
-        if (layer.type === 'tile') {
-          console.log('🖨️ Adding tile layer:', layer.title, 'url:', layerUrl);
-          operationalLayers.push({
-            id: layer.id,
-            title: layer.title || layer.id,
-            url: layerUrl,
-            visibility: true,
-            opacity: layer.opacity ?? 1
-          });
-          return;
-        }
-        
-        // Default: add as regular layer
-        console.log('🖨️ Adding layer:', layer.title, 'type:', layer.type, 'url:', layerUrl);
-        operationalLayers.push({
-          id: layer.id,
-          title: layer.title || layer.id,
-          url: layerUrl,
-          visibility: true,
-          opacity: layer.opacity ?? 1
+          // Timeout after 5 seconds
+          setTimeout(() => {
+            handle.remove();
+            resolve();
+          }, 5000);
         });
       }
-    });
 
-    // Get basemap layers - handle vector tiles properly
-    const baseMapLayers = [];
-    if (mapView.map.basemap?.baseLayers) {
-      mapView.map.basemap.baseLayers.forEach(layer => {
-        if (layer.type === 'vector-tile') {
-          // Vector tile basemap - needs type, layerType, and styleUrl
-          // NOTE: Only supported by print services published from ArcGIS Pro!
-          const styleUrl = layer.styleUrl || 
-                          (layer.url ? `${layer.url}/resources/styles/root.json` : null);
-          if (styleUrl) {
-            console.log('🖨️ Adding vector tile basemap:', layer.title, 'styleUrl:', styleUrl);
-            console.log('🖨️ WARNING: Vector tile basemaps only work with ArcGIS Pro-published print services!');
-            baseMapLayers.push({
-              id: layer.id,
-              type: 'VectorTileLayer',
-              layerType: 'VectorTileLayer',
-              title: layer.title || layer.id,
-              styleUrl: styleUrl,
-              visibility: true,
-              opacity: layer.opacity ?? 1
-            });
-          }
-        } else if (layer.url) {
-          // Raster tile or other basemap
-          console.log('🖨️ Adding raster basemap:', layer.title, 'url:', layer.url);
-          baseMapLayers.push({
-            id: layer.id,
-            title: layer.title || layer.id,
-            url: layer.url,
-            visibility: true,
-            opacity: layer.opacity ?? 1
-          });
-        }
+      console.log('🖨️ Taking screenshot...');
+
+      // Take the screenshot with specified dimensions
+      const screenshot = await mapView.takeScreenshot({
+        width: mapWidthPx,
+        height: mapHeightPx,
+        format: 'png'
       });
-    }
 
-    // Map scale (feet per inch * 12 = scale denominator)
-    const mapScale = exportArea.scale * 12;
+      console.log('🖨️ Screenshot captured:', screenshot.data.width, 'x', screenshot.data.height);
 
-    const webMapJson = {
-      mapOptions: {
-        extent: {
-          xmin: exportArea.xmin,
-          ymin: exportArea.ymin,
-          xmax: exportArea.xmax,
-          ymax: exportArea.ymax,
-          spatialReference: mapView.spatialReference.toJSON()
-        },
-        scale: mapScale
-      },
-      operationalLayers,
-      exportOptions: {
-        dpi: 96,
-        outputSize: [mapWidthPx, mapHeightPx]
+      // Create an image element from the screenshot
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error('Failed to load screenshot image'));
+        img.src = screenshot.dataUrl;
+      });
+
+      return img;
+    } finally {
+      // Restore the export area layer visibility
+      if (exportAreaLayer && wasExportAreaVisible) {
+        exportAreaLayer.visible = true;
       }
-    };
 
-    // Add basemap if we have layers
-    if (baseMapLayers.length > 0) {
-      webMapJson.baseMap = {
-        title: mapView.map.basemap?.title || 'Basemap',
-        baseMapLayers
-      };
+      // Restore original view (without animation)
+      try {
+        await mapView.goTo(originalExtent, { animate: false });
+      } catch (e) {
+        console.warn('🖨️ Could not restore original view:', e);
+      }
     }
-
-    return webMapJson;
   }, [exportArea, mapView]);
-
-  /**
-   * Call ESRI print service to get map image
-   */
-  const fetchMapImage = useCallback(async (mapWidthPx, mapHeightPx) => {
-    const webMapJson = buildWebMapJson(mapWidthPx, mapHeightPx);
-    
-    if (!webMapJson) {
-      throw new Error('Unable to build map data');
-    }
-
-    console.log('🖨️ Calling print service for map image...');
-    console.log('🖨️ Print service URL:', printServiceUrl);
-    console.log('🖨️ Web Map JSON:', webMapJson);
-    console.log('🖨️ Web Map JSON (stringified):', JSON.stringify(webMapJson, null, 2));
-
-    // Check for potential issues
-    if (webMapJson.baseMap?.baseMapLayers?.some(l => l.type === 'VectorTileLayer')) {
-      console.warn('🖨️ WARNING: Vector tile basemaps may not work with this print service!');
-      console.warn('🖨️ Vector tile layers are only supported by print services published from ArcGIS Pro.');
-    }
-
-    const params = new URLSearchParams();
-    params.append('Web_Map_as_JSON', JSON.stringify(webMapJson));
-    params.append('Format', 'PNG32');
-    params.append('Layout_Template', 'MAP_ONLY');
-    params.append('f', 'json');
-
-    const response = await fetch(`${printServiceUrl}/execute`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: params.toString()
-    });
-
-    if (!response.ok) {
-      throw new Error(`Print service returned ${response.status}`);
-    }
-
-    const result = await response.json();
-    console.log('🖨️ Print service response:', result);
-
-    if (result.error) {
-      const details = result.error.details?.join('; ') || '';
-      const errorMsg = `Print service error: ${result.error.message}${details ? ` - ${details}` : ''}`;
-      console.error('🖨️ Error details:', result.error);
-      
-      // Provide helpful hints based on error
-      if (errorMsg.includes('Invalid input')) {
-        console.error('🖨️ TROUBLESHOOTING: "Invalid input" usually means:');
-        console.error('  1. Vector tile basemap not supported by this print service');
-        console.error('  2. Feature service URL missing layer index (should be /FeatureServer/0)');
-        console.error('  3. Layer URL not accessible by the print server');
-        console.error('  4. Malformed JSON in the request');
-      }
-      
-      throw new Error(errorMsg);
-    }
-
-    // Extract result URL
-    let resultUrl = null;
-    if (result.results?.[0]?.value?.url) {
-      resultUrl = result.results[0].value.url;
-    } else if (result.value?.url) {
-      resultUrl = result.value.url;
-    } else if (result.url) {
-      resultUrl = result.url;
-    } else if (typeof result.results?.[0]?.value === 'string') {
-      resultUrl = result.results[0].value;
-    }
-
-    if (!resultUrl) {
-      throw new Error('No output URL in print service response');
-    }
-
-    console.log('🖨️ Map image URL:', resultUrl);
-    return resultUrl;
-  }, [buildWebMapJson, printServiceUrl]);
 
   /**
    * Main export handler
@@ -700,16 +532,12 @@ export default function MapExportTool({
 
       console.log('Map element:', mapElement.width, '%', mapElement.height, '% →', mapWidthPx, 'x', mapHeightPx, 'px');
 
-      // Step 1: Get map image from print service
-      setExportProgress('Generating map image...');
-      const mapImageUrl = await fetchMapImage(mapWidthPx, mapHeightPx);
+      // Step 1: Capture map screenshot
+      setExportProgress('Capturing map screenshot...');
+      const mapImage = await captureMapScreenshot(mapWidthPx, mapHeightPx);
+      console.log('🖨️ Map screenshot captured:', mapImage.width, 'x', mapImage.height);
 
-      // Step 2: Load the map image
-      setExportProgress('Loading map image...');
-      const mapImage = await loadImage(mapImageUrl);
-      console.log('🖨️ Map image loaded:', mapImage.width, 'x', mapImage.height);
-
-      // Step 3: Create canvas for layout composition
+      // Step 2: Create canvas for layout composition
       setExportProgress('Composing layout...');
       const canvas = document.createElement('canvas');
       canvas.width = pageWidthPx;
@@ -723,7 +551,7 @@ export default function MapExportTool({
       // Get legend items for later
       const legendItems = getLegendItems();
 
-      // Step 4: Draw each element
+      // Step 3: Draw each element
       for (const element of (selectedTemplate.elements || [])) {
         if (element.visible === false) continue;
 
@@ -837,7 +665,7 @@ export default function MapExportTool({
         }
       }
 
-      // Step 5: Generate output
+      // Step 4: Generate output
       setExportProgress('Generating file...');
       const filename = `${mapTitle.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().slice(0, 10)}`;
 
