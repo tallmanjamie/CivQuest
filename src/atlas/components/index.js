@@ -20,4 +20,4 @@ export { default as LayersPanel } from './LayersPanel';
 export { default as BasemapPicker } from './BasemapPicker';
 export { default as MapExportTool } from './MapExportTool';
 export { default as MarkupTool } from './MarkupTool';
-export { default as MapExport } from './MapExport';
+export { default as MapExportTool, ExportToolButton } from './MapExportTool';

@@ -1,10 +1,12 @@
 // src/admin/components/MapEditor.jsx
 // Modal for editing individual Atlas map configurations
-// Handles webmap settings, endpoint, columns, search fields, geocoder
+// Handles webmap settings, endpoint, columns, search fields, geocoder, and export templates
 //
 // LICENSE ENFORCEMENT: Enforces public/private visibility based on organization license
 // - Professional: Private only (no public maps allowed)
 // - Organization: Public or private allowed
+//
+// UPDATED: Added Export Templates tab for selecting which export templates are available for this map
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -30,7 +32,9 @@ import {
   Settings,
   HelpCircle,
   Check,
-  Shield
+  Shield,
+  Printer,
+  Info
 } from 'lucide-react';
 import { 
   canHavePublicMaps, 
@@ -38,6 +42,21 @@ import {
   PRODUCTS,
   LICENSE_TYPES 
 } from '../../shared/services/licenses';
+
+// Page size display helper for export templates
+const PAGE_SIZES = {
+  'letter-landscape': 'Letter Landscape (11×8.5")',
+  'letter-portrait': 'Letter Portrait (8.5×11")',
+  'legal-landscape': 'Legal Landscape (14×8.5")',
+  'legal-portrait': 'Legal Portrait (8.5×14")',
+  'tabloid-landscape': 'Tabloid Landscape (17×11")',
+  'tabloid-portrait': 'Tabloid Portrait (11×17")',
+  'a4-landscape': 'A4 Landscape',
+  'a4-portrait': 'A4 Portrait',
+  'a3-landscape': 'A3 Landscape',
+  'a3-portrait': 'A3 Portrait',
+  'custom': 'Custom'
+};
 
 /**
  * MapEditor Modal
@@ -49,10 +68,11 @@ import {
  * - Search fields configuration
  * - Table columns configuration
  * - Geocoder settings
+ * - Export template selection
  * 
  * Props:
  * @param {object} data - The map configuration object to edit
- * @param {object} orgData - Organization data for license checking
+ * @param {object} orgData - Organization data for license checking and export templates
  * @param {function} onClose - Called when modal is closed
  * @param {function} onSave - Called with updated map config when saved
  * @param {string} [accentColor] - Theme accent color
@@ -71,6 +91,15 @@ export default function MapEditor({
   // This ensures super admins can't accidentally bypass license limits
   const canBePublic = orgData ? canHavePublicMaps(orgData) : false;
   const licenseLimits = orgData ? getProductLicenseLimits(orgData, PRODUCTS.ATLAS) : null;
+
+  // Get available export templates from org config
+  const availableExportTemplates = 
+    orgData?.atlasConfigDraft?.exportTemplates || 
+    orgData?.atlasConfig?.exportTemplates || 
+    [];
+  
+  // Filter to only enabled templates
+  const enabledExportTemplates = availableExportTemplates.filter(t => t.enabled !== false);
 
   // Clone the data to avoid mutating props
   const [mapConfig, setMapConfig] = useState(() => ({
@@ -92,6 +121,8 @@ export default function MapEditor({
       enabled: false,
       url: ''
     },
+    // Export templates - array of selected template IDs
+    exportTemplates: [],
     ...data,
     // Override access if license doesn't allow public
     ...((!canBePublic && data?.access === 'public') ? { access: 'private' } : {})
@@ -236,6 +267,40 @@ export default function MapEditor({
     }));
   };
 
+  // Export template selection
+  const toggleExportTemplate = (templateId) => {
+    setMapConfig(prev => {
+      const currentIds = prev.exportTemplates || [];
+      if (currentIds.includes(templateId)) {
+        return { ...prev, exportTemplates: currentIds.filter(id => id !== templateId) };
+      } else {
+        return { ...prev, exportTemplates: [...currentIds, templateId] };
+      }
+    });
+  };
+
+  const selectAllExportTemplates = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      exportTemplates: enabledExportTemplates.map(t => t.id)
+    }));
+  };
+
+  const clearAllExportTemplates = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      exportTemplates: []
+    }));
+  };
+
+  // Get page size display
+  const getPageSizeDisplay = (template) => {
+    if (template.pageSize === 'custom') {
+      return `Custom (${template.customWidth}×${template.customHeight}")`;
+    }
+    return PAGE_SIZES[template.pageSize] || template.pageSize;
+  };
+
   // Validate and save
   const handleSave = () => {
     const newErrors = {};
@@ -259,13 +324,14 @@ export default function MapEditor({
     onSave(mapConfig);
   };
 
-  // Tab definitions
+  // Tab definitions - now includes Export tab
   const tabs = [
     { id: 'basic', label: 'Basic', icon: Settings },
     { id: 'data', label: 'Data Source', icon: Link2 },
     { id: 'search', label: 'Search', icon: Search },
     { id: 'table', label: 'Table', icon: Table2 },
-    { id: 'geocoder', label: 'Geocoder', icon: MapPin }
+    { id: 'geocoder', label: 'Geocoder', icon: MapPin },
+    { id: 'export', label: 'Export', icon: Printer }
   ];
 
   // Mode options
@@ -324,14 +390,14 @@ export default function MapEditor({
 
         {/* Tabs */}
         <div className="px-6 pt-4 border-b border-slate-200 shrink-0">
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto">
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'border-current text-slate-800'
                       : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -781,6 +847,160 @@ export default function MapEditor({
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg"
                   />
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Export Templates Tab */}
+          {activeTab === 'export' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-slate-800">
+                <Printer className="w-5 h-5" />
+                <h3 className="font-semibold">Export Templates</h3>
+              </div>
+              
+              <p className="text-sm text-slate-600">
+                Select which export templates users can choose from when exporting this map.
+                Templates are configured at the organization level in Atlas Settings → Export Templates.
+              </p>
+
+              {/* No templates available */}
+              {enabledExportTemplates.length === 0 ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-amber-800">No Export Templates Available</h4>
+                      <p className="text-sm text-amber-700 mt-1">
+                        Your organization hasn't created any export templates yet. 
+                        Go to Atlas Settings → Export Templates to create templates first.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Header with selection info */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-slate-600">
+                        {(mapConfig.exportTemplates || []).length} of {enabledExportTemplates.length} templates selected
+                      </span>
+                      {(mapConfig.exportTemplates || []).length === 0 && (
+                        <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">
+                          No templates = no export option
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={selectAllExportTemplates}
+                        className="text-xs text-slate-600 hover:text-slate-800 underline"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearAllExportTemplates}
+                        className="text-xs text-slate-600 hover:text-slate-800 underline"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Info note */}
+                  <div className="flex items-start gap-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
+                    <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <p>
+                      Selected templates will be available in this map's export tool. 
+                      Users can choose from these templates when exporting the map.
+                      {(mapConfig.exportTemplates || []).length === 0 && (
+                        <strong className="text-amber-600"> Select at least one template to enable exports.</strong>
+                      )}
+                    </p>
+                  </div>
+
+                  {/* Template list */}
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {enabledExportTemplates.map(template => {
+                      const isSelected = (mapConfig.exportTemplates || []).includes(template.id);
+                      
+                      return (
+                        <label
+                          key={template.id}
+                          className={`
+                            flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors
+                            ${isSelected 
+                              ? 'border-blue-300 bg-blue-50' 
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}
+                          `}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleExportTemplate(template.id)}
+                            className="sr-only"
+                          />
+                          
+                          <div 
+                            className={`
+                              w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0
+                              ${isSelected 
+                                ? 'border-blue-500 bg-blue-500' 
+                                : 'border-slate-300 bg-white'}
+                            `}
+                          >
+                            {isSelected && <Check className="w-3 h-3 text-white" />}
+                          </div>
+                          
+                          <div 
+                            className="w-10 h-10 rounded flex items-center justify-center flex-shrink-0"
+                            style={{ 
+                              backgroundColor: isSelected ? accentColor : '#e2e8f0',
+                              color: isSelected ? '#ffffff' : '#64748b'
+                            }}
+                          >
+                            <Printer className="w-5 h-5" />
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <h5 className={`font-medium truncate ${isSelected ? 'text-slate-800' : 'text-slate-700'}`}>
+                              {template.name}
+                            </h5>
+                            <p className="text-xs text-slate-500 truncate">
+                              {getPageSizeDisplay(template)} • {template.elements?.length || 0} elements
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected summary */}
+                  {(mapConfig.exportTemplates || []).length > 0 && (
+                    <div className="pt-3 border-t border-slate-200">
+                      <span className="text-xs text-slate-500 uppercase font-medium">Selected Templates</span>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {(mapConfig.exportTemplates || []).map(id => {
+                          const template = enabledExportTemplates.find(t => t.id === id);
+                          if (!template) return null;
+                          
+                          return (
+                            <span
+                              key={id}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded"
+                            >
+                              <Printer className="w-3 h-3" />
+                              {template.name}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

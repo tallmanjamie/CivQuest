@@ -59,7 +59,8 @@ import {
   Wand2,
   PanelLeftClose,
   PanelLeft,
-  Layers
+  Layers,
+  Printer
 } from 'lucide-react';
 
 // Import admin components
@@ -439,10 +440,12 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
     ? [
         { id: 'users', label: 'Users', icon: Users },
         { id: 'configuration', label: 'Configuration', icon: Settings },
+        { id: 'export-templates', label: 'Export Templates', icon: Printer },
       ]
     : [
         { id: 'users', label: 'Users', icon: Users },
         { id: 'maps', label: 'Maps', icon: Layers },
+        { id: 'export-templates', label: 'Export Templates', icon: Printer },
         { id: 'preview', label: 'Preview', icon: Eye },
       ];
 
