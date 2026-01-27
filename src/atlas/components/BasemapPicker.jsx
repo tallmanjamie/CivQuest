@@ -1,19 +1,18 @@
 // src/atlas/components/BasemapPicker.jsx
-// CivQuest Atlas - Enhanced Basemap Picker Component
-// Dropdown basemap selector with integrated swipe tool
+// CivQuest Atlas - Basemap Picker Component
+// Expandable panel with swipe toggle and basemap selection
 //
-// Migrated from legacy layers.js basemap/swipe functionality
+// Layout:
+// - Swipe toggle button at top
+// - Basemap dropdown
+// - When swipe active: second dropdown for swipe layer
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Layers,
+  Globe,
   ChevronDown,
   X,
-  Columns,
-  Check,
-  Image,
-  Globe,
-  Map as MapIcon
+  Columns
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -29,24 +28,26 @@ const getStorageKey = (mapId) => `atlas_basemap_state_${mapId || 'default'}`;
 
 /**
  * BasemapPicker Component
- * Enhanced basemap dropdown with swipe tool integration
+ * Expandable panel with swipe toggle and basemap dropdowns
  */
 export default function BasemapPicker({
   view,
+  map,
   basemaps = [],
-  position = 'top-left',
+  config,
+  mapId,
+  isExpanded = false,
+  onToggle,
   className = ''
 }) {
-  const { config, activeMap } = useAtlas();
-  const themeColor = config?.ui?.themeColor || 'sky';
+  const { config: atlasConfig, activeMap } = useAtlas();
+  const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
   // State
-  const [isOpen, setIsOpen] = useState(false);
   const [activeBasemapId, setActiveBasemapId] = useState('default');
   const [isSwipeActive, setIsSwipeActive] = useState(false);
-  const [swipeBasemapId, setSwipeBasemapId] = useState(null);
-  const [showSwipePanel, setShowSwipePanel] = useState(false);
+  const [swipeBasemapId, setSwipeBasemapId] = useState('');
 
   // Refs
   const swipeWidgetRef = useRef(null);
@@ -54,90 +55,24 @@ export default function BasemapPicker({
   const originalBasemapRef = useRef(null);
   const panelRef = useRef(null);
 
-  // Get map ID for storage
-  const mapId = view?.map?.portalItem?.id;
+  // Default basemaps if none provided
+  const defaultBasemaps = [
+    { label: 'Streets', id: 'streets-vector', type: 'esri' },
+    { label: 'Satellite', id: 'satellite', type: 'esri' },
+    { label: 'Hybrid', id: 'hybrid', type: 'esri' },
+    { label: 'Topographic', id: 'topo-vector', type: 'esri' },
+    { label: 'Gray', id: 'gray-vector', type: 'esri' },
+    { label: 'Dark Gray', id: 'dark-gray-vector', type: 'esri' },
+    { label: 'Navigation', id: 'streets-navigation-vector', type: 'esri' },
+    { label: 'OpenStreetMap', id: 'osm', type: 'esri' }
+  ];
 
-  // Use basemaps from config if not provided
-  const basemapOptions = basemaps.length > 0 ? basemaps : (config?.basemaps || [
-    { label: 'Default', id: 'default', type: 'esri' }
-  ]);
-
-  /**
-   * Create basemap instance from config
-   */
-  const createBasemapInstance = useCallback((basemapConfig) => {
-    if (!basemapConfig) return null;
-
-    try {
-      // Default Esri basemap
-      if (basemapConfig.type === 'esri' || basemapConfig.id === 'default') {
-        return originalBasemapRef.current || 'streets-vector';
-      }
-
-      // ArcGIS tiled service
-      if (basemapConfig.type === 'arcgis' && basemapConfig.url) {
-        const tileLayer = new TileLayer({ url: basemapConfig.url });
-        return new Basemap({
-          baseLayers: [tileLayer],
-          title: basemapConfig.label,
-          id: basemapConfig.id,
-          thumbnailUrl: basemapConfig.thumbnailUrl || null
-        });
-      }
-
-      // WMS service
-      if (basemapConfig.type === 'wms' && basemapConfig.url) {
-        const wmsProps = {
-          url: basemapConfig.url,
-          spatialReference: view?.spatialReference || { wkid: 3857 },
-          version: '1.1.1',
-          imageFormat: 'image/png',
-          customParameters: { transparent: 'true' }
-        };
-
-        if (basemapConfig.wmsLayers && Array.isArray(basemapConfig.wmsLayers)) {
-          wmsProps.sublayers = basemapConfig.wmsLayers.map(name => ({ name }));
-        }
-
-        const wmsLayer = new WMSLayer(wmsProps);
-        return new Basemap({
-          baseLayers: [wmsLayer],
-          title: basemapConfig.label,
-          id: basemapConfig.id
-        });
-      }
-
-      // Esri named basemap
-      if (basemapConfig.id) {
-        return basemapConfig.id;
-      }
-    } catch (err) {
-      console.error('[BasemapPicker] Error creating basemap:', err);
-    }
-
-    return null;
-  }, [view]);
+  const basemapOptions = basemaps.length > 0 
+    ? basemaps 
+    : (activeMap?.basemaps || atlasConfig?.basemaps || defaultBasemaps);
 
   /**
-   * Apply basemap to view
-   */
-  const applyBasemap = useCallback((basemapConfig) => {
-    if (!view?.map) return;
-
-    try {
-      const basemap = createBasemapInstance(basemapConfig);
-      if (basemap) {
-        view.map.basemap = basemap;
-        setActiveBasemapId(basemapConfig.id);
-        saveState();
-      }
-    } catch (err) {
-      console.error('[BasemapPicker] Error applying basemap:', err);
-    }
-  }, [view, createBasemapInstance]);
-
-  /**
-   * Initialize - capture original basemap
+   * Store original basemap on init
    */
   useEffect(() => {
     if (view?.map?.basemap && !originalBasemapRef.current) {
@@ -146,326 +81,367 @@ export default function BasemapPicker({
   }, [view]);
 
   /**
-   * Restore saved state
+   * Create basemap instance from config
    */
-  useEffect(() => {
-    if (!mapId) return;
+  const createBasemapInstance = useCallback((basemapConfig) => {
+    if (!basemapConfig) return null;
 
     try {
-      const saved = localStorage.getItem(getStorageKey(mapId));
-      if (saved) {
-        const state = JSON.parse(saved);
-        
-        if (state.basemapId) {
-          const config = basemapOptions.find(b => b.id === state.basemapId);
-          if (config) {
-            applyBasemap(config);
+      if (basemapConfig.id === 'default') {
+        return originalBasemapRef.current || 'streets-vector';
+      }
+
+      if (basemapConfig.type === 'esri' || !basemapConfig.url) {
+        return basemapConfig.id;
+      }
+
+      if (basemapConfig.type === 'arcgis' && basemapConfig.url) {
+        const tileLayer = new TileLayer({ url: basemapConfig.url });
+        return new Basemap({
+          baseLayers: [tileLayer],
+          title: basemapConfig.label,
+          id: basemapConfig.id
+        });
+      }
+
+      if (basemapConfig.type === 'wms' && basemapConfig.url) {
+        const wmsLayer = new WMSLayer({
+          url: basemapConfig.url,
+          sublayers: basemapConfig.wmsLayers?.map(name => ({ name })) || []
+        });
+        return new Basemap({
+          baseLayers: [wmsLayer],
+          title: basemapConfig.label,
+          id: basemapConfig.id
+        });
+      }
+
+      return basemapConfig.id;
+    } catch (err) {
+      console.error('[BasemapPicker] Error creating basemap:', err);
+      return null;
+    }
+  }, []);
+
+  /**
+   * Save state to localStorage
+   */
+  const saveState = useCallback((basemapId, swipeActive, swipeId) => {
+    try {
+      localStorage.setItem(getStorageKey(mapId), JSON.stringify({
+        basemapId,
+        swipeActive,
+        swipeId,
+        timestamp: Date.now()
+      }));
+    } catch (e) {}
+  }, [mapId]);
+
+  /**
+   * Handle basemap selection change
+   */
+  const handleBasemapChange = useCallback((e) => {
+    const selectedId = e.target.value;
+    if (!view?.map || !selectedId) return;
+
+    const basemapConfig = basemapOptions.find(b => b.id === selectedId);
+    if (!basemapConfig) return;
+
+    try {
+      const basemap = createBasemapInstance(basemapConfig);
+      if (basemap) {
+        view.map.basemap = basemap;
+        setActiveBasemapId(selectedId);
+
+        // If swipe is active and we selected the same basemap, switch swipe to different one
+        if (isSwipeActive && selectedId === swipeBasemapId) {
+          const alt = basemapOptions.find(b => b.id !== selectedId);
+          if (alt) {
+            setSwipeBasemapId(alt.id);
+            const swipeConfig = basemapOptions.find(b => b.id === alt.id);
+            if (swipeConfig) updateSwipeLayer(swipeConfig);
           }
         }
 
-        if (state.swipeActive && state.swipeId) {
-          setSwipeBasemapId(state.swipeId);
-          setIsSwipeActive(true);
-        }
+        saveState(selectedId, isSwipeActive, swipeBasemapId);
       }
-    } catch (e) {
-      console.warn('[BasemapPicker] Failed to restore state:', e);
+    } catch (err) {
+      console.error('[BasemapPicker] Error applying basemap:', err);
     }
-  }, [mapId, basemapOptions]);
+  }, [view, basemapOptions, createBasemapInstance, isSwipeActive, swipeBasemapId, saveState]);
 
   /**
-   * Save state
+   * Setup swipe widget with layers
    */
-  const saveState = useCallback(() => {
-    if (!mapId) return;
+  const setupSwipeWidget = useCallback((layers, position = 50) => {
+    if (!view || layers.length === 0) return;
 
-    try {
-      localStorage.setItem(getStorageKey(mapId), JSON.stringify({
-        basemapId: activeBasemapId,
-        swipeActive: isSwipeActive,
-        swipeId: swipeBasemapId,
-        timestamp: Date.now()
-      }));
-    } catch (e) {
-      console.warn('[BasemapPicker] Failed to save state:', e);
-    }
-  }, [mapId, activeBasemapId, isSwipeActive, swipeBasemapId]);
+    layers.forEach(layer => {
+      layer.listMode = 'hide';
+    });
+    view.map.addMany(layers, 0);
+    swipeLayersRef.current = layers;
+
+    const swipe = new Swipe({
+      view: view,
+      leadingLayers: [],
+      trailingLayers: layers,
+      direction: 'horizontal',
+      position: position
+    });
+
+    view.ui.add(swipe);
+    swipeWidgetRef.current = swipe;
+  }, [view]);
 
   /**
-   * Activate swipe tool
+   * Activate swipe with basemap
    */
   const activateSwipe = useCallback(async (swipeConfig) => {
-    if (!view || !swipeConfig) return;
+    if (!view) return;
+
+    // Clean up existing
+    if (swipeWidgetRef.current) {
+      view.ui.remove(swipeWidgetRef.current);
+      swipeWidgetRef.current.destroy();
+      swipeWidgetRef.current = null;
+    }
+    swipeLayersRef.current.forEach(layer => view.map.remove(layer));
+    swipeLayersRef.current = [];
 
     try {
-      // Deactivate existing swipe if any
-      deactivateSwipe();
+      const basemap = createBasemapInstance(swipeConfig);
+      if (!basemap) return;
 
-      // Create basemap for swipe
-      const swipeBasemap = createBasemapInstance(swipeConfig);
-      if (!swipeBasemap) return;
-
-      // Load basemap if needed
-      if (swipeBasemap.load) {
-        await swipeBasemap.load();
+      if (typeof basemap === 'string') {
+        const esriBasemap = Basemap.fromId(basemap);
+        await esriBasemap.load();
+        const layers = [...esriBasemap.baseLayers.toArray(), ...esriBasemap.referenceLayers.toArray()];
+        setupSwipeWidget(layers);
+      } else if (basemap.load) {
+        await basemap.load();
+        const layers = [...basemap.baseLayers.toArray(), ...(basemap.referenceLayers?.toArray() || [])];
+        setupSwipeWidget(layers);
       }
-
-      // Get layers from basemap
-      let layers = [];
-      if (typeof swipeBasemap === 'object' && swipeBasemap.baseLayers) {
-        layers = [...swipeBasemap.baseLayers.toArray()];
-        if (swipeBasemap.referenceLayers) {
-          layers.push(...swipeBasemap.referenceLayers.toArray());
-        }
-      }
-
-      if (layers.length === 0) {
-        console.warn('[BasemapPicker] No layers for swipe');
-        return;
-      }
-
-      // Add layers to map (hidden from layer list)
-      layers.forEach(l => { l.listMode = 'hide'; });
-      swipeLayersRef.current = layers;
-      view.map.addMany(layers, 0);
-
-      // Create swipe widget
-      const swipe = new Swipe({
-        view: view,
-        leadingLayers: [],
-        trailingLayers: layers,
-        direction: 'horizontal',
-        position: 50
-      });
-
-      view.ui.add(swipe);
-      swipeWidgetRef.current = swipe;
-      
-      setSwipeBasemapId(swipeConfig.id);
-      setIsSwipeActive(true);
-      saveState();
-
     } catch (err) {
       console.error('[BasemapPicker] Swipe activation error:', err);
     }
-  }, [view, createBasemapInstance, saveState]);
+  }, [view, createBasemapInstance, setupSwipeWidget]);
 
   /**
-   * Deactivate swipe tool
+   * Update swipe layer
+   */
+  const updateSwipeLayer = useCallback(async (swipeConfig) => {
+    if (!isSwipeActive || !view) return;
+
+    const previousPosition = swipeWidgetRef.current?.position || 50;
+
+    if (swipeWidgetRef.current) {
+      view.ui.remove(swipeWidgetRef.current);
+      swipeWidgetRef.current.destroy();
+      swipeWidgetRef.current = null;
+    }
+    swipeLayersRef.current.forEach(layer => view.map.remove(layer));
+    swipeLayersRef.current = [];
+
+    try {
+      const basemap = createBasemapInstance(swipeConfig);
+      if (!basemap) return;
+
+      if (typeof basemap === 'string') {
+        const esriBasemap = Basemap.fromId(basemap);
+        await esriBasemap.load();
+        const layers = [...esriBasemap.baseLayers.toArray(), ...esriBasemap.referenceLayers.toArray()];
+        setupSwipeWidget(layers, previousPosition);
+      } else if (basemap.load) {
+        await basemap.load();
+        const layers = [...basemap.baseLayers.toArray(), ...(basemap.referenceLayers?.toArray() || [])];
+        setupSwipeWidget(layers, previousPosition);
+      }
+    } catch (err) {
+      console.error('[BasemapPicker] Swipe update error:', err);
+    }
+  }, [view, createBasemapInstance, isSwipeActive, setupSwipeWidget]);
+
+  /**
+   * Deactivate swipe
    */
   const deactivateSwipe = useCallback(() => {
+    if (!view) return;
+
     if (swipeWidgetRef.current) {
-      view?.ui.remove(swipeWidgetRef.current);
+      view.ui.remove(swipeWidgetRef.current);
       swipeWidgetRef.current.destroy();
       swipeWidgetRef.current = null;
     }
 
-    if (swipeLayersRef.current.length > 0) {
-      view?.map.removeMany(swipeLayersRef.current);
-      swipeLayersRef.current = [];
-    }
-
-    setIsSwipeActive(false);
-    setSwipeBasemapId(null);
-    saveState();
-  }, [view, saveState]);
+    swipeLayersRef.current.forEach(layer => view.map.remove(layer));
+    swipeLayersRef.current = [];
+  }, [view]);
 
   /**
-   * Toggle swipe
+   * Toggle swipe mode
    */
   const toggleSwipe = useCallback(() => {
-    if (isSwipeActive) {
-      deactivateSwipe();
+    const newSwipeActive = !isSwipeActive;
+    setIsSwipeActive(newSwipeActive);
+
+    if (newSwipeActive) {
+      let swipeId = swipeBasemapId;
+      if (!swipeId || swipeId === activeBasemapId) {
+        const alt = basemapOptions.find(b => b.id !== activeBasemapId);
+        swipeId = alt?.id || 'hybrid';
+        setSwipeBasemapId(swipeId);
+      }
+      const swipeConfig = basemapOptions.find(b => b.id === swipeId);
+      if (swipeConfig) {
+        activateSwipe(swipeConfig);
+      }
     } else {
-      // Find a basemap different from active one
-      const availableSwipe = basemapOptions.find(b => b.id !== activeBasemapId);
-      if (availableSwipe) {
-        activateSwipe(availableSwipe);
-      }
+      deactivateSwipe();
     }
-  }, [isSwipeActive, activeBasemapId, basemapOptions, activateSwipe, deactivateSwipe]);
 
-  /**
-   * Handle basemap selection
-   */
-  const handleSelectBasemap = (basemapConfig) => {
-    applyBasemap(basemapConfig);
-    setIsOpen(false);
-
-    // If swipe is active and same basemap selected, change swipe basemap
-    if (isSwipeActive && basemapConfig.id === swipeBasemapId) {
-      const alt = basemapOptions.find(b => b.id !== basemapConfig.id);
-      if (alt) {
-        activateSwipe(alt);
-      }
-    }
-  };
+    saveState(activeBasemapId, newSwipeActive, swipeBasemapId);
+  }, [isSwipeActive, swipeBasemapId, activeBasemapId, basemapOptions, activateSwipe, deactivateSwipe, saveState]);
 
   /**
    * Handle swipe basemap selection
    */
-  const handleSelectSwipeBasemap = (basemapConfig) => {
-    activateSwipe(basemapConfig);
-    setShowSwipePanel(false);
-  };
+  const handleSwipeChange = useCallback((e) => {
+    const selectedId = e.target.value;
+    if (!selectedId || selectedId === activeBasemapId) return;
 
-  // Click outside to close
+    setSwipeBasemapId(selectedId);
+    const swipeConfig = basemapOptions.find(b => b.id === selectedId);
+    if (swipeConfig) {
+      updateSwipeLayer(swipeConfig);
+    }
+    saveState(activeBasemapId, isSwipeActive, selectedId);
+  }, [activeBasemapId, basemapOptions, isSwipeActive, updateSwipeLayer, saveState]);
+
+  /**
+   * Cleanup on unmount
+   */
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (panelRef.current && !panelRef.current.contains(e.target)) {
-        setIsOpen(false);
-        setShowSwipePanel(false);
+    return () => {
+      if (swipeWidgetRef.current) {
+        swipeWidgetRef.current.destroy();
       }
     };
+  }, []);
 
-    if (isOpen || showSwipePanel) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen, showSwipePanel]);
-
-  // Get active basemap config
-  const activeBasemapConfig = basemapOptions.find(b => b.id === activeBasemapId) || basemapOptions[0];
-
-  // Position styles
-  const positionClasses = position === 'top-right' 
-    ? 'right-4 left-auto' 
-    : 'left-4';
-
-  // Get icon for basemap type
-  const getBasemapIcon = (config) => {
-    if (config?.type === 'wms' || config?.label?.toLowerCase().includes('aerial')) {
-      return Image;
-    }
-    return MapIcon;
-  };
-
-  return (
-    <div 
-      ref={panelRef}
-      className={`relative ${className}`}
-    >
-      {/* Basemap Button */}
+  // Collapsed button
+  if (!isExpanded) {
+    return (
       <button
-        onClick={() => { setIsOpen(!isOpen); setShowSwipePanel(false); }}
+        onClick={onToggle}
         className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg 
-                   hover:bg-slate-50 transition text-sm font-medium text-slate-700
-                   ${isOpen ? 'ring-2' : ''}`}
-        style={isOpen ? { ringColor: colors.bg500 } : {}}
+                   hover:bg-slate-50 transition text-sm font-medium text-slate-700 
+                   min-w-[140px] ${className}
+                   ${isSwipeActive ? 'ring-2 ring-blue-400' : ''}`}
       >
-        <Layers className="w-4 h-4 text-slate-500" />
-        <span className="hidden sm:inline truncate max-w-[100px]">
-          {activeBasemapConfig?.label || 'Basemap'}
-        </span>
-        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <Globe className="w-4 h-4 text-slate-500" />
+        <span className="flex-1 text-left">Basemaps</span>
+        {isSwipeActive && <Columns className="w-3 h-3 text-blue-500" />}
+        <ChevronDown className="w-4 h-4 text-slate-400" />
       </button>
+    );
+  }
 
-      {/* Dropdown Panel */}
-      {isOpen && (
-        <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden z-50">
-          {/* Header */}
-          <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Basemaps
-            </span>
-            <button
-              onClick={toggleSwipe}
-              className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded transition
-                         ${isSwipeActive 
-                           ? 'bg-blue-500 text-white' 
-                           : 'border border-slate-300 text-slate-600 hover:bg-slate-100'}`}
-            >
-              <Columns className="w-3 h-3" />
-              Swipe
-            </button>
-          </div>
-
-          {/* Basemap List */}
-          <div className="max-h-64 overflow-y-auto">
-            {basemapOptions.map((bm) => {
-              const Icon = getBasemapIcon(bm);
-              const isActive = activeBasemapId === bm.id;
-              const isSwipeBasemap = isSwipeActive && swipeBasemapId === bm.id;
-
-              return (
-                <button
-                  key={bm.id}
-                  onClick={() => handleSelectBasemap(bm)}
-                  disabled={isSwipeBasemap}
-                  className={`w-full px-3 py-2.5 text-left text-sm flex items-center gap-3
-                             ${isActive 
-                               ? 'font-medium' 
-                               : 'text-slate-700 hover:bg-slate-50'}
-                             ${isSwipeBasemap ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  style={isActive ? { backgroundColor: colors.bg50, color: colors.text700 } : {}}
-                >
-                  {/* Thumbnail or Icon */}
-                  <div className="w-10 h-10 rounded-md overflow-hidden bg-slate-100 flex-shrink-0 flex items-center justify-center">
-                    {bm.thumbnailUrl ? (
-                      <img 
-                        src={bm.thumbnailUrl} 
-                        alt={bm.label}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <Icon className="w-5 h-5 text-slate-400" />
-                    )}
-                  </div>
-
-                  {/* Label */}
-                  <div className="flex-1 min-w-0">
-                    <span className="block truncate">{bm.label}</span>
-                    {isSwipeBasemap && (
-                      <span className="text-xs text-blue-500">Active Swipe</span>
-                    )}
-                  </div>
-
-                  {/* Check mark */}
-                  {isActive && (
-                    <Check className="w-4 h-4 flex-shrink-0" style={{ color: colors.text600 }} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Swipe Controls (when active) */}
-          {isSwipeActive && (
-            <div className="border-t border-slate-200 p-3 bg-slate-50">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-600">Compare with:</span>
-                <button
-                  onClick={deactivateSwipe}
-                  className="text-xs text-red-500 hover:text-red-600"
-                >
-                  Stop Swipe
-                </button>
-              </div>
-              <select
-                value={swipeBasemapId || ''}
-                onChange={(e) => {
-                  const config = basemapOptions.find(b => b.id === e.target.value);
-                  if (config) activateSwipe(config);
-                }}
-                className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded-md
-                          focus:outline-none focus:ring-2 focus:ring-sky-500"
-              >
-                {basemapOptions
-                  .filter(b => b.id !== activeBasemapId)
-                  .map(bm => (
-                    <option key={bm.id} value={bm.id}>
-                      {bm.label}
-                    </option>
-                  ))
-                }
-              </select>
-              <p className="text-[10px] text-slate-400 mt-1.5">
-                Drag the swipe bar on the map to compare
-              </p>
-            </div>
-          )}
+  // Expanded panel
+  return (
+    <div
+      ref={panelRef}
+      className={`w-64 bg-white rounded-lg shadow-xl border border-slate-200 
+                 flex flex-col ${className}`}
+    >
+      {/* Header */}
+      <div 
+        className="flex items-center justify-between px-3 py-2 border-b border-slate-200 flex-shrink-0"
+        style={{ backgroundColor: colors.bg50 }}
+      >
+        <div className="flex items-center gap-2">
+          <Globe className="w-4 h-4" style={{ color: colors.text600 }} />
+          <span className="text-sm font-semibold text-slate-700">Basemaps</span>
         </div>
-      )}
+        <button
+          onClick={onToggle}
+          className="p-1 hover:bg-white/50 rounded transition"
+        >
+          <X className="w-4 h-4 text-slate-500" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="p-3 space-y-3">
+        {/* Swipe Toggle Button */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-600">Swipe Compare</span>
+          <button
+            onClick={toggleSwipe}
+            className={`px-3 py-1 text-xs font-medium rounded transition flex items-center gap-1
+                       ${isSwipeActive 
+                         ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-300'}`}
+          >
+            <Columns className="w-3 h-3" />
+            {isSwipeActive ? 'On' : 'Off'}
+          </button>
+        </div>
+
+        {/* Basemap Select */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">
+            Basemap
+          </label>
+          <select
+            value={activeBasemapId}
+            onChange={handleBasemapChange}
+            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg 
+                      bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 
+                      focus:border-transparent cursor-pointer"
+          >
+            {basemapOptions.map(basemap => (
+              <option 
+                key={basemap.id} 
+                value={basemap.id}
+                disabled={isSwipeActive && basemap.id === swipeBasemapId}
+              >
+                {basemap.label}{isSwipeActive && basemap.id === swipeBasemapId ? ' (Swipe Layer)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Swipe Layer Select (only when swipe active) */}
+        {isSwipeActive && (
+          <div className="pt-2 border-t border-dashed border-slate-200">
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              Compare with (Swipe Layer)
+            </label>
+            <select
+              value={swipeBasemapId}
+              onChange={handleSwipeChange}
+              className="w-full px-3 py-2 text-sm border border-blue-300 rounded-lg 
+                        bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 
+                        focus:border-transparent cursor-pointer"
+            >
+              {basemapOptions.map(basemap => (
+                <option 
+                  key={basemap.id} 
+                  value={basemap.id}
+                  disabled={basemap.id === activeBasemapId}
+                >
+                  {basemap.label}{basemap.id === activeBasemapId ? ' (Current Basemap)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-blue-600 mt-1.5">
+              Drag the divider on the map to compare
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

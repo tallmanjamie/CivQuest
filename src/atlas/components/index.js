@@ -13,8 +13,11 @@ export { default as WelcomeScreen } from './WelcomeScreen';
 export { default as OrgSelector } from './OrgSelector';
 export { default as PreviewBanner, usePreviewBannerPadding } from './PreviewBanner';
 
-// New tool components (migrated from legacy)
+// Tool components (migrated from legacy)
+export { default as SearchResultsPanel } from './SearchResultsPanel';
 export { default as FeatureInfoPanel } from './FeatureInfoPanel';
 export { default as LayersPanel } from './LayersPanel';
 export { default as BasemapPicker } from './BasemapPicker';
+export { default as MapExportTool } from './MapExportTool';
 export { default as MarkupTool } from './MarkupTool';
+export { default as MapExport } from './MapExport';

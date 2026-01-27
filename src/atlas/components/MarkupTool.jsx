@@ -2,7 +2,7 @@
 // CivQuest Atlas - Enhanced Markup Tool Component
 // Drawing tools with color, style, and folder management
 //
-// Migrated and enhanced from legacy markup.js functionality
+// FIXED: Uses isExpanded prop (matching MapView), inline layout
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -57,65 +57,36 @@ const COLORS = [
   { name: 'White', value: '#ffffff', dark: '#e2e8f0' }
 ];
 
-// Line styles
-const LINE_STYLES = [
-  { name: 'Solid', value: 'solid' },
-  { name: 'Dashed', value: 'dash' },
-  { name: 'Dotted', value: 'dot' },
-  { name: 'Dash-Dot', value: 'dash-dot' }
-];
-
-// Point styles
-const POINT_STYLES = [
-  { name: 'Circle', value: 'circle' },
-  { name: 'Square', value: 'square' },
-  { name: 'Diamond', value: 'diamond' },
-  { name: 'Cross', value: 'cross' },
-  { name: 'X', value: 'x' }
-];
-
-// Fill styles
-const FILL_STYLES = [
-  { name: 'Solid', value: 'solid' },
-  { name: 'None', value: 'none' },
-  { name: 'Diagonal', value: 'diagonal-cross' },
-  { name: 'Horizontal', value: 'horizontal' },
-  { name: 'Vertical', value: 'vertical' }
-];
-
-// Measurement units
-const UNITS = {
-  point: [
-    { label: 'Lat / Lon', value: 'lat-lon' },
-    { label: 'X / Y', value: 'x-y' }
-  ],
-  polyline: [
-    { label: 'Feet', value: 'feet' },
-    { label: 'Meters', value: 'meters' },
-    { label: 'Miles', value: 'miles' },
-    { label: 'Kilometers', value: 'kilometers' }
-  ],
-  polygon: [
-    { label: 'Acres', value: 'acres' },
-    { label: 'Sq Feet', value: 'square-feet' },
-    { label: 'Sq Meters', value: 'square-meters' },
-    { label: 'Hectares', value: 'hectares' }
-  ]
+// Helper to convert hex to RGB array
+const hexToRgb = (hex) => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? [
+    parseInt(result[1], 16),
+    parseInt(result[2], 16),
+    parseInt(result[3], 16)
+  ] : [0, 0, 0];
 };
 
 /**
  * MarkupTool Component
  * Enhanced drawing tool with styling options
+ * 
+ * Props match what MapView passes:
+ * - isExpanded (not isOpen)
+ * - onToggle
  */
 export default function MarkupTool({
   view,
-  isOpen,
+  graphicsLayer,
+  config,
+  mapId,
+  isExpanded = false,  // MapView passes isExpanded
   onToggle,
   onFeatureClick,
   className = ''
 }) {
-  const { config } = useAtlas();
-  const themeColor = config?.ui?.themeColor || 'sky';
+  const { config: atlasConfig } = useAtlas();
+  const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
   // State
@@ -124,19 +95,12 @@ export default function MarkupTool({
   const [folders, setFolders] = useState([{ id: 'default', name: 'My Markup' }]);
   const [activeFolder, setActiveFolder] = useState('default');
   const [showSettings, setShowSettings] = useState(false);
-  const [editingMarkup, setEditingMarkup] = useState(null);
 
   // Style settings
   const [currentColor, setCurrentColor] = useState(COLORS[0]);
-  const [lineStyle, setLineStyle] = useState('solid');
-  const [pointStyle, setPointStyle] = useState('circle');
-  const [fillStyle, setFillStyle] = useState('solid');
   const [lineWidth, setLineWidth] = useState(2);
   const [pointSize, setPointSize] = useState(10);
   const [fillOpacity, setFillOpacity] = useState(0.4);
-  const [showLabels, setShowLabels] = useState(true);
-  const [measurementUnit, setMeasurementUnit] = useState('feet');
-  const [textSize, setTextSize] = useState(14);
 
   // Refs
   const sketchVMRef = useRef(null);
@@ -149,12 +113,15 @@ export default function MarkupTool({
   useEffect(() => {
     if (!view) return;
 
-    // Create markup layer
-    const layer = new GraphicsLayer({
-      title: 'Markup Layer',
-      listMode: 'hide'
-    });
-    view.map.add(layer);
+    // Use provided graphics layer or create one
+    let layer = graphicsLayer;
+    if (!layer) {
+      layer = new GraphicsLayer({
+        title: 'Markup Layer',
+        listMode: 'hide'
+      });
+      view.map.add(layer);
+    }
     markupLayerRef.current = layer;
 
     // Create SketchViewModel
@@ -168,47 +135,22 @@ export default function MarkupTool({
     sketchVMRef.current = sketchVM;
 
     // Handle draw complete
-    sketchVM.on('create', handleDrawComplete);
+    sketchVM.on('create', (event) => {
+      if (event.state === 'complete') {
+        handleDrawComplete(event);
+      }
+    });
 
     // Load saved data
-    loadFolders();
     loadMarkups();
 
     return () => {
       sketchVM.destroy();
-      view.map.remove(layer);
-    };
-  }, [view]);
-
-  /**
-   * Load folders from storage
-   */
-  const loadFolders = () => {
-    try {
-      const data = localStorage.getItem(FOLDER_STORAGE_KEY);
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (!parsed.find(f => f.id === 'default')) {
-          parsed.unshift({ id: 'default', name: 'My Markup' });
-        }
-        setFolders(parsed);
+      if (!graphicsLayer) {
+        view.map.remove(layer);
       }
-    } catch (e) {
-      console.warn('[MarkupTool] Failed to load folders:', e);
-    }
-  };
-
-  /**
-   * Save folders to storage
-   */
-  const saveFolders = (newFolders) => {
-    try {
-      localStorage.setItem(FOLDER_STORAGE_KEY, JSON.stringify(newFolders));
-      setFolders(newFolders);
-    } catch (e) {
-      console.warn('[MarkupTool] Failed to save folders:', e);
-    }
-  };
+    };
+  }, [view, graphicsLayer]);
 
   /**
    * Load markups from storage
@@ -217,20 +159,22 @@ export default function MarkupTool({
     if (!markupLayerRef.current) return;
 
     try {
-      const data = localStorage.getItem(MARKUP_STORAGE_KEY);
+      const key = `${MARKUP_STORAGE_KEY}_${mapId || 'default'}`;
+      const data = localStorage.getItem(key);
       if (data) {
         const items = JSON.parse(data);
         const graphics = items.map(item => {
-          const g = Graphic.fromJSON(item);
-          if (item.visible !== undefined) g.visible = item.visible;
-          if (g.attributes && !g.attributes.folderId) {
-            g.attributes.folderId = 'default';
+          try {
+            const g = Graphic.fromJSON(item);
+            if (item.visible !== undefined) g.visible = item.visible;
+            return g;
+          } catch (e) {
+            return null;
           }
-          return g;
         }).filter(Boolean);
 
         markupLayerRef.current.addMany(graphics);
-        setMarkups(graphics.filter(g => g.attributes?.id && !g.attributes?.parentId));
+        setMarkups(graphics.filter(g => g.attributes?.id));
       }
     } catch (e) {
       console.warn('[MarkupTool] Failed to load markups:', e);
@@ -244,28 +188,17 @@ export default function MarkupTool({
     if (!markupLayerRef.current) return;
 
     try {
+      const key = `${MARKUP_STORAGE_KEY}_${mapId || 'default'}`;
       const items = markupLayerRef.current.graphics.map(g => {
         const json = g.toJSON();
         json.visible = g.visible;
         return json;
-      });
-      localStorage.setItem(MARKUP_STORAGE_KEY, JSON.stringify(items));
+      }).toArray();
+      localStorage.setItem(key, JSON.stringify(items));
     } catch (e) {
       console.warn('[MarkupTool] Failed to save markups:', e);
     }
-  }, []);
-
-  /**
-   * Update markups list
-   */
-  const updateMarkupsList = useCallback(() => {
-    if (!markupLayerRef.current) return;
-    
-    const items = markupLayerRef.current.graphics
-      .filter(g => g.attributes?.id && !g.attributes?.parentId)
-      .toArray();
-    setMarkups(items);
-  }, []);
+  }, [mapId]);
 
   /**
    * Get symbol for current settings
@@ -276,7 +209,7 @@ export default function MarkupTool({
     if (type === 'point') {
       return {
         type: 'simple-marker',
-        style: pointStyle,
+        style: 'circle',
         color: [...rgb, 0.8],
         size: pointSize,
         outline: {
@@ -289,7 +222,7 @@ export default function MarkupTool({
     if (type === 'polyline') {
       return {
         type: 'simple-line',
-        style: lineStyle,
+        style: 'solid',
         color: [...rgb, 1],
         width: lineWidth
       };
@@ -298,11 +231,11 @@ export default function MarkupTool({
     if (type === 'polygon') {
       return {
         type: 'simple-fill',
-        style: fillStyle,
+        style: 'solid',
         color: [...rgb, fillOpacity],
         outline: {
           color: [...rgb, 1],
-          style: lineStyle,
+          style: 'solid',
           width: lineWidth
         }
       };
@@ -314,7 +247,7 @@ export default function MarkupTool({
         color: [...rgb, 1],
         text: 'Text',
         font: {
-          size: textSize,
+          size: 14,
           weight: 'bold',
           family: 'sans-serif'
         },
@@ -324,7 +257,7 @@ export default function MarkupTool({
     }
 
     return null;
-  }, [currentColor, pointStyle, pointSize, lineStyle, lineWidth, fillStyle, fillOpacity, textSize]);
+  }, [currentColor, pointSize, lineWidth, fillOpacity]);
 
   /**
    * Start drawing
@@ -332,7 +265,6 @@ export default function MarkupTool({
   const startDrawing = (tool) => {
     if (!sketchVMRef.current) return;
 
-    // Cancel any current operation
     sketchVMRef.current.cancel();
 
     if (activeTool === tool) {
@@ -361,33 +293,31 @@ export default function MarkupTool({
   /**
    * Handle draw complete
    */
-  const handleDrawComplete = useCallback((event) => {
-    if (event.state !== 'complete') return;
-
+  const handleDrawComplete = (event) => {
     const geometry = event.graphic.geometry;
     const id = `markup_${Date.now()}`;
-    
-    // Calculate measurement
-    const measurement = calculateMeasurement(geometry, measurementUnit);
 
-    // Prompt for title
-    const title = prompt('Enter a name for this markup:', 'New Markup') || 'New Markup';
+    // Calculate measurement
+    let measurement = '';
+    if (geometry.type === 'polygon') {
+      const area = geometryEngine.geodesicArea(geometry, 'acres');
+      measurement = `${area.toFixed(2)} acres`;
+    } else if (geometry.type === 'polyline') {
+      const length = geometryEngine.geodesicLength(geometry, 'feet');
+      measurement = `${length.toFixed(0)} ft`;
+    }
 
     // Create attributes
     const attributes = {
       id,
-      title,
+      title: 'New Markup',
       tool: activeTool,
       color: currentColor.value,
       folderId: activeFolder,
-      metric: measurement.value,
-      rawLabel: measurement.label,
-      unit: measurementUnit,
-      showLabel: showLabels,
+      metric: measurement,
       createdAt: Date.now()
     };
 
-    // Update graphic
     event.graphic.attributes = attributes;
 
     // Handle text tool
@@ -398,7 +328,7 @@ export default function MarkupTool({
           type: 'text',
           color: hexToRgb(currentColor.value),
           text: textInput,
-          font: { size: textSize, weight: 'bold', family: 'sans-serif' },
+          font: { size: 14, weight: 'bold', family: 'sans-serif' },
           haloColor: [255, 255, 255, 1],
           haloSize: 2
         };
@@ -406,167 +336,32 @@ export default function MarkupTool({
       }
     }
 
-    // Add label graphic if enabled
-    if (showLabels && activeTool !== 'text' && measurement.label) {
-      const labelPoint = geometry.type === 'point' 
-        ? geometry 
-        : geometry.extent?.center;
-
-      if (labelPoint) {
-        const labelGraphic = new Graphic({
-          geometry: labelPoint,
-          attributes: { parentId: id },
-          symbol: {
-            type: 'text',
-            color: [0, 0, 0, 1],
-            haloColor: [255, 255, 255, 1],
-            haloSize: 2,
-            text: measurement.label,
-            yoffset: geometry.type === 'point' ? -20 : 0,
-            font: { size: 10, weight: 'bold', family: 'sans-serif' }
-          }
-        });
-        markupLayerRef.current.add(labelGraphic);
-      }
-    }
-
-    updateMarkupsList();
+    // Update list
+    setMarkups(prev => [...prev, event.graphic]);
     saveMarkups();
     setActiveTool(null);
-  }, [activeTool, currentColor, measurementUnit, showLabels, activeFolder, textSize, saveMarkups, updateMarkupsList]);
-
-  /**
-   * Calculate measurement for geometry
-   */
-  const calculateMeasurement = (geometry, unit) => {
-    if (!geometry) return { value: '', label: '' };
-
-    try {
-      if (geometry.type === 'point') {
-        if (unit === 'lat-lon') {
-          return {
-            value: `${geometry.latitude?.toFixed(6)}, ${geometry.longitude?.toFixed(6)}`,
-            label: `${geometry.latitude?.toFixed(4)}, ${geometry.longitude?.toFixed(4)}`
-          };
-        }
-        return {
-          value: `${geometry.x?.toFixed(2)}, ${geometry.y?.toFixed(2)}`,
-          label: `X: ${geometry.x?.toFixed(0)}, Y: ${geometry.y?.toFixed(0)}`
-        };
-      }
-
-      if (geometry.type === 'polyline') {
-        const length = geometryEngine.geodesicLength(geometry, unit);
-        const formatted = length.toFixed(2);
-        return {
-          value: `${formatted} ${unit}`,
-          label: `${formatted} ${unit}`
-        };
-      }
-
-      if (geometry.type === 'polygon') {
-        const area = geometryEngine.geodesicArea(geometry, unit);
-        const formatted = Math.abs(area).toFixed(2);
-        return {
-          value: `${formatted} ${unit.replace('-', ' ')}`,
-          label: `${formatted} ${unit.replace(/-/g, ' ')}`
-        };
-      }
-    } catch (e) {
-      console.warn('[MarkupTool] Measurement error:', e);
-    }
-
-    return { value: '', label: '' };
   };
 
   /**
    * Delete markup
    */
-  const deleteMarkup = (markup) => {
-    if (!markupLayerRef.current || !markup?.attributes?.id) return;
-
-    // Remove main graphic
-    markupLayerRef.current.remove(markup);
-
-    // Remove associated label
-    const label = markupLayerRef.current.graphics.find(
-      g => g.attributes?.parentId === markup.attributes.id
-    );
-    if (label) {
-      markupLayerRef.current.remove(label);
-    }
-
-    updateMarkupsList();
+  const deleteMarkup = (graphic) => {
+    if (!markupLayerRef.current) return;
+    markupLayerRef.current.remove(graphic);
+    setMarkups(prev => prev.filter(m => m !== graphic));
     saveMarkups();
   };
 
   /**
-   * Zoom to markup
+   * Clear all markups
    */
-  const zoomToMarkup = (markup) => {
-    if (!view || !markup?.geometry) return;
-    view.goTo(markup.geometry).catch(() => {});
-    
-    if (onFeatureClick) {
-      onFeatureClick(markup);
-    }
-  };
-
-  /**
-   * Toggle markup visibility
-   */
-  const toggleMarkupVisibility = (markup) => {
-    if (!markup) return;
-    markup.visible = !markup.visible;
-
-    // Also toggle label
-    const label = markupLayerRef.current?.graphics.find(
-      g => g.attributes?.parentId === markup.attributes.id
-    );
-    if (label) {
-      label.visible = markup.visible;
-    }
-
-    updateMarkupsList();
+  const clearAllMarkups = () => {
+    if (!markupLayerRef.current) return;
+    if (!confirm('Delete all markups?')) return;
+    markupLayerRef.current.removeAll();
+    setMarkups([]);
     saveMarkups();
   };
-
-  /**
-   * Create new folder
-   */
-  const createFolder = () => {
-    const name = prompt('Enter folder name:', 'New Folder');
-    if (name) {
-      const newFolder = { id: `folder_${Date.now()}`, name };
-      saveFolders([...folders, newFolder]);
-    }
-  };
-
-  /**
-   * Delete folder
-   */
-  const deleteFolder = (folderId) => {
-    if (folderId === 'default') return;
-    
-    // Move items to default folder
-    markupLayerRef.current?.graphics.forEach(g => {
-      if (g.attributes?.folderId === folderId) {
-        g.attributes.folderId = 'default';
-      }
-    });
-
-    saveFolders(folders.filter(f => f.id !== folderId));
-    if (activeFolder === folderId) {
-      setActiveFolder('default');
-    }
-    saveMarkups();
-    updateMarkupsList();
-  };
-
-  // Filter markups by active folder
-  const folderMarkups = markups.filter(
-    m => (m.attributes?.folderId || 'default') === activeFolder
-  );
 
   // Tool definitions
   const tools = [
@@ -576,24 +371,29 @@ export default function MarkupTool({
     { id: 'text', icon: Type, label: 'Text' }
   ];
 
-  if (!isOpen) {
+  // Collapsed button
+  if (!isExpanded) {
     return (
       <button
         onClick={onToggle}
-        className={`flex items-center justify-center w-10 h-10 bg-white rounded-lg shadow-lg 
-                   hover:bg-slate-50 transition z-20 ${className}`}
+        className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg 
+                   hover:bg-slate-50 transition text-sm font-medium text-slate-700 
+                   min-w-[140px] ${className}`}
         title="Markup Tools"
       >
-        <Pencil className="w-5 h-5 text-slate-600" />
+        <Pencil className="w-4 h-4 text-slate-500" />
+        <span className="flex-1 text-left">Markup</span>
+        <ChevronDown className="w-4 h-4 text-slate-400" />
       </button>
     );
   }
 
+  // Expanded panel
   return (
     <div
       ref={panelRef}
-      className={`bg-white rounded-lg shadow-xl border border-slate-200 w-72 z-20 
-                 flex flex-col max-h-[80vh] ${className}`}
+      className={`bg-white rounded-lg shadow-xl border border-slate-200 w-72 
+                 flex flex-col max-h-[70vh] ${className}`}
     >
       {/* Header */}
       <div 
@@ -602,7 +402,7 @@ export default function MarkupTool({
       >
         <div className="flex items-center gap-2">
           <Pencil className="w-4 h-4" style={{ color: colors.text600 }} />
-          <span className="text-sm font-semibold text-slate-700">Markup Tools</span>
+          <span className="text-sm font-semibold text-slate-700">Markup</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -627,7 +427,7 @@ export default function MarkupTool({
               onClick={() => startDrawing(tool.id)}
               className={`flex flex-col items-center gap-1 p-2 rounded-lg transition
                          ${activeTool === tool.id 
-                           ? 'ring-2' 
+                           ? 'ring-2 ring-offset-1' 
                            : 'hover:bg-slate-100 border border-slate-200'}`}
               style={activeTool === tool.id ? {
                 backgroundColor: colors.bg50,
@@ -639,25 +439,25 @@ export default function MarkupTool({
                 className="w-5 h-5" 
                 style={{ color: activeTool === tool.id ? colors.text600 : '#64748b' }}
               />
-              <span className="text-[10px] font-medium text-slate-500">{tool.label}</span>
+              <span className="text-xs text-slate-600">{tool.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Style Settings (collapsible) */}
+      {/* Settings Panel */}
       {showSettings && (
-        <div className="p-3 border-b border-slate-200 bg-slate-50 space-y-3">
+        <div className="p-3 border-b border-slate-200 space-y-3">
           {/* Color Picker */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Color</label>
-            <div className="flex flex-wrap gap-1.5">
+            <label className="text-xs font-semibold text-slate-600 mb-2 block">Color</label>
+            <div className="flex flex-wrap gap-1">
               {COLORS.map(color => (
                 <button
-                  key={color.name}
+                  key={color.value}
                   onClick={() => setCurrentColor(color)}
                   className={`w-6 h-6 rounded-full border-2 transition
-                             ${currentColor.name === color.name 
+                             ${currentColor.value === color.value 
                                ? 'border-slate-800 scale-110' 
                                : 'border-transparent hover:scale-105'}`}
                   style={{ backgroundColor: color.value }}
@@ -669,39 +469,23 @@ export default function MarkupTool({
 
           {/* Line Width */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 mb-1 flex justify-between">
-              <span>Line Width</span>
-              <span className="font-normal">{lineWidth}px</span>
+            <label className="text-xs font-semibold text-slate-600 mb-1 block">
+              Line Width: {lineWidth}px
             </label>
             <input
               type="range"
               min="1"
-              max="8"
+              max="10"
               value={lineWidth}
               onChange={(e) => setLineWidth(parseInt(e.target.value))}
-              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+              className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
             />
-          </div>
-
-          {/* Line Style */}
-          <div>
-            <label className="text-xs font-semibold text-slate-500 mb-1 block">Line Style</label>
-            <select
-              value={lineStyle}
-              onChange={(e) => setLineStyle(e.target.value)}
-              className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded-md"
-            >
-              {LINE_STYLES.map(s => (
-                <option key={s.value} value={s.value}>{s.name}</option>
-              ))}
-            </select>
           </div>
 
           {/* Fill Opacity */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 mb-1 flex justify-between">
-              <span>Fill Opacity</span>
-              <span className="font-normal">{Math.round(fillOpacity * 100)}%</span>
+            <label className="text-xs font-semibold text-slate-600 mb-1 block">
+              Fill Opacity: {Math.round(fillOpacity * 100)}%
             </label>
             <input
               type="range"
@@ -710,166 +494,61 @@ export default function MarkupTool({
               step="0.1"
               value={fillOpacity}
               onChange={(e) => setFillOpacity(parseFloat(e.target.value))}
-              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+              className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
             />
           </div>
-
-          {/* Show Labels Toggle */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showLabels}
-              onChange={(e) => setShowLabels(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300"
-            />
-            <span className="text-xs font-medium text-slate-600">Show measurement labels</span>
-          </label>
         </div>
       )}
 
-      {/* Folder Selector */}
-      <div className="p-2 border-b border-slate-200 bg-slate-50">
-        <div className="flex items-center gap-2">
-          <select
-            value={activeFolder}
-            onChange={(e) => setActiveFolder(e.target.value)}
-            className="flex-1 px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white"
-          >
-            {folders.map(f => (
-              <option key={f.id} value={f.id}>{f.name}</option>
-            ))}
-          </select>
-          <button
-            onClick={createFolder}
-            className="p-1.5 hover:bg-slate-200 rounded"
-            title="New Folder"
-          >
-            <FolderPlus className="w-4 h-4 text-slate-500" />
-          </button>
-          {activeFolder !== 'default' && (
-            <button
-              onClick={() => deleteFolder(activeFolder)}
-              className="p-1.5 hover:bg-red-100 rounded"
-              title="Delete Folder"
-            >
-              <Trash2 className="w-4 h-4 text-red-500" />
-            </button>
-          )}
-        </div>
-      </div>
-
       {/* Markup List */}
       <div className="flex-1 overflow-y-auto p-2">
-        {folderMarkups.length === 0 ? (
+        {markups.length === 0 ? (
           <div className="text-center py-6 text-slate-400 text-xs">
-            No markups in this folder.<br />
-            Select a tool above to start drawing.
+            No markups yet. Use the tools above to draw.
           </div>
         ) : (
           <div className="space-y-1">
-            {folderMarkups.map(markup => (
-              <MarkupItem
-                key={markup.attributes.id}
-                markup={markup}
-                colors={colors}
-                onZoom={() => zoomToMarkup(markup)}
-                onToggleVisibility={() => toggleMarkupVisibility(markup)}
-                onDelete={() => deleteMarkup(markup)}
-              />
+            {markups.map((markup, idx) => (
+              <div
+                key={markup.attributes?.id || idx}
+                className="flex items-center gap-2 p-2 rounded hover:bg-slate-50 group"
+              >
+                <div
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: markup.attributes?.color || '#3b82f6' }}
+                />
+                <span className="flex-1 text-xs text-slate-700 truncate">
+                  {markup.attributes?.title || 'Markup'}
+                </span>
+                {markup.attributes?.metric && (
+                  <span className="text-xs text-slate-400">
+                    {markup.attributes.metric}
+                  </span>
+                )}
+                <button
+                  onClick={() => deleteMarkup(markup)}
+                  className="p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition"
+                >
+                  <Trash2 className="w-3 h-3 text-red-500" />
+                </button>
+              </div>
             ))}
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div className="border-t border-slate-200 px-3 py-2 flex justify-between items-center">
-        <span className="text-[10px] text-slate-400">
-          {folderMarkups.length} item{folderMarkups.length !== 1 ? 's' : ''}
-        </span>
-        {folderMarkups.length > 0 && (
+      {markups.length > 0 && (
+        <div className="border-t border-slate-200 px-3 py-2 flex-shrink-0">
           <button
-            onClick={() => {
-              if (confirm('Clear all markups in this folder?')) {
-                folderMarkups.forEach(m => deleteMarkup(m));
-              }
-            }}
-            className="text-[10px] text-red-500 hover:text-red-600"
+            onClick={clearAllMarkups}
+            className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700"
           >
+            <Trash2 className="w-3 h-3" />
             Clear All
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
-}
-
-/**
- * Markup Item Component
- */
-function MarkupItem({ markup, colors, onZoom, onToggleVisibility, onDelete }) {
-  const attrs = markup.attributes || {};
-  const isVisible = markup.visible !== false;
-
-  // Get icon based on geometry type
-  const getIcon = () => {
-    if (attrs.tool === 'text') return Type;
-    if (markup.geometry?.type === 'point') return MapPin;
-    if (markup.geometry?.type === 'polyline') return Minus;
-    return Square;
-  };
-
-  const Icon = getIcon();
-
-  return (
-    <div className={`group flex items-center gap-2 p-2 rounded-md transition
-                    ${isVisible ? 'bg-white hover:bg-slate-50' : 'bg-slate-100 opacity-60'}`}>
-      {/* Color indicator & icon */}
-      <div 
-        className="w-6 h-6 rounded flex items-center justify-center flex-shrink-0"
-        style={{ backgroundColor: `${attrs.color || '#22c55e'}20` }}
-      >
-        <Icon className="w-3.5 h-3.5" style={{ color: attrs.color || '#22c55e' }} />
-      </div>
-
-      {/* Title & metric */}
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={onZoom}>
-        <p className="text-xs font-medium text-slate-700 truncate">{attrs.title || 'Untitled'}</p>
-        {attrs.metric && (
-          <p className="text-[10px] text-slate-400 font-mono truncate">{attrs.metric}</p>
-        )}
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
-        <button
-          onClick={onToggleVisibility}
-          className="p-1 hover:bg-slate-200 rounded"
-          title={isVisible ? 'Hide' : 'Show'}
-        >
-          {isVisible ? (
-            <Eye className="w-3.5 h-3.5 text-slate-400" />
-          ) : (
-            <EyeOff className="w-3.5 h-3.5 text-slate-400" />
-          )}
-        </button>
-        <button
-          onClick={onDelete}
-          className="p-1 hover:bg-red-100 rounded"
-          title="Delete"
-        >
-          <Trash2 className="w-3.5 h-3.5 text-red-400" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Convert hex color to RGB array
- */
-function hexToRgb(hex) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result 
-    ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
-    : [0, 0, 0];
 }

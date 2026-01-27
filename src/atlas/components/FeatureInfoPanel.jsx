@@ -1,9 +1,9 @@
 // src/atlas/components/FeatureInfoPanel.jsx
 // CivQuest Atlas - Feature Info Panel Component
-// Responsive panel: left side on desktop, bottom sheet on mobile
+// Responsive panel: RIGHT side on desktop, bottom sheet on mobile
 // Tabbed interface for feature attributes and markup tools
 //
-// Migrated from legacy popup.js functionality
+// FIXED: Panel now docked on RIGHT side instead of left
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -14,13 +14,9 @@ import {
   FileText,
   MapPin,
   Target,
-  Maximize2,
   Download,
   Pencil,
-  Layers,
-  ChevronDown,
-  ChevronUp,
-  GripHorizontal
+  Layers
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -31,12 +27,13 @@ import Feature from '@arcgis/core/widgets/Feature';
 /**
  * FeatureInfoPanel Component
  * Displays feature information in a responsive panel
- * - Desktop: Left side panel (320px width)
+ * - Desktop: RIGHT side panel (320px width)
  * - Mobile: Bottom sheet (draggable)
  */
 export default function FeatureInfoPanel({
   feature,
   view,
+  config,
   onClose,
   onSaveAsMarkup,
   onExportPDF,
@@ -46,8 +43,8 @@ export default function FeatureInfoPanel({
   onNavigateRelated,
   isMarkupFeature = false
 }) {
-  const { config } = useAtlas();
-  const themeColor = config?.ui?.themeColor || 'sky';
+  const { config: atlasConfig } = useAtlas();
+  const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
   // State
@@ -119,7 +116,6 @@ export default function FeatureInfoPanel({
 
   const handleDragEnd = () => {
     setDragStartY(null);
-    // Snap to expanded or collapsed
     if (panelHeight < 150) {
       setPanelHeight(100);
       setMobileExpanded(false);
@@ -143,7 +139,6 @@ export default function FeatureInfoPanel({
     { id: 'markup', label: 'Markup', icon: Pencil, disabled: !onSaveAsMarkup }
   ];
 
-  // If it's a markup feature, show markup-specific tabs
   const markupTabs = [
     { id: 'properties', label: 'Properties', icon: FileText },
     { id: 'style', label: 'Style', icon: Layers },
@@ -227,8 +222,6 @@ export default function FeatureInfoPanel({
                 colors={colors}
                 featureContainerRef={featureContainerRef}
                 onSaveAsMarkup={onSaveAsMarkup}
-                onExportPDF={onExportPDF}
-                onZoomTo={onZoomTo}
                 isMarkupFeature={isMarkupFeature}
               />
             </div>
@@ -238,9 +231,9 @@ export default function FeatureInfoPanel({
     );
   }
 
-  // Desktop side panel
+  // Desktop side panel - DOCKED ON RIGHT SIDE
   return (
-    <div className="absolute left-0 top-0 bottom-0 w-80 bg-white shadow-xl z-40 flex flex-col border-r border-slate-200">
+    <div className="absolute right-0 top-0 bottom-0 w-80 bg-white shadow-xl z-40 flex flex-col border-l border-slate-200">
       {/* Header */}
       <div 
         className="flex items-center justify-between p-3 border-b border-slate-200"
@@ -324,8 +317,6 @@ export default function FeatureInfoPanel({
           colors={colors}
           featureContainerRef={featureContainerRef}
           onSaveAsMarkup={onSaveAsMarkup}
-          onExportPDF={onExportPDF}
-          onZoomTo={onZoomTo}
           isMarkupFeature={isMarkupFeature}
         />
       </div>
@@ -366,16 +357,10 @@ function TabContent({
   if (activeTab === 'info') {
     return (
       <div className="p-4">
-        {/* Feature Widget Container */}
         <div 
           ref={featureContainerRef}
           className="feature-widget-container"
-          style={{
-            '--esri-feature-background': 'transparent'
-          }}
         />
-        
-        {/* Custom styling for Esri Feature widget */}
         <style>{`
           .feature-widget-container .esri-feature {
             background: transparent !important;
@@ -414,36 +399,19 @@ function TabContent({
     );
   }
 
-  // Markup feature specific tabs
-  if (isMarkupFeature) {
-    if (activeTab === 'properties') {
-      return (
-        <div className="p-4">
-          <MarkupPropertiesTab feature={feature} colors={colors} />
-        </div>
-      );
-    }
-    if (activeTab === 'style') {
-      return (
-        <div className="p-4">
-          <MarkupStyleTab feature={feature} colors={colors} />
-        </div>
-      );
-    }
-    if (activeTab === 'elevation') {
-      return (
-        <div className="p-4">
-          <MarkupElevationTab feature={feature} />
-        </div>
-      );
-    }
+  if (isMarkupFeature && activeTab === 'properties') {
+    return (
+      <div className="p-4">
+        <MarkupPropertiesTab feature={feature} colors={colors} />
+      </div>
+    );
   }
 
   return null;
 }
 
 /**
- * Markup Tab Content - for saving features as markup
+ * Markup Tab Content
  */
 function MarkupTabContent({ feature, onSaveAsMarkup, colors }) {
   const [title, setTitle] = useState('');
@@ -526,66 +494,6 @@ function MarkupPropertiesTab({ feature, colors }) {
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1">Created</label>
           <p className="text-sm text-slate-600">{new Date(attrs.createdAt).toLocaleString()}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Markup Style Tab
- */
-function MarkupStyleTab({ feature, colors }) {
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-slate-500 italic">
-        Style editing is available in the Markup Tool panel.
-      </p>
-    </div>
-  );
-}
-
-/**
- * Markup Elevation Tab
- */
-function MarkupElevationTab({ feature }) {
-  const [loading, setLoading] = useState(false);
-  const [elevationData, setElevationData] = useState(null);
-
-  const loadElevation = async () => {
-    setLoading(true);
-    // Placeholder for elevation service integration
-    setTimeout(() => {
-      setElevationData({ min: 0, max: 100, avg: 50 });
-      setLoading(false);
-    }, 1000);
-  };
-
-  return (
-    <div className="space-y-4">
-      {!elevationData ? (
-        <button
-          onClick={loadElevation}
-          disabled={loading}
-          className="w-full py-2.5 bg-indigo-600 text-white rounded-lg font-medium
-                     hover:bg-indigo-700 transition disabled:opacity-50"
-        >
-          {loading ? 'Loading...' : '⛰️ Load Elevation Data'}
-        </button>
-      ) : (
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-500">Min Elevation:</span>
-            <span className="font-medium">{elevationData.min} ft</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Max Elevation:</span>
-            <span className="font-medium">{elevationData.max} ft</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Avg Elevation:</span>
-            <span className="font-medium">{elevationData.avg} ft</span>
-          </div>
         </div>
       )}
     </div>

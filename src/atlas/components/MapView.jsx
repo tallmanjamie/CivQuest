@@ -3,36 +3,35 @@
 // ArcGIS WebMap integration with results layer and modern tool components
 //
 // INTEGRATED COMPONENTS:
-// - FeatureInfoPanel: Left panel (desktop) / bottom sheet (mobile) for feature details
-// - LayersPanel: Collapsible layer table of contents
-// - BasemapPicker: Basemap selection with swipe tool support
+// - SearchResultsPanel: Expandable list of search results (top)
 // - MarkupTool: Drawing and annotation tools
+// - LayersPanel: Collapsible layer list with legends and map picker
+// - BasemapPicker: Basemap selection with swipe tool
+// - MapExport: Map export functionality (stub)
+// - FeatureInfoPanel: Feature details (right side desktop / bottom mobile)
 //
 // LAYOUT:
-// - Top Left: MarkupTool, LayersPanel, BasemapPicker, Map Picker (stacked)
-// - Top Right: Results count, Clear button, Fullscreen toggle
+// - Top Left: SearchResultsPanel, MarkupTool, LayersPanel, BasemapPicker, MapExport (stacked)
+// - Top Right: Results count, Clear button
 // - Bottom Right: Zoom controls
-// - Left/Bottom: FeatureInfoPanel (responsive)
 
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { 
   ZoomIn, 
   ZoomOut, 
   Home, 
-  Maximize2, 
-  Minimize2,
   X,
-  Loader2,
-  ChevronDown,
-  MapPin
+  Loader2
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors, COLOR_PALETTE } from '../utils/themeColors';
 
-// New Tool Components
+// Tool Components
+import SearchResultsPanel from './SearchResultsPanel';
 import FeatureInfoPanel from './FeatureInfoPanel';
 import LayersPanel from './LayersPanel';
 import BasemapPicker from './BasemapPicker';
+import MapExportTool from './MapExportTool';
 import MarkupTool from './MarkupTool';
 
 // ArcGIS ES Modules
@@ -89,8 +88,6 @@ const MapView = forwardRef(function MapView(props, ref) {
   // State
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showMapPicker, setShowMapPicker] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   
   // Feature Panel State
@@ -101,8 +98,10 @@ const MapView = forwardRef(function MapView(props, ref) {
 
   // Tool Panel States
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const [showLayersPanel, setShowLayersPanel] = useState(false);
   const [showBasemapPicker, setShowBasemapPicker] = useState(false);
+  const [showMapExport, setShowMapExport] = useState(false);
   const [showMarkupTool, setShowMarkupTool] = useState(false);
 
   // Theme
@@ -644,13 +643,46 @@ const MapView = forwardRef(function MapView(props, ref) {
 
     highlightFeature(feature);
 
-    const hasExtent = feature.geometry.rings || feature.geometry.paths;
-    const targetZoom = hasExtent ? undefined : 18;
+    const geometry = feature.geometry;
+    const hasExtent = geometry.rings || geometry.paths || geometry.extent;
     
-    viewRef.current.goTo(
-      { target: feature.geometry, zoom: targetZoom },
-      { duration: 500 }
-    );
+    if (hasExtent) {
+      // For polygons/polylines, get the extent and expand it
+      let extent;
+      if (geometry.extent) {
+        extent = Extent.fromJSON ? Extent.fromJSON(geometry.extent) : new Extent(geometry.extent);
+      } else if (geometry.rings) {
+        // Create extent from polygon
+        const poly = new Polygon(geometry);
+        extent = poly.extent;
+      } else if (geometry.paths) {
+        // Create extent from polyline
+        const line = new Polyline(geometry);
+        extent = line.extent;
+      }
+      
+      if (extent) {
+        // Expand extent by 50% for better buffer around feature
+        const expandedExtent = extent.clone().expand(1.5);
+        viewRef.current.goTo(
+          { target: expandedExtent },
+          { duration: 500 }
+        );
+      } else {
+        viewRef.current.goTo(
+          { target: geometry },
+          { duration: 500 }
+        );
+      }
+    } else {
+      // For point features, zoom to a reasonable level (not too close)
+      // Use zoom level 15 max to keep more context visible
+      const targetZoom = Math.min(viewRef.current.zoom + 2, 15);
+      viewRef.current.goTo(
+        { target: geometry, zoom: targetZoom },
+        { duration: 500 }
+      );
+    }
   }, [highlightFeature, mapReady]);
 
   /**
@@ -663,8 +695,14 @@ const MapView = forwardRef(function MapView(props, ref) {
     
     setSelectedFeature(null);
     setShowFeaturePanel(false);
+    setShowSearchResults(false);
     setRelatedFeatures([]);
-  }, []);
+    
+    // Clear search results in context
+    if (updateSearchResults) {
+      updateSearchResults({ features: [] });
+    }
+  }, [updateSearchResults]);
 
   /**
    * Zoom controls
@@ -739,7 +777,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const mapId = `${config?.id || 'atlas'}_${activeMapIndex || 0}`;
 
   return (
-    <div className={`relative w-full h-full ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
+    <div className="relative w-full h-full">
       {/* Map Container */}
       <div ref={containerRef} className="w-full h-full" />
 
@@ -769,7 +807,25 @@ const MapView = forwardRef(function MapView(props, ref) {
       {/* ==================== TOP LEFT CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
         <div className="absolute top-4 left-4 flex flex-col gap-2 z-20">
-          {/* 1. Markup Tool (TOP) */}
+          {/* 1. Search Results (TOP) */}
+          <SearchResultsPanel
+            view={viewRef.current}
+            config={config}
+            isExpanded={showSearchResults}
+            onToggle={() => {
+              setShowSearchResults(!showSearchResults);
+              if (!showSearchResults) {
+                setShowMarkupTool(false);
+                setShowLayersPanel(false);
+                setShowBasemapPicker(false);
+                setShowMapExport(false);
+              }
+            }}
+            onFeatureSelect={handleFeatureSelect}
+            onClearResults={clearResults}
+          />
+
+          {/* 2. Markup Tool */}
           <MarkupTool
             view={viewRef.current}
             graphicsLayer={markupLayerRef.current}
@@ -779,13 +835,15 @@ const MapView = forwardRef(function MapView(props, ref) {
             onToggle={() => {
               setShowMarkupTool(!showMarkupTool);
               if (!showMarkupTool) {
+                setShowSearchResults(false);
                 setShowLayersPanel(false);
                 setShowBasemapPicker(false);
+                setShowMapExport(false);
               }
             }}
           />
 
-          {/* 2. Layers Panel */}
+          {/* 3. Layers Panel */}
           <LayersPanel
             view={viewRef.current}
             map={mapRef.current}
@@ -796,13 +854,15 @@ const MapView = forwardRef(function MapView(props, ref) {
             onToggle={() => {
               setShowLayersPanel(!showLayersPanel);
               if (!showLayersPanel) {
+                setShowSearchResults(false);
                 setShowMarkupTool(false);
                 setShowBasemapPicker(false);
+                setShowMapExport(false);
               }
             }}
           />
 
-          {/* 3. Basemap Picker */}
+          {/* 4. Basemap Picker */}
           <BasemapPicker
             view={viewRef.current}
             map={mapRef.current}
@@ -813,51 +873,29 @@ const MapView = forwardRef(function MapView(props, ref) {
             onToggle={() => {
               setShowBasemapPicker(!showBasemapPicker);
               if (!showBasemapPicker) {
+                setShowSearchResults(false);
                 setShowMarkupTool(false);
                 setShowLayersPanel(false);
+                setShowMapExport(false);
               }
             }}
           />
 
-          {/* 4. Map Picker (if multiple maps) */}
-          {availableMaps?.length > 1 && (
-            <div className="relative">
-              <button
-                onClick={() => setShowMapPicker(!showMapPicker)}
-                className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg hover:bg-slate-50 transition text-sm font-medium text-slate-700 min-w-[160px]"
-              >
-                <MapPin className="w-4 h-4 text-slate-500" />
-                <span className="truncate flex-1 text-left">{activeMap?.name || 'Select Map'}</span>
-                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showMapPicker ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {showMapPicker && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setShowMapPicker(false)} />
-                  <div className="absolute left-0 top-full mt-1 w-64 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-40 max-h-80 overflow-y-auto">
-                    <div className="px-3 py-2 border-b border-slate-100">
-                      <span className="text-xs font-semibold text-slate-500 uppercase">Available Maps</span>
-                    </div>
-                    {availableMaps.map((map, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => { setActiveMap(idx); setShowMapPicker(false); }}
-                        className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-100 flex items-center gap-2 ${
-                          activeMap?.name === map.name ? 'font-medium' : 'text-slate-700'
-                        }`}
-                        style={activeMap?.name === map.name ? { backgroundColor: colors.bg50, color: colors.text700 } : {}}
-                      >
-                        {activeMap?.name === map.name && (
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colors.bg500 }} />
-                        )}
-                        <span className={activeMap?.name === map.name ? '' : 'ml-4'}>{map.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+          {/* 5. Map Export */}
+          <MapExportTool
+            view={viewRef.current}
+            config={config}
+            isExpanded={showMapExport}
+            onToggle={() => {
+              setShowMapExport(!showMapExport);
+              if (!showMapExport) {
+                setShowSearchResults(false);
+                setShowMarkupTool(false);
+                setShowLayersPanel(false);
+                setShowBasemapPicker(false);
+              }
+            }}
+          />
         </div>
       )}
 
@@ -884,19 +922,6 @@ const MapView = forwardRef(function MapView(props, ref) {
               Clear
             </button>
           )}
-
-          {/* Fullscreen Toggle */}
-          <button
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-2 bg-white rounded-lg shadow-lg hover:bg-slate-100"
-            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-          >
-            {isFullscreen ? (
-              <Minimize2 className="w-5 h-5 text-slate-600" />
-            ) : (
-              <Maximize2 className="w-5 h-5 text-slate-600" />
-            )}
-          </button>
         </div>
       )}
 
