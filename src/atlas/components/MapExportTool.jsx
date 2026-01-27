@@ -1,14 +1,18 @@
 // src/atlas/components/MapExportTool.jsx
-// Map Export Tool - Allows users to export maps using configured templates
-// Integrates with ArcGIS MapView to show export area and generate exports
+// Map Export Tool - Hybrid approach:
+// 1. Use ESRI print service to generate high-quality map image (PNG)
+// 2. Compose final layout client-side using canvas + jsPDF
+//
+// REQUIRED PACKAGES:
+// npm install jspdf
 //
 // Features:
 // - Template selection from available map templates
-// - Output format selection (PDF, PNG, GIF)
+// - Output format selection (PDF, PNG, JPG)
 // - Export area visualization on map
 // - Custom map scale (1" = X feet)
 // - Custom map title
-// - Passes map, legend, scalebar, north arrow, title to print service
+// - Client-side layout rendering with title, legend, scalebar, north arrow, images
 
 import React, { useState, useMemo, useCallback } from 'react';
 import {
@@ -18,7 +22,6 @@ import {
   FileImage,
   FileText,
   ChevronDown,
-  Type,
   Loader2,
   AlertCircle,
   Check,
@@ -27,6 +30,7 @@ import {
   ZoomIn,
   Info
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { useExportArea } from '../hooks/useExportArea';
 
 // Default print service URL
@@ -49,8 +53,8 @@ const PAGE_DIMENSIONS = {
 // Output format options
 const OUTPUT_FORMATS = [
   { id: 'pdf', label: 'PDF', icon: FileText },
-  { id: 'png32', label: 'PNG', icon: FileImage },
-  { id: 'gif', label: 'GIF', icon: FileImage }
+  { id: 'png', label: 'PNG', icon: FileImage },
+  { id: 'jpg', label: 'JPG', icon: FileImage }
 ];
 
 // Common map scales (1 inch = X feet)
@@ -67,36 +71,240 @@ const PRESET_SCALES = [
   { value: 'custom', label: 'Custom...' }
 ];
 
+// Export DPI for print quality
+const EXPORT_DPI = 150;
+
+// ==================== HELPER FUNCTIONS ====================
+
 /**
- * MapExportTool Component
- * 
- * Provides map export functionality for Atlas users
- * 
- * Props:
- * @param {object} mapView - ArcGIS MapView instance
- * @param {object} mapConfig - Map configuration (contains exportTemplates array of template IDs)
- * @param {object} atlasConfig - Atlas/org configuration (contains full template definitions and printServiceUrl)
- * @param {function} onClose - Callback when tool is closed
- * @param {string} [accentColor] - Theme accent color
+ * Load an image and return a promise
  */
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+    img.src = src;
+  });
+}
+
+/**
+ * Draw a north arrow on canvas
+ */
+function drawNorthArrow(ctx, x, y, width, height) {
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const size = Math.min(width, height) * 0.8;
+  
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  
+  // Draw filled arrow (north half black)
+  ctx.beginPath();
+  ctx.moveTo(0, -size / 2);
+  ctx.lineTo(size / 6, size / 3);
+  ctx.lineTo(0, size / 6);
+  ctx.closePath();
+  ctx.fillStyle = '#000000';
+  ctx.fill();
+  
+  // Draw outline arrow (south half white)
+  ctx.beginPath();
+  ctx.moveTo(0, -size / 2);
+  ctx.lineTo(-size / 6, size / 3);
+  ctx.lineTo(0, size / 6);
+  ctx.closePath();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  
+  // Draw "N" label
+  ctx.fillStyle = '#000000';
+  const fontSize = Math.max(size / 4, 10);
+  ctx.font = `bold ${fontSize}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('N', 0, -size / 2 - 2);
+  
+  ctx.restore();
+}
+
+/**
+ * Draw a scale bar on canvas
+ */
+function drawScaleBar(ctx, x, y, width, height, scale, units = 'feet') {
+  const padding = 4;
+  const barHeight = Math.min(height * 0.25, 10);
+  const barY = y + height - padding - barHeight - 14; // Leave room for label
+  
+  // Calculate a nice round number for the scale bar
+  const maxWidthInches = (width - padding * 2) / EXPORT_DPI;
+  const maxFeet = scale * maxWidthInches;
+  
+  // Find a nice round number
+  const niceNumbers = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000];
+  let scaleFeet = 100;
+  for (const n of niceNumbers) {
+    if (n <= maxFeet * 0.9) {
+      scaleFeet = n;
+    } else {
+      break;
+    }
+  }
+  
+  // Calculate bar width in pixels
+  const barWidthInches = scaleFeet / scale;
+  const barWidth = barWidthInches * EXPORT_DPI;
+  const barX = x + padding;
+  
+  // Draw alternating black/white segments
+  const segments = 4;
+  const segWidth = barWidth / segments;
+  
+  for (let i = 0; i < segments; i++) {
+    ctx.fillStyle = i % 2 === 0 ? '#000000' : '#ffffff';
+    ctx.fillRect(barX + i * segWidth, barY, segWidth, barHeight);
+  }
+  
+  // Draw border around entire bar
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, barWidth, barHeight);
+  
+  // Draw end ticks
+  ctx.beginPath();
+  ctx.moveTo(barX, barY - 3);
+  ctx.lineTo(barX, barY + barHeight + 3);
+  ctx.moveTo(barX + barWidth, barY - 3);
+  ctx.lineTo(barX + barWidth, barY + barHeight + 3);
+  ctx.stroke();
+  
+  // Draw label
+  ctx.fillStyle = '#000000';
+  const fontSize = Math.min(height * 0.3, 12);
+  ctx.font = `${fontSize}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  
+  let label = '';
+  if (units === 'feet' || units === 'ft') {
+    label = scaleFeet >= 5280 ? `${(scaleFeet / 5280).toFixed(1)} miles` : `${scaleFeet.toLocaleString()} feet`;
+  } else if (units === 'meters' || units === 'm') {
+    const meters = scaleFeet * 0.3048;
+    label = meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+  } else {
+    label = `${scaleFeet.toLocaleString()} ft`;
+  }
+  
+  ctx.fillText(label, barX + barWidth / 2, barY + barHeight + 4);
+  
+  // Draw 0 label
+  ctx.textAlign = 'left';
+  ctx.fillText('0', barX, barY + barHeight + 4);
+}
+
+/**
+ * Draw legend on canvas
+ */
+function drawLegend(ctx, x, y, width, height, legendItems, element) {
+  const padding = 8;
+  
+  // Background
+  ctx.fillStyle = element.content?.backgroundColor || '#ffffff';
+  ctx.fillRect(x, y, width, height);
+  
+  // Border
+  ctx.strokeStyle = '#999999';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, width, height);
+  
+  let currentY = y + padding;
+  
+  // Title
+  if (element.content?.showTitle !== false) {
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(element.content?.title || 'Legend', x + padding, currentY);
+    currentY += 20;
+  }
+  
+  // Legend items
+  ctx.font = '11px Arial';
+  legendItems.forEach((item) => {
+    if (currentY + 20 > y + height - padding) return;
+    
+    // Draw symbol
+    if (item.symbol) {
+      ctx.fillStyle = item.symbol.color || '#666666';
+      if (item.symbol.type === 'line') {
+        ctx.strokeStyle = item.symbol.color || '#666666';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + padding, currentY + 8);
+        ctx.lineTo(x + padding + 20, currentY + 8);
+        ctx.stroke();
+      } else {
+        ctx.fillRect(x + padding, currentY + 2, 16, 12);
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + padding, currentY + 2, 16, 12);
+      }
+    } else {
+      ctx.fillStyle = '#888888';
+      ctx.fillRect(x + padding, currentY + 2, 16, 12);
+    }
+    
+    // Draw label
+    ctx.fillStyle = '#333333';
+    ctx.fillText(item.label, x + padding + 24, currentY + 4);
+    
+    currentY += 20;
+  });
+}
+
+// ==================== MAIN COMPONENT ====================
+
 export default function MapExportTool({
   mapView,
   mapConfig,
   atlasConfig,
+  isExpanded = false,
+  onToggle,
   onClose,
   accentColor = '#004E7C'
 }) {
+  // Get print service URL
+  const printServiceUrl = atlasConfig?.printServiceUrl || DEFAULT_PRINT_SERVICE_URL;
+
   // Get available templates for this map
   const availableTemplates = useMemo(() => {
+    console.group('🖨️ MapExportTool - Template Filtering');
+    console.log('atlasConfig:', atlasConfig);
+    console.log('atlasConfig keys:', atlasConfig ? Object.keys(atlasConfig) : 'null');
+    console.log('atlasConfig.exportTemplates:', atlasConfig?.exportTemplates);
+    console.log('mapConfig:', mapConfig);
+    console.log('mapConfig.exportTemplates:', mapConfig?.exportTemplates);
+    
     const allTemplates = atlasConfig?.exportTemplates || [];
     const enabledTemplateIds = mapConfig?.exportTemplates || [];
-    return allTemplates.filter(t => 
+    
+    console.log('All templates count:', allTemplates.length);
+    console.log('Enabled IDs:', enabledTemplateIds);
+    
+    const filtered = allTemplates.filter(t => 
       t.enabled !== false && enabledTemplateIds.includes(t.id)
     );
+    
+    console.log('Filtered count:', filtered.length);
+    console.groupEnd();
+    
+    return filtered;
   }, [atlasConfig, mapConfig]);
-
-  // Print service URL
-  const printServiceUrl = atlasConfig?.printServiceUrl || DEFAULT_PRINT_SERVICE_URL;
 
   // State
   const [selectedTemplateId, setSelectedTemplateId] = useState(
@@ -104,12 +312,13 @@ export default function MapExportTool({
   );
   const [outputFormat, setOutputFormat] = useState('pdf');
   const [showExportArea, setShowExportArea] = useState(true);
-  const [scaleMode, setScaleMode] = useState(null); // null = auto, number = feet per inch, 'custom' = show input
+  const [scaleMode, setScaleMode] = useState(null);
   const [customScale, setCustomScale] = useState('');
   const [mapTitle, setMapTitle] = useState(mapConfig?.name || 'Map Export');
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [exportProgress, setExportProgress] = useState('');
 
   // Get selected template
   const selectedTemplate = useMemo(() => 
@@ -135,6 +344,18 @@ export default function MapExportTool({
     accentColor
   );
 
+  // Get page dimensions
+  const getPageDimensions = useCallback((template) => {
+    if (!template) return { width: 11, height: 8.5 };
+    if (template.pageSize === 'custom') {
+      return {
+        width: template.customWidth || 11,
+        height: template.customHeight || 8.5
+      };
+    }
+    return PAGE_DIMENSIONS[template.pageSize] || { width: 11, height: 8.5 };
+  }, []);
+
   // Get page size label
   const getPageSizeLabel = useCallback((template) => {
     if (!template) return '';
@@ -153,49 +374,111 @@ export default function MapExportTool({
     return `1" = ${Math.round(scale).toLocaleString()}'`;
   }, []);
 
-  // Build web map JSON for print service
-  const buildWebMapJson = useCallback(() => {
+  /**
+   * Get legend items from the map
+   */
+  const getLegendItems = useCallback(() => {
+    if (!mapView?.map) return [];
+
+    const items = [];
+    
+    mapView.map.allLayers.forEach(layer => {
+      if (!layer.visible || layer.listMode === 'hide') return;
+      if (layer.type === 'graphics' || layer.id.startsWith('atlas-')) return;
+      if (!layer.title) return;
+
+      // Get renderer info if available
+      let symbol = null;
+      if (layer.renderer?.symbol) {
+        const s = layer.renderer.symbol;
+        symbol = {
+          type: s.type?.includes('line') ? 'line' : 'fill',
+          color: s.color ? `rgba(${s.color.r},${s.color.g},${s.color.b},${s.color.a})` : '#666666'
+        };
+      }
+
+      items.push({
+        label: layer.title,
+        symbol
+      });
+    });
+
+    return items;
+  }, [mapView]);
+
+  /**
+   * Build Web Map JSON for the print service (map only, no layout)
+   * Properly handles vector tile layers with type, layerType, and styleUrl
+   */
+  const buildWebMapJson = useCallback((mapWidthPx, mapHeightPx) => {
     if (!exportArea || !mapView) return null;
 
-    // Get operational layers
+    // Collect basemap layer IDs to exclude from operational layers
+    const basemapLayerIds = new Set();
+    mapView.map.basemap?.baseLayers?.forEach(layer => {
+      basemapLayerIds.add(layer.id);
+    });
+    mapView.map.basemap?.referenceLayers?.forEach(layer => {
+      basemapLayerIds.add(layer.id);
+    });
+
+    // Get operational layers - skip graphics layers AND basemap layers
     const operationalLayers = [];
     mapView.map.allLayers.forEach(layer => {
-      if (layer.visible && layer.id !== 'export-area-layer' && layer.type !== 'graphics') {
-        const layerJson = {
+      if (!layer.visible || layer.id === 'export-area-layer' || layer.type === 'graphics') return;
+      if (layer.id.startsWith('atlas-')) return;
+      // Skip basemap layers - they should only be in baseMap
+      if (basemapLayerIds.has(layer.id)) return;
+
+      if (layer.type === 'vector-tile') {
+        // Vector tile layers need type, layerType, and styleUrl
+        const styleUrl = layer.styleUrl || layer.url;
+        if (styleUrl) {
+          operationalLayers.push({
+            id: layer.id,
+            title: layer.title || layer.id,
+            type: 'VectorTileLayer',
+            layerType: 'VectorTileLayer',
+            styleUrl: styleUrl,
+            visibility: true,
+            opacity: layer.opacity ?? 1
+          });
+        }
+      } else if (layer.url) {
+        // Regular layers with URL
+        operationalLayers.push({
           id: layer.id,
           title: layer.title || layer.id,
+          url: layer.url,
           visibility: true,
           opacity: layer.opacity ?? 1
-        };
-
-        // Add URL for supported layer types
-        if (layer.url) {
-          layerJson.url = layer.url;
-        } else if (layer.type === 'feature' && layer.source) {
-          // Handle client-side feature layers
-          layerJson.featureCollection = {
-            layers: [{
-              layerDefinition: {
-                geometryType: layer.geometryType,
-                fields: layer.fields?.map(f => f.toJSON()) || []
-              },
-              featureSet: {
-                features: layer.source.toArray().map(f => f.toJSON()),
-                geometryType: layer.geometryType
-              }
-            }]
-          };
-        }
-
-        operationalLayers.push(layerJson);
+        });
       }
     });
 
-    // Get basemap layers
+    // Get basemap layers - handle vector tiles properly
     const baseMapLayers = [];
     if (mapView.map.basemap?.baseLayers) {
       mapView.map.basemap.baseLayers.forEach(layer => {
-        if (layer.url) {
+        if (layer.type === 'vector-tile') {
+          // Vector tile basemap - needs type, layerType, and styleUrl
+          const styleUrl = layer.styleUrl || 
+                          (layer.url ? `${layer.url}/resources/styles/root.json` : null);
+          if (styleUrl) {
+            console.log('🖨️ Adding vector tile basemap:', layer.title, 'styleUrl:', styleUrl);
+            baseMapLayers.push({
+              id: layer.id,
+              title: layer.title || layer.id,
+              type: 'VectorTileLayer',
+              layerType: 'VectorTileLayer',
+              styleUrl: styleUrl,
+              visibility: true,
+              opacity: layer.opacity ?? 1
+            });
+          }
+        } else if (layer.url) {
+          // Raster tile or other basemap
+          console.log('🖨️ Adding raster basemap:', layer.title, 'url:', layer.url);
           baseMapLayers.push({
             id: layer.id,
             title: layer.title || layer.id,
@@ -207,11 +490,10 @@ export default function MapExportTool({
       });
     }
 
-    // Calculate map scale (convert feet per inch to actual map scale)
-    // Map scale = 1 : (feet per inch * 12 inches per foot)
+    // Map scale (feet per inch * 12 = scale denominator)
     const mapScale = exportArea.scale * 12;
 
-    return {
+    const webMapJson = {
       mapOptions: {
         extent: {
           xmin: exportArea.xmin,
@@ -223,221 +505,312 @@ export default function MapExportTool({
         scale: mapScale
       },
       operationalLayers,
-      baseMap: {
-        title: mapView.map.basemap?.title || 'Basemap',
-        baseMapLayers
-      },
       exportOptions: {
-        dpi: 300,
-        outputSize: [
-          Math.round(exportArea.widthInches * 300),
-          Math.round(exportArea.heightInches * 300)
-        ]
+        dpi: 96,
+        outputSize: [mapWidthPx, mapHeightPx]
       }
     };
-  }, [exportArea, mapView]);
 
-  // Build layout options for print service
-  const buildLayoutOptions = useCallback(() => {
-    if (!selectedTemplate || !exportArea) return null;
-
-    // Get page dimensions
-    let pageDims = PAGE_DIMENSIONS[selectedTemplate.pageSize];
-    if (selectedTemplate.pageSize === 'custom') {
-      pageDims = {
-        width: selectedTemplate.customWidth || 11,
-        height: selectedTemplate.customHeight || 8.5
+    // Add basemap if we have layers
+    if (baseMapLayers.length > 0) {
+      webMapJson.baseMap = {
+        title: mapView.map.basemap?.title || 'Basemap',
+        baseMapLayers
       };
     }
 
-    // Build layout elements array
-    const layoutElements = [];
+    return webMapJson;
+  }, [exportArea, mapView]);
 
-    selectedTemplate.elements?.forEach(element => {
-      if (!element.visible) return;
+  /**
+   * Call ESRI print service to get map image
+   */
+  const fetchMapImage = useCallback(async (mapWidthPx, mapHeightPx) => {
+    const webMapJson = buildWebMapJson(mapWidthPx, mapHeightPx);
+    
+    if (!webMapJson) {
+      throw new Error('Unable to build map data');
+    }
 
-      // Convert percentage positions to inches
-      const x = (element.x / 100) * pageDims.width;
-      const y = (element.y / 100) * pageDims.height;
-      const width = (element.width / 100) * pageDims.width;
-      const height = (element.height / 100) * pageDims.height;
+    console.log('🖨️ Calling print service for map image...');
+    console.log('Web Map JSON:', webMapJson);
+    console.log('Web Map JSON (stringified):', JSON.stringify(webMapJson, null, 2));
 
-      const baseElement = { x, y, width, height };
+    const params = new URLSearchParams();
+    params.append('Web_Map_as_JSON', JSON.stringify(webMapJson));
+    params.append('Format', 'PNG32');
+    params.append('Layout_Template', 'MAP_ONLY');
+    params.append('f', 'json');
 
-      switch (element.type) {
-        case 'map':
-          layoutElements.push({
-            ...baseElement,
-            type: 'map'
-          });
-          break;
-
-        case 'title':
-          layoutElements.push({
-            ...baseElement,
-            type: 'text',
-            text: mapTitle, // Use user-provided title
-            font: {
-              family: 'Arial',
-              size: element.content?.fontSize || 24,
-              weight: element.content?.fontWeight || 'bold'
-            },
-            color: element.content?.color || '#000000',
-            backgroundColor: element.content?.backgroundColor,
-            horizontalAlignment: element.content?.align || 'center',
-            verticalAlignment: 'middle'
-          });
-          break;
-
-        case 'text':
-          layoutElements.push({
-            ...baseElement,
-            type: 'text',
-            text: element.content?.text || '',
-            font: {
-              family: 'Arial',
-              size: element.content?.fontSize || 12,
-              weight: element.content?.fontWeight || 'normal'
-            },
-            color: element.content?.color || '#000000',
-            backgroundColor: element.content?.backgroundColor,
-            horizontalAlignment: element.content?.align || 'left'
-          });
-          break;
-
-        case 'legend':
-          layoutElements.push({
-            ...baseElement,
-            type: 'legend',
-            showTitle: element.content?.showTitle !== false,
-            title: element.content?.title || 'Legend'
-          });
-          break;
-
-        case 'scalebar':
-          layoutElements.push({
-            ...baseElement,
-            type: 'scalebar',
-            style: element.content?.style || 'line',
-            units: element.content?.units || 'feet',
-            barColor: element.content?.color || '#000000'
-          });
-          break;
-
-        case 'northArrow':
-          layoutElements.push({
-            ...baseElement,
-            type: 'northArrow',
-            style: element.content?.style || 'default'
-          });
-          break;
-
-        case 'logo':
-        case 'image':
-          if (element.content?.url) {
-            layoutElements.push({
-              ...baseElement,
-              type: 'image',
-              url: element.content.url
-            });
-          }
-          break;
-          
-        default:
-          break;
-      }
+    const response = await fetch(`${printServiceUrl}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
     });
 
-    return {
-      pageSize: {
-        width: pageDims.width,
-        height: pageDims.height
-      },
-      backgroundColor: selectedTemplate.backgroundColor || '#ffffff',
-      elements: layoutElements
-    };
-  }, [selectedTemplate, exportArea, mapTitle]);
+    if (!response.ok) {
+      throw new Error(`Print service returned ${response.status}`);
+    }
 
-  // Handle export
+    const result = await response.json();
+    console.log('🖨️ Print service response:', result);
+
+    if (result.error) {
+      const details = result.error.details?.join('; ') || '';
+      throw new Error(`Print service error: ${result.error.message}${details ? ` - ${details}` : ''}`);
+    }
+
+    // Extract result URL
+    let resultUrl = null;
+    if (result.results?.[0]?.value?.url) {
+      resultUrl = result.results[0].value.url;
+    } else if (result.value?.url) {
+      resultUrl = result.value.url;
+    } else if (result.url) {
+      resultUrl = result.url;
+    } else if (typeof result.results?.[0]?.value === 'string') {
+      resultUrl = result.results[0].value;
+    }
+
+    if (!resultUrl) {
+      throw new Error('No output URL in print service response');
+    }
+
+    console.log('🖨️ Map image URL:', resultUrl);
+    return resultUrl;
+  }, [buildWebMapJson, printServiceUrl]);
+
+  /**
+   * Main export handler
+   */
   const handleExport = async () => {
     if (!selectedTemplate || !mapView || !exportArea) return;
 
     setIsExporting(true);
     setExportError(null);
     setExportSuccess(false);
+    setExportProgress('Preparing export...');
 
     try {
-      const webMapJson = buildWebMapJson();
-      const layoutOptions = buildLayoutOptions();
+      console.group('🖨️ MapExportTool - Starting Export');
+      
+      // Get page dimensions
+      const pageDims = getPageDimensions(selectedTemplate);
+      const pageWidthPx = Math.round(pageDims.width * EXPORT_DPI);
+      const pageHeightPx = Math.round(pageDims.height * EXPORT_DPI);
 
-      if (!webMapJson) {
-        throw new Error('Unable to build map data');
+      console.log('Page:', pageDims, '→', pageWidthPx, 'x', pageHeightPx, 'px');
+
+      // Find map element
+      const mapElement = selectedTemplate.elements?.find(e => e.type === 'map' && e.visible !== false);
+      
+      if (!mapElement) {
+        throw new Error('Template has no map element');
       }
 
-      // Prepare the print request
-      const params = new URLSearchParams();
-      params.append('Web_Map_as_JSON', JSON.stringify(webMapJson));
-      params.append('Format', outputFormat.toUpperCase() === 'PNG32' ? 'PNG32' : outputFormat.toUpperCase());
-      params.append('f', 'json');
+      // Calculate map element size in pixels
+      const mapWidthPx = Math.round((mapElement.width / 100) * pageWidthPx);
+      const mapHeightPx = Math.round((mapElement.height / 100) * pageHeightPx);
 
-      // Add layout template info if we have custom layout
-      if (layoutOptions) {
-        // For custom layouts, we use MAP_ONLY and handle layout on the server
-        // Or send layout info as additional parameters
-        params.append('Layout_Template', 'MAP_ONLY');
-        params.append('Layout_Options', JSON.stringify(layoutOptions));
+      console.log('Map element:', mapElement.width, '%', mapElement.height, '% →', mapWidthPx, 'x', mapHeightPx, 'px');
+
+      // Step 1: Get map image from print service
+      setExportProgress('Generating map image...');
+      const mapImageUrl = await fetchMapImage(mapWidthPx, mapHeightPx);
+
+      // Step 2: Load the map image
+      setExportProgress('Loading map image...');
+      const mapImage = await loadImage(mapImageUrl);
+      console.log('🖨️ Map image loaded:', mapImage.width, 'x', mapImage.height);
+
+      // Step 3: Create canvas for layout composition
+      setExportProgress('Composing layout...');
+      const canvas = document.createElement('canvas');
+      canvas.width = pageWidthPx;
+      canvas.height = pageHeightPx;
+      const ctx = canvas.getContext('2d');
+
+      // Fill background
+      ctx.fillStyle = selectedTemplate.backgroundColor || '#ffffff';
+      ctx.fillRect(0, 0, pageWidthPx, pageHeightPx);
+
+      // Get legend items for later
+      const legendItems = getLegendItems();
+
+      // Step 4: Draw each element
+      for (const element of (selectedTemplate.elements || [])) {
+        if (element.visible === false) continue;
+
+        // Calculate element position/size in pixels
+        const ex = (element.x / 100) * pageWidthPx;
+        const ey = (element.y / 100) * pageHeightPx;
+        const ew = (element.width / 100) * pageWidthPx;
+        const eh = (element.height / 100) * pageHeightPx;
+
+        switch (element.type) {
+          case 'map':
+            // Draw map image
+            ctx.drawImage(mapImage, ex, ey, ew, eh);
+            // Draw border
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(ex, ey, ew, eh);
+            break;
+
+          case 'title':
+            // Background
+            if (element.content?.backgroundColor) {
+              ctx.fillStyle = element.content.backgroundColor;
+              ctx.fillRect(ex, ey, ew, eh);
+            }
+            // Text
+            ctx.fillStyle = element.content?.color || '#000000';
+            const titleFontSize = (element.content?.fontSize || 24) * (EXPORT_DPI / 96);
+            ctx.font = `${element.content?.fontWeight || 'bold'} ${titleFontSize}px Arial`;
+            ctx.textAlign = element.content?.align || 'center';
+            ctx.textBaseline = 'middle';
+            const titleX = element.content?.align === 'left' ? ex + 10 : 
+                          element.content?.align === 'right' ? ex + ew - 10 : 
+                          ex + ew / 2;
+            ctx.fillText(mapTitle, titleX, ey + eh / 2);
+            break;
+
+          case 'text':
+            // Background
+            if (element.content?.backgroundColor) {
+              ctx.fillStyle = element.content.backgroundColor;
+              ctx.fillRect(ex, ey, ew, eh);
+            }
+            // Text
+            ctx.fillStyle = element.content?.color || '#000000';
+            const textFontSize = (element.content?.fontSize || 12) * (EXPORT_DPI / 96);
+            ctx.font = `${element.content?.fontWeight || 'normal'} ${textFontSize}px Arial`;
+            ctx.textAlign = element.content?.align || 'left';
+            ctx.textBaseline = 'top';
+            const textX = element.content?.align === 'center' ? ex + ew / 2 : 
+                         element.content?.align === 'right' ? ex + ew - 5 : ex + 5;
+            
+            // Word wrap text
+            const words = (element.content?.text || '').split(' ');
+            let line = '';
+            let lineY = ey + 5;
+            const lineHeight = textFontSize * 1.2;
+            
+            for (const word of words) {
+              const testLine = line + word + ' ';
+              const metrics = ctx.measureText(testLine);
+              if (metrics.width > ew - 10 && line !== '') {
+                ctx.fillText(line, textX, lineY);
+                line = word + ' ';
+                lineY += lineHeight;
+              } else {
+                line = testLine;
+              }
+            }
+            ctx.fillText(line, textX, lineY);
+            break;
+
+          case 'legend':
+            drawLegend(ctx, ex, ey, ew, eh, legendItems, element);
+            break;
+
+          case 'scalebar':
+            drawScaleBar(ctx, ex, ey, ew, eh, exportArea.scale, element.content?.units);
+            break;
+
+          case 'northArrow':
+            drawNorthArrow(ctx, ex, ey, ew, eh);
+            break;
+
+          case 'logo':
+          case 'image':
+            if (element.content?.url) {
+              try {
+                const img = await loadImage(element.content.url);
+                // Aspect-fit
+                const imgAspect = img.width / img.height;
+                const boxAspect = ew / eh;
+                let drawW, drawH, drawX, drawY;
+                if (imgAspect > boxAspect) {
+                  drawW = ew;
+                  drawH = ew / imgAspect;
+                  drawX = ex;
+                  drawY = ey + (eh - drawH) / 2;
+                } else {
+                  drawH = eh;
+                  drawW = eh * imgAspect;
+                  drawX = ex + (ew - drawW) / 2;
+                  drawY = ey;
+                }
+                ctx.drawImage(img, drawX, drawY, drawW, drawH);
+              } catch (e) {
+                console.warn('Failed to load image:', element.content.url);
+              }
+            }
+            break;
+        }
       }
 
-      // Call the print service
-      const response = await fetch(`${printServiceUrl}/execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: params.toString()
-      });
+      // Step 5: Generate output
+      setExportProgress('Generating file...');
+      const filename = `${mapTitle.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().slice(0, 10)}`;
 
-      if (!response.ok) {
-        throw new Error(`Print service returned ${response.status}`);
+      if (outputFormat === 'pdf') {
+        const orientation = pageDims.width > pageDims.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({
+          orientation,
+          unit: 'in',
+          format: [pageDims.width, pageDims.height]
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pageDims.width, pageDims.height);
+        pdf.save(`${filename}.pdf`);
+      } else if (outputFormat === 'png') {
+        const link = document.createElement('a');
+        link.download = `${filename}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } else if (outputFormat === 'jpg') {
+        const link = document.createElement('a');
+        link.download = `${filename}.jpg`;
+        link.href = canvas.toDataURL('image/jpeg', 0.92);
+        link.click();
       }
 
-      const result = await response.json();
+      console.log('🖨️ Export complete!');
+      console.groupEnd();
 
-      if (result.error) {
-        throw new Error(result.error.message || result.error.details?.[0] || 'Print service error');
-      }
-
-      // Extract result URL from various response formats
-      let resultUrl = null;
-      if (result.results?.[0]?.value?.url) {
-        resultUrl = result.results[0].value.url;
-      } else if (result.value?.url) {
-        resultUrl = result.value.url;
-      } else if (result.url) {
-        resultUrl = result.url;
-      } else if (typeof result.results?.[0]?.value === 'string') {
-        resultUrl = result.results[0].value;
-      }
-
-      if (!resultUrl) {
-        console.error('Print service response:', result);
-        throw new Error('No output URL in response');
-      }
-
-      // Open the result
-      window.open(resultUrl, '_blank');
       setExportSuccess(true);
-
-      // Clear success message after a delay
+      setExportProgress('');
       setTimeout(() => setExportSuccess(false), 5000);
 
     } catch (error) {
-      console.error('Export error:', error);
-      setExportError(error.message || 'Export failed. Please try again.');
+      console.error('🖨️ Export error:', error);
+      console.groupEnd();
+      setExportError(error.message || 'Export failed');
+      setExportProgress('');
     } finally {
       setIsExporting(false);
     }
   };
+
+  // ==================== RENDER ====================
+
+  // Collapsed button state
+  if (!isExpanded) {
+    return (
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+        title="Export Map"
+      >
+        <Printer className="w-5 h-5" style={{ color: accentColor }} />
+        <span className="text-sm font-medium text-slate-700">Export</span>
+      </button>
+    );
+  }
 
   // No templates available
   if (availableTemplates.length === 0) {
@@ -449,7 +822,7 @@ export default function MapExportTool({
             <h3 className="font-semibold text-slate-800">Export Map</h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={onClose || onToggle}
             className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600"
           >
             <X className="w-5 h-5" />
@@ -459,13 +832,14 @@ export default function MapExportTool({
           <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-3" />
           <h4 className="font-medium text-slate-700 mb-2">No Export Templates</h4>
           <p className="text-sm text-slate-500">
-            No export templates have been configured for this map. Please contact your administrator.
+            No export templates have been configured for this map.
           </p>
         </div>
       </div>
     );
   }
 
+  // Main panel
   return (
     <div className="bg-white rounded-xl shadow-lg border border-slate-200 w-80">
       {/* Header */}
@@ -475,7 +849,7 @@ export default function MapExportTool({
           <h3 className="font-semibold text-slate-800">Export Map</h3>
         </div>
         <button
-          onClick={onClose}
+          onClick={onClose || onToggle}
           className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600"
         >
           <X className="w-5 h-5" />
@@ -486,52 +860,38 @@ export default function MapExportTool({
       <div className="p-4 space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
         {/* Template Selection */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            Template
-          </label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Template</label>
           <div className="relative">
             <select
               value={selectedTemplateId || ''}
               onChange={(e) => setSelectedTemplateId(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50 pr-10 text-sm"
-              style={{ '--tw-ring-color': accentColor }}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg appearance-none bg-white pr-10 text-sm"
             >
-              {availableTemplates.map(template => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
+              {availableTemplates.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({getPageSizeLabel(t)})
                 </option>
               ))}
             </select>
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
-          {selectedTemplate && (
-            <p className="text-xs text-slate-500 mt-1">
-              {getPageSizeLabel(selectedTemplate)}
-            </p>
-          )}
         </div>
 
         {/* Map Title */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            <Type className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
-            Map Title
-          </label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Map Title</label>
           <input
             type="text"
             value={mapTitle}
             onChange={(e) => setMapTitle(e.target.value)}
             placeholder="Enter map title..."
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 text-sm"
-            style={{ '--tw-ring-color': accentColor }}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
           />
         </div>
 
         {/* Output Format */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            Output Format
-          </label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Output Format</label>
           <div className="flex gap-2">
             {OUTPUT_FORMATS.map(format => {
               const Icon = format.icon;
@@ -540,13 +900,8 @@ export default function MapExportTool({
                 <button
                   key={format.id}
                   onClick={() => setOutputFormat(format.id)}
-                  className={`
-                    flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors
-                    ${isSelected
-                      ? 'border-transparent text-white'
-                      : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-                    }
-                  `}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors
+                    ${isSelected ? 'border-transparent text-white' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
                   style={isSelected ? { backgroundColor: accentColor } : {}}
                 >
                   <Icon className="w-4 h-4" />
@@ -568,21 +923,14 @@ export default function MapExportTool({
               value={scaleMode === 'custom' ? 'custom' : (scaleMode ?? '')}
               onChange={(e) => {
                 const val = e.target.value;
-                if (val === 'custom') {
-                  setScaleMode('custom');
-                } else if (val === '') {
-                  setScaleMode(null);
-                } else {
-                  setScaleMode(parseInt(val, 10));
-                }
+                if (val === 'custom') setScaleMode('custom');
+                else if (val === '') setScaleMode(null);
+                else setScaleMode(parseInt(val, 10));
               }}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50 pr-10 text-sm"
-              style={{ '--tw-ring-color': accentColor }}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg appearance-none bg-white pr-10 text-sm"
             >
-              {PRESET_SCALES.map(preset => (
-                <option key={String(preset.value)} value={preset.value ?? ''}>
-                  {preset.label}
-                </option>
+              {PRESET_SCALES.map(p => (
+                <option key={String(p.value)} value={p.value ?? ''}>{p.label}</option>
               ))}
             </select>
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -590,15 +938,14 @@ export default function MapExportTool({
           
           {scaleMode === 'custom' && (
             <div className="mt-2 flex items-center gap-2">
-              <span className="text-sm text-slate-600 whitespace-nowrap">1" =</span>
+              <span className="text-sm text-slate-600">1" =</span>
               <input
                 type="number"
                 value={customScale}
                 onChange={(e) => setCustomScale(e.target.value)}
                 placeholder="500"
                 min="1"
-                className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-opacity-50"
-                style={{ '--tw-ring-color': accentColor }}
+                className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
               />
               <span className="text-sm text-slate-600">feet</span>
             </div>
@@ -607,7 +954,6 @@ export default function MapExportTool({
           {exportArea && (
             <p className="text-xs text-slate-500 mt-1.5">
               Effective: {formatScale(exportArea.scale)}
-              {exportArea.isAuto && ' (auto)'}
             </p>
           )}
         </div>
@@ -620,20 +966,10 @@ export default function MapExportTool({
           </label>
           <button
             onClick={() => setShowExportArea(!showExportArea)}
-            className={`
-              relative w-11 h-6 rounded-full transition-colors
-              ${showExportArea ? '' : 'bg-slate-200'}
-            `}
+            className={`relative w-11 h-6 rounded-full transition-colors ${showExportArea ? '' : 'bg-slate-200'}`}
             style={showExportArea ? { backgroundColor: accentColor } : {}}
-            role="switch"
-            aria-checked={showExportArea}
           >
-            <span
-              className={`
-                absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform
-                ${showExportArea ? 'left-6' : 'left-1'}
-              `}
-            />
+            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${showExportArea ? 'left-6' : 'left-1'}`} />
           </button>
         </div>
 
@@ -641,7 +977,7 @@ export default function MapExportTool({
         {showExportArea && exportArea && (
           <button
             onClick={zoomToExportArea}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
           >
             <ZoomIn className="w-4 h-4" />
             Zoom to Export Area
@@ -658,21 +994,25 @@ export default function MapExportTool({
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
               <div>
                 <span className="text-slate-400">Map Size:</span>
-                <div className="text-slate-700">
-                  {exportArea.widthInches.toFixed(1)}" × {exportArea.heightInches.toFixed(1)}"
-                </div>
+                <div className="text-slate-700">{exportArea.widthInches?.toFixed(1)}" × {exportArea.heightInches?.toFixed(1)}"</div>
               </div>
               <div>
                 <span className="text-slate-400">Ground Area:</span>
-                <div className="text-slate-700">
-                  {Math.round(exportArea.widthFeet).toLocaleString()}' × {Math.round(exportArea.heightFeet).toLocaleString()}'
-                </div>
+                <div className="text-slate-700">{Math.round(exportArea.widthFeet || 0).toLocaleString()}' × {Math.round(exportArea.heightFeet || 0).toLocaleString()}'</div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Error Message */}
+        {/* Progress */}
+        {exportProgress && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
+            <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+            <p className="text-sm text-blue-700">{exportProgress}</p>
+          </div>
+        )}
+
+        {/* Error */}
         {exportError && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
@@ -680,19 +1020,16 @@ export default function MapExportTool({
               <p className="text-sm font-medium text-red-800">Export Failed</p>
               <p className="text-xs text-red-600 mt-0.5 break-words">{exportError}</p>
             </div>
-            <button
-              onClick={() => setExportError(null)}
-              className="p-1 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
-            >
+            <button onClick={() => setExportError(null)} className="p-1 hover:bg-red-100 rounded text-red-400">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
-        {/* Success Message */}
+        {/* Success */}
         {exportSuccess && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-start gap-2">
-            <Check className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-500" />
             <p className="text-sm text-green-700">Export complete! Check your downloads.</p>
           </div>
         )}
@@ -703,13 +1040,13 @@ export default function MapExportTool({
         <button
           onClick={handleExport}
           disabled={isExporting || !selectedTemplate || !exportArea}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ backgroundColor: accentColor }}
         >
           {isExporting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Generating Export...
+              Exporting...
             </>
           ) : (
             <>
@@ -731,7 +1068,7 @@ export function ExportToolButton({ onClick, accentColor = '#004E7C', disabled = 
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+      className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-50 shadow-sm"
       title="Export Map"
     >
       <Printer className="w-4 h-4" style={{ color: accentColor }} />

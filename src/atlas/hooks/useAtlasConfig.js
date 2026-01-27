@@ -163,18 +163,23 @@ export function useAtlasConfig(providedOrgId = null) {
           console.log('[useAtlasConfig] atlasConfig.ui?.themeColor:', atlasConfig.ui?.themeColor);
           
           // Merge with defaults - deep merge for nested objects
+          // IMPORTANT: Explicitly preserve top-level arrays that aren't in DEFAULT_CONFIG
           const mergedConfig = {
             ...DEFAULT_CONFIG,
             ...atlasConfig,
             id: orgId,
             ui: { ...DEFAULT_CONFIG.ui, ...atlasConfig.ui },
             messages: { ...DEFAULT_CONFIG.messages, ...atlasConfig.messages },
-            data: { ...DEFAULT_CONFIG.data, ...atlasConfig.data }
+            data: { ...DEFAULT_CONFIG.data, ...atlasConfig.data },
+            // Explicitly preserve arrays from atlasConfig
+            basemaps: atlasConfig.basemaps || DEFAULT_CONFIG.basemaps || [],
+            exportTemplates: atlasConfig.exportTemplates || []
           };
           
           // DEBUG: Log the merged config
           console.log('[useAtlasConfig] Merged config:', mergedConfig);
           console.log('[useAtlasConfig] Final themeColor:', mergedConfig.ui.themeColor);
+          console.log('[useAtlasConfig] exportTemplates:', mergedConfig.exportTemplates);
           
           setConfig(mergedConfig);
           setAvailableMaps(mergedConfig.data?.maps || []);

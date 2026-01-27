@@ -883,8 +883,10 @@ const MapView = forwardRef(function MapView(props, ref) {
 
           {/* 5. Map Export */}
           <MapExportTool
-            view={viewRef.current}
-            config={config}
+            mapView={viewRef.current}
+            mapConfig={activeMap}
+            atlasConfig={config}
+            accentColor={colors.bg600}
             isExpanded={showMapExport}
             onToggle={() => {
               setShowMapExport(!showMapExport);
@@ -895,6 +897,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                 setShowBasemapPicker(false);
               }
             }}
+            onClose={() => setShowMapExport(false)}
           />
         </div>
       )}
