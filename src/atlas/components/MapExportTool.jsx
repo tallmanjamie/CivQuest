@@ -33,8 +33,6 @@ import {
   Check,
   Ruler,
   Move,
-  ZoomIn,
-  Info
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useExportArea } from '../hooks/useExportArea';
@@ -317,7 +315,7 @@ export default function MapExportTool({
     availableTemplates.length > 0 ? availableTemplates[0].id : null
   );
   const [outputFormat, setOutputFormat] = useState('pdf');
-  const [showExportArea, setShowExportArea] = useState(true);
+  const [showExportArea, setShowExportArea] = useState(false);
   const [scaleMode, setScaleMode] = useState(null);
   const [customScale, setCustomScale] = useState('');
   const [mapTitle, setMapTitle] = useState(mapConfig?.name || 'Map Export');
@@ -342,7 +340,7 @@ export default function MapExportTool({
   }, [scaleMode, customScale]);
 
   // Use the export area hook
-  const { exportArea, zoomToExportArea } = useExportArea(
+  const { exportArea } = useExportArea(
     mapView,
     selectedTemplate,
     effectiveScale,
@@ -369,15 +367,6 @@ export default function MapExportTool({
       return `Custom (${template.customWidth}"×${template.customHeight}")`;
     }
     return PAGE_DIMENSIONS[template.pageSize]?.label || template.pageSize;
-  }, []);
-
-  // Format scale for display
-  const formatScale = useCallback((scale) => {
-    if (!scale) return 'Auto';
-    if (scale >= 1000) {
-      return `1" = ${(scale / 1000).toFixed(1).replace(/\.0$/, '')}k'`;
-    }
-    return `1" = ${Math.round(scale).toLocaleString()}'`;
   }, []);
 
   /**
@@ -1046,11 +1035,6 @@ export default function MapExportTool({
             </div>
           )}
 
-          {exportArea && (
-            <p className="text-xs text-slate-500 mt-1.5">
-              Effective: {formatScale(exportArea.scale)}
-            </p>
-          )}
         </div>
 
         {/* Export Area Toggle */}
@@ -1067,37 +1051,6 @@ export default function MapExportTool({
             <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${showExportArea ? 'left-6' : 'left-1'}`} />
           </button>
         </div>
-
-        {/* Zoom to Export Area */}
-        {showExportArea && exportArea && (
-          <button
-            onClick={zoomToExportArea}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
-          >
-            <ZoomIn className="w-4 h-4" />
-            Zoom to Export Area
-          </button>
-        )}
-
-        {/* Export Area Info */}
-        {exportArea && (
-          <div className="bg-slate-50 rounded-lg p-3">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600 mb-2">
-              <Info className="w-3.5 h-3.5" />
-              Export Details
-            </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-              <div>
-                <span className="text-slate-400">Map Size:</span>
-                <div className="text-slate-700">{exportArea.widthInches?.toFixed(1)}" × {exportArea.heightInches?.toFixed(1)}"</div>
-              </div>
-              <div>
-                <span className="text-slate-400">Ground Area:</span>
-                <div className="text-slate-700">{Math.round(exportArea.widthFeet || 0).toLocaleString()}' × {Math.round(exportArea.heightFeet || 0).toLocaleString()}'</div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Progress */}
         {exportProgress && (
