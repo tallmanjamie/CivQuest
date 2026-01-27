@@ -13,6 +13,12 @@
 // - Custom map scale (1" = X feet)
 // - Custom map title
 // - Client-side layout rendering with title, legend, scalebar, north arrow, images
+//
+// FIX NOTES:
+// - Feature service URLs must include the layer index (e.g., /FeatureServer/0)
+// - Map service layers should use visibleLayers for sublayers
+// - Vector tile layers are NOT supported in operationalLayers by most print services
+// - Vector tile layers in baseMap need: type, layerType, styleUrl
 
 import React, { useState, useMemo, useCallback } from 'react';
 import {
@@ -408,7 +414,12 @@ export default function MapExportTool({
 
   /**
    * Build Web Map JSON for the print service (map only, no layout)
-   * Properly handles vector tile layers with type, layerType, and styleUrl
+   * 
+   * IMPORTANT NOTES from ESRI ExportWebMap specification:
+   * - Vector tile layers need: type, layerType, styleUrl (only in baseMap, and only supported by Pro-published services)
+   * - Feature service URLs MUST include the layer index (e.g., /FeatureServer/0)
+   * - Map service sublayers use visibleLayers array
+   * - All layers must have proper URLs accessible by the print server
    */
   const buildWebMapJson = useCallback((mapWidthPx, mapHeightPx) => {
     if (!exportArea || !mapView) return null;
@@ -430,26 +441,89 @@ export default function MapExportTool({
       // Skip basemap layers - they should only be in baseMap
       if (basemapLayerIds.has(layer.id)) return;
 
+      // Skip vector tile layers in operational layers - they are NOT supported
+      // Per ESRI: "Vector Tile Layers are only supported by Printing Services published from ArcGIS Pro"
+      // And even then, they should be in baseMap, not operationalLayers
       if (layer.type === 'vector-tile') {
-        // Vector tile layers need type, layerType, and styleUrl
-        const styleUrl = layer.styleUrl || layer.url;
-        if (styleUrl) {
+        console.log('🖨️ Skipping vector tile layer in operationalLayers (not supported):', layer.title);
+        return;
+      }
+
+      if (layer.url) {
+        let layerUrl = layer.url;
+        
+        // For feature layers, MUST ensure we have the layer index
+        // The print service requires /FeatureServer/0 format, not just /FeatureServer
+        if (layer.type === 'feature') {
+          // Check if URL already has a layer index
+          const hasLayerIndex = /\/\d+\/?$/.test(layerUrl);
+          if (!hasLayerIndex) {
+            // Get layerId from the layer, default to 0
+            const layerId = layer.layerId ?? 0;
+            // Ensure URL ends with FeatureServer or MapServer before adding index
+            if (layerUrl.includes('FeatureServer') || layerUrl.includes('MapServer')) {
+              layerUrl = `${layerUrl.replace(/\/$/, '')}/${layerId}`;
+            }
+          }
+          console.log('🖨️ Adding feature layer:', layer.title, 'url:', layerUrl);
+          
           operationalLayers.push({
             id: layer.id,
             title: layer.title || layer.id,
-            type: 'VectorTileLayer',
-            layerType: 'VectorTileLayer',
-            styleUrl: styleUrl,
+            url: layerUrl,
             visibility: true,
             opacity: layer.opacity ?? 1
           });
+          return;
         }
-      } else if (layer.url) {
-        // Regular layers with URL
+        
+        // For map image layers (dynamic map services)
+        if (layer.type === 'map-image') {
+          const layerDef = {
+            id: layer.id,
+            title: layer.title || layer.id,
+            url: layerUrl,
+            visibility: true,
+            opacity: layer.opacity ?? 1
+          };
+          
+          // Get visible sublayers if available - use visibleLayers array
+          if (layer.sublayers) {
+            const visibleIds = [];
+            layer.sublayers.forEach(sub => {
+              if (sub.visible) {
+                visibleIds.push(sub.id);
+              }
+            });
+            if (visibleIds.length > 0) {
+              layerDef.visibleLayers = visibleIds;
+            }
+          }
+          
+          console.log('🖨️ Adding map image layer:', layer.title, 'url:', layerUrl, 'visibleLayers:', layerDef.visibleLayers);
+          operationalLayers.push(layerDef);
+          return;
+        }
+        
+        // For tile layers (cached map services)
+        if (layer.type === 'tile') {
+          console.log('🖨️ Adding tile layer:', layer.title, 'url:', layerUrl);
+          operationalLayers.push({
+            id: layer.id,
+            title: layer.title || layer.id,
+            url: layerUrl,
+            visibility: true,
+            opacity: layer.opacity ?? 1
+          });
+          return;
+        }
+        
+        // Default: add as regular layer
+        console.log('🖨️ Adding layer:', layer.title, 'type:', layer.type, 'url:', layerUrl);
         operationalLayers.push({
           id: layer.id,
           title: layer.title || layer.id,
-          url: layer.url,
+          url: layerUrl,
           visibility: true,
           opacity: layer.opacity ?? 1
         });
@@ -462,15 +536,17 @@ export default function MapExportTool({
       mapView.map.basemap.baseLayers.forEach(layer => {
         if (layer.type === 'vector-tile') {
           // Vector tile basemap - needs type, layerType, and styleUrl
+          // NOTE: Only supported by print services published from ArcGIS Pro!
           const styleUrl = layer.styleUrl || 
                           (layer.url ? `${layer.url}/resources/styles/root.json` : null);
           if (styleUrl) {
             console.log('🖨️ Adding vector tile basemap:', layer.title, 'styleUrl:', styleUrl);
+            console.log('🖨️ WARNING: Vector tile basemaps only work with ArcGIS Pro-published print services!');
             baseMapLayers.push({
               id: layer.id,
-              title: layer.title || layer.id,
               type: 'VectorTileLayer',
               layerType: 'VectorTileLayer',
+              title: layer.title || layer.id,
               styleUrl: styleUrl,
               visibility: true,
               opacity: layer.opacity ?? 1
@@ -533,8 +609,15 @@ export default function MapExportTool({
     }
 
     console.log('🖨️ Calling print service for map image...');
-    console.log('Web Map JSON:', webMapJson);
-    console.log('Web Map JSON (stringified):', JSON.stringify(webMapJson, null, 2));
+    console.log('🖨️ Print service URL:', printServiceUrl);
+    console.log('🖨️ Web Map JSON:', webMapJson);
+    console.log('🖨️ Web Map JSON (stringified):', JSON.stringify(webMapJson, null, 2));
+
+    // Check for potential issues
+    if (webMapJson.baseMap?.baseMapLayers?.some(l => l.type === 'VectorTileLayer')) {
+      console.warn('🖨️ WARNING: Vector tile basemaps may not work with this print service!');
+      console.warn('🖨️ Vector tile layers are only supported by print services published from ArcGIS Pro.');
+    }
 
     const params = new URLSearchParams();
     params.append('Web_Map_as_JSON', JSON.stringify(webMapJson));
@@ -559,7 +642,19 @@ export default function MapExportTool({
 
     if (result.error) {
       const details = result.error.details?.join('; ') || '';
-      throw new Error(`Print service error: ${result.error.message}${details ? ` - ${details}` : ''}`);
+      const errorMsg = `Print service error: ${result.error.message}${details ? ` - ${details}` : ''}`;
+      console.error('🖨️ Error details:', result.error);
+      
+      // Provide helpful hints based on error
+      if (errorMsg.includes('Invalid input')) {
+        console.error('🖨️ TROUBLESHOOTING: "Invalid input" usually means:');
+        console.error('  1. Vector tile basemap not supported by this print service');
+        console.error('  2. Feature service URL missing layer index (should be /FeatureServer/0)');
+        console.error('  3. Layer URL not accessible by the print server');
+        console.error('  4. Malformed JSON in the request');
+      }
+      
+      throw new Error(errorMsg);
     }
 
     // Extract result URL
