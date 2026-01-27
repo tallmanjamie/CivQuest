@@ -1,23 +1,24 @@
 // src/atlas/components/MapView.jsx
 // CivQuest Atlas - Map View Component
-// ArcGIS WebMap integration with results layer and tools
-// Uses @arcgis/core ES modules (same pattern as SpatialFilter.jsx)
+// ArcGIS WebMap integration with results layer and modern tool components
 //
-// CHANGES:
-// - Moved map dropdown from header to top-left of map
-// - Moved basemap picker to top-left, below map dropdown
-// - Moved zoom/home controls to bottom-right
-// - Multi-result searches display as pushpins with underlying geometry
-// - Clicking a feature zooms to it
-// - Added feature click handler for zoom-to-feature behavior
-// - Uses themeColors utility for proper dynamic theming
+// INTEGRATED COMPONENTS:
+// - FeatureInfoPanel: Left panel (desktop) / bottom sheet (mobile) for feature details
+// - LayersPanel: Collapsible layer table of contents
+// - BasemapPicker: Basemap selection with swipe tool support
+// - MarkupTool: Drawing and annotation tools
+//
+// LAYOUT:
+// - Top Left: MarkupTool, LayersPanel, BasemapPicker, Map Picker (stacked)
+// - Top Right: Results count, Clear button, Fullscreen toggle
+// - Bottom Right: Zoom controls
+// - Left/Bottom: FeatureInfoPanel (responsive)
 
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { 
   ZoomIn, 
   ZoomOut, 
   Home, 
-  Layers, 
   Maximize2, 
   Minimize2,
   X,
@@ -28,21 +29,24 @@ import {
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors, COLOR_PALETTE } from '../utils/themeColors';
 
-// ArcGIS ES Modules - Import directly from @arcgis/core
+// New Tool Components
+import FeatureInfoPanel from './FeatureInfoPanel';
+import LayersPanel from './LayersPanel';
+import BasemapPicker from './BasemapPicker';
+import MarkupTool from './MarkupTool';
+
+// ArcGIS ES Modules
 import WebMap from '@arcgis/core/WebMap';
 import EsriMapView from '@arcgis/core/views/MapView';
 import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
-import TileLayer from '@arcgis/core/layers/TileLayer';
-import WMSLayer from '@arcgis/core/layers/WMSLayer';
 import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
 import Polygon from '@arcgis/core/geometry/Polygon';
+import Polyline from '@arcgis/core/geometry/Polyline';
 import Extent from '@arcgis/core/geometry/Extent';
 import SimpleMarkerSymbol from '@arcgis/core/symbols/SimpleMarkerSymbol';
 import SimpleFillSymbol from '@arcgis/core/symbols/SimpleFillSymbol';
 import SimpleLineSymbol from '@arcgis/core/symbols/SimpleLineSymbol';
-import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol';
-import Basemap from '@arcgis/core/Basemap';
 import ScaleBar from '@arcgis/core/widgets/ScaleBar';
 import * as reactiveUtils from '@arcgis/core/core/reactiveUtils';
 
@@ -50,11 +54,11 @@ import * as reactiveUtils from '@arcgis/core/core/reactiveUtils';
 const RESULTS_LAYER_ID = 'atlas-results-layer';
 const HIGHLIGHT_LAYER_ID = 'atlas-highlight-layer';
 const PUSHPIN_LAYER_ID = 'atlas-pushpin-layer';
+const MARKUP_LAYER_ID = 'atlas-markup-layer';
 
 /**
  * MapView Component
- * Renders ArcGIS WebMap with search results overlay
- * All controls are positioned on the map itself
+ * Renders ArcGIS WebMap with search results overlay and integrated tool panels
  */
 const MapView = forwardRef(function MapView(props, ref) {
   const {
@@ -78,42 +82,85 @@ const MapView = forwardRef(function MapView(props, ref) {
   const graphicsLayerRef = useRef(null);
   const highlightLayerRef = useRef(null);
   const pushpinLayerRef = useRef(null);
+  const markupLayerRef = useRef(null);
   const mountedRef = useRef(true);
   const initStartedRef = useRef(false);
 
   // State
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showBasemapPicker, setShowBasemapPicker] = useState(false);
   const [showMapPicker, setShowMapPicker] = useState(false);
-  const [activeBasemap, setActiveBasemap] = useState('default');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showSidePanel, setShowSidePanel] = useState(false);
-  const [selectedFeature, setSelectedFeature] = useState(null);
   const [mapReady, setMapReady] = useState(false);
+  
+  // Feature Panel State
+  const [selectedFeature, setSelectedFeature] = useState(null);
+  const [relatedFeatures, setRelatedFeatures] = useState([]);
+  const [currentRelatedIndex, setCurrentRelatedIndex] = useState(0);
+  const [isMarkupFeature, setIsMarkupFeature] = useState(false);
+
+  // Tool Panel States
+  const [showFeaturePanel, setShowFeaturePanel] = useState(false);
+  const [showLayersPanel, setShowLayersPanel] = useState(false);
+  const [showBasemapPicker, setShowBasemapPicker] = useState(false);
+  const [showMarkupTool, setShowMarkupTool] = useState(false);
+
+  // Theme
+  const themeColor = config?.ui?.themeColor || 'sky';
+  const colors = getThemeColors(themeColor);
 
   /**
    * Get storage key for persisting map extent
    */
   const getExtentStorageKey = useCallback(() => {
-    return `atlas_extent_${config?.id || 'default'}`;
-  }, [config?.id]);
+    return `atlas_extent_${config?.id || 'default'}_${activeMapIndex || 0}`;
+  }, [config?.id, activeMapIndex]);
+
+  /**
+   * Get center point from geometry
+   */
+  const getGeometryCenter = useCallback((geometry) => {
+    if (!geometry) return null;
+    
+    if (geometry.x !== undefined && geometry.y !== undefined) {
+      return { x: geometry.x, y: geometry.y };
+    }
+    
+    if (geometry.rings && geometry.rings.length > 0) {
+      const ring = geometry.rings[0];
+      let sumX = 0, sumY = 0;
+      for (const point of ring) {
+        sumX += point[0];
+        sumY += point[1];
+      }
+      return { x: sumX / ring.length, y: sumY / ring.length };
+    }
+    
+    if (geometry.paths && geometry.paths.length > 0) {
+      const path = geometry.paths[0];
+      const midIndex = Math.floor(path.length / 2);
+      return { x: path[midIndex][0], y: path[midIndex][1] };
+    }
+    
+    if (geometry.extent) {
+      return { x: geometry.extent.center.x, y: geometry.extent.center.y };
+    }
+    
+    return null;
+  }, []);
 
   /**
    * Initialize ArcGIS Map
    */
   useEffect(() => {
-    // Skip if no container or no webmap config
     if (!containerRef.current || !activeMap?.webMap?.itemId) {
       return;
     }
 
-    // Prevent double initialization in StrictMode
     if (initStartedRef.current) {
       return;
     }
 
-    // Check if a view already exists
     if (viewRef.current) {
       return;
     }
@@ -140,7 +187,6 @@ const MapView = forwardRef(function MapView(props, ref) {
           console.warn('[MapView] Could not restore extent:', e);
         }
 
-        // Check if still mounted
         if (!mountedRef.current || !containerRef.current) {
           console.log('[MapView] Component unmounted before map creation');
           return;
@@ -171,18 +217,23 @@ const MapView = forwardRef(function MapView(props, ref) {
           listMode: 'hide'
         });
 
-        // NEW: Pushpin layer for multi-result display
         const pushpinLayer = new GraphicsLayer({
           id: PUSHPIN_LAYER_ID,
           title: 'Result Markers',
           listMode: 'hide'
         });
 
+        const markupLayer = new GraphicsLayer({
+          id: MARKUP_LAYER_ID,
+          title: 'Markup',
+          listMode: 'hide'
+        });
+
         graphicsLayerRef.current = graphicsLayer;
         highlightLayerRef.current = highlightLayer;
         pushpinLayerRef.current = pushpinLayer;
+        markupLayerRef.current = markupLayer;
 
-        // Check if still mounted
         if (!mountedRef.current || !containerRef.current) {
           console.log('[MapView] Component unmounted before view creation');
           return;
@@ -190,7 +241,7 @@ const MapView = forwardRef(function MapView(props, ref) {
 
         console.log('[MapView] Creating MapView...');
 
-        // Create MapView
+        // Create MapView with popup DISABLED (we use FeatureInfoPanel instead)
         const view = new EsriMapView({
           container: containerRef.current,
           map: webMap,
@@ -199,22 +250,15 @@ const MapView = forwardRef(function MapView(props, ref) {
             components: ['attribution']
           },
           popup: {
-            dockEnabled: true,
-            dockOptions: {
-              buttonEnabled: false,
-              breakpoint: false,
-              position: 'bottom-right'
-            }
+            autoOpenEnabled: false // Disable default popup - we use FeatureInfoPanel
           }
         });
 
         viewRef.current = view;
 
-        // Wait for map to load
         console.log('[MapView] Waiting for map to load...');
         await view.when();
 
-        // Check if still mounted
         if (!mountedRef.current) {
           console.log('[MapView] Component unmounted after view.when()');
           view.destroy();
@@ -223,8 +267,8 @@ const MapView = forwardRef(function MapView(props, ref) {
 
         console.log('[MapView] Map loaded, adding layers...');
 
-        // Add graphics layers after map loads (pushpin layer on top)
-        webMap.addMany([graphicsLayer, highlightLayer, pushpinLayer]);
+        // Add graphics layers (markup on top, then pushpins, then highlight, then results)
+        webMap.addMany([graphicsLayer, highlightLayer, pushpinLayer, markupLayer]);
 
         // Apply saved extent
         if (initialExtent) {
@@ -250,35 +294,8 @@ const MapView = forwardRef(function MapView(props, ref) {
           }
         );
 
-        // Handle graphic clicks for zoom-to-feature
-        view.on('click', async (event) => {
-          try {
-            const response = await view.hitTest(event);
-            const graphicHits = response.results.filter(
-              r => r.graphic && 
-                   (r.graphic.layer === graphicsLayerRef.current || 
-                    r.graphic.layer === pushpinLayerRef.current)
-            );
-            
-            if (graphicHits.length > 0) {
-              const clickedGraphic = graphicHits[0].graphic;
-              const featureIndex = clickedGraphic.attributes?._index;
-              
-              if (featureIndex !== undefined && searchResults?.features) {
-                const feature = searchResults.features[featureIndex];
-                if (feature) {
-                  // Zoom to the feature
-                  zoomToFeature(feature);
-                  // Show side panel with details
-                  setSelectedFeature(feature);
-                  setShowSidePanel(true);
-                }
-              }
-            }
-          } catch (err) {
-            console.warn('[MapView] Click handler error:', err);
-          }
-        });
+        // Handle map clicks
+        view.on('click', handleMapClick);
 
         console.log('[MapView] Map initialization complete');
         setMapReady(true);
@@ -304,41 +321,146 @@ const MapView = forwardRef(function MapView(props, ref) {
       graphicsLayerRef.current = null;
       highlightLayerRef.current = null;
       pushpinLayerRef.current = null;
+      markupLayerRef.current = null;
       initStartedRef.current = false;
     };
   }, [activeMap?.webMap?.itemId, getExtentStorageKey]);
 
   /**
-   * Get center point from geometry
+   * Handle map click events
    */
-  const getGeometryCenter = useCallback((geometry) => {
-    if (!geometry) return null;
-    
-    if (geometry.x !== undefined && geometry.y !== undefined) {
-      return { x: geometry.x, y: geometry.y };
-    }
-    
-    if (geometry.rings && geometry.rings.length > 0) {
-      const ring = geometry.rings[0];
-      let sumX = 0, sumY = 0;
-      for (const point of ring) {
-        sumX += point[0];
-        sumY += point[1];
+  const handleMapClick = useCallback(async (event) => {
+    if (!viewRef.current) return;
+
+    try {
+      const response = await viewRef.current.hitTest(event);
+      
+      // Check for graphics layer hits (search results, pushpins, markup)
+      const graphicHits = response.results.filter(r => 
+        r.graphic && (
+          r.graphic.layer === graphicsLayerRef.current || 
+          r.graphic.layer === pushpinLayerRef.current ||
+          r.graphic.layer === markupLayerRef.current
+        )
+      );
+      
+      if (graphicHits.length > 0) {
+        const clickedGraphic = graphicHits[0].graphic;
+        
+        // Check if it's a markup feature
+        if (clickedGraphic.layer === markupLayerRef.current) {
+          setSelectedFeature({
+            geometry: clickedGraphic.geometry,
+            attributes: clickedGraphic.attributes || {}
+          });
+          setIsMarkupFeature(true);
+          setRelatedFeatures([]);
+          setShowFeaturePanel(true);
+          return;
+        }
+        
+        // Handle search result click
+        const featureIndex = clickedGraphic.attributes?._index;
+        if (featureIndex !== undefined && searchResults?.features) {
+          const feature = searchResults.features[featureIndex];
+          if (feature) {
+            handleFeatureSelect(feature);
+          }
+        }
+        return;
       }
-      return { x: sumX / ring.length, y: sumY / ring.length };
+
+      // Check for operational layer hits
+      const layerHits = response.results.filter(r => 
+        r.graphic && 
+        r.graphic.layer && 
+        r.graphic.layer.id !== RESULTS_LAYER_ID &&
+        r.graphic.layer.id !== HIGHLIGHT_LAYER_ID &&
+        r.graphic.layer.id !== PUSHPIN_LAYER_ID &&
+        r.graphic.layer.id !== MARKUP_LAYER_ID
+      );
+
+      if (layerHits.length > 0) {
+        const hit = layerHits[0];
+        const feature = {
+          geometry: hit.graphic.geometry?.toJSON?.() || hit.graphic.geometry,
+          attributes: hit.graphic.attributes || {}
+        };
+        
+        handleFeatureSelect(feature, hit.graphic);
+      }
+      
+    } catch (err) {
+      console.warn('[MapView] Click handler error:', err);
     }
+  }, [searchResults]);
+
+  /**
+   * Handle feature selection (opens FeatureInfoPanel)
+   */
+  const handleFeatureSelect = useCallback((feature, graphic = null) => {
+    setSelectedFeature(feature);
+    setIsMarkupFeature(false);
+    setShowFeaturePanel(true);
     
-    if (geometry.extent) {
-      return { x: geometry.extent.center.x, y: geometry.extent.center.y };
-    }
+    // Highlight the feature
+    highlightFeature(feature);
     
-    return null;
+    // Query for related features if configured
+    queryRelatedFeatures(feature, graphic);
   }, []);
 
   /**
+   * Query related features based on config
+   */
+  const queryRelatedFeatures = useCallback(async (feature, graphic) => {
+    const relatedConfig = activeMap?.customFeatureInfo?.relatedLayer;
+    
+    if (!relatedConfig?.enabled || !viewRef.current || !feature.geometry) {
+      setRelatedFeatures([]);
+      setCurrentRelatedIndex(0);
+      return;
+    }
+
+    try {
+      // Find the related layer
+      const relatedLayer = mapRef.current?.allLayers?.find(l => l.id === relatedConfig.layerId);
+      
+      if (!relatedLayer?.queryFeatures) {
+        setRelatedFeatures([]);
+        return;
+      }
+
+      // Query features that intersect with the selected feature
+      const query = relatedLayer.createQuery();
+      query.geometry = graphic?.geometry || feature.geometry;
+      query.spatialRelationship = relatedConfig.spatialRelationship || 'intersects';
+      query.outFields = ['*'];
+      query.returnGeometry = true;
+      
+      if (relatedConfig.orderByField) {
+        query.orderByFields = [`${relatedConfig.orderByField} ${relatedConfig.orderByDirection || 'ASC'}`];
+      }
+
+      const results = await relatedLayer.queryFeatures(query);
+      
+      const related = results.features.map(f => ({
+        geometry: f.geometry?.toJSON?.() || f.geometry,
+        attributes: f.attributes,
+        title: f.attributes?.[relatedConfig.titleField] || 'Related Feature'
+      }));
+
+      setRelatedFeatures(related);
+      setCurrentRelatedIndex(0);
+      
+    } catch (err) {
+      console.warn('[MapView] Related features query error:', err);
+      setRelatedFeatures([]);
+    }
+  }, [activeMap]);
+
+  /**
    * Render search results on map
-   * For multiple results: show pushpins at center AND underlying geometry
-   * For single result: show just the geometry
    */
   const renderResults = useCallback((features) => {
     if (!graphicsLayerRef.current || !mapReady) return;
@@ -356,19 +478,16 @@ const MapView = forwardRef(function MapView(props, ref) {
 
     console.log('[MapView] Rendering', features.length, 'results');
 
-    const themeColor = config?.ui?.themeColor || 'sky';
-    
-    // Get RGB values from the COLOR_PALETTE utility
+    // Get theme color RGB values
     const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
     const hex500 = palette[500];
-    // Convert hex to RGB
     const hexToRgb = (hex) => {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
       return result ? [
         parseInt(result[1], 16),
         parseInt(result[2], 16),
         parseInt(result[3], 16)
-      ] : [14, 165, 233]; // Default sky-500
+      ] : [14, 165, 233];
     };
     const [r, g, b] = hexToRgb(hex500);
 
@@ -384,6 +503,11 @@ const MapView = forwardRef(function MapView(props, ref) {
           rings: feature.geometry.rings,
           spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
         });
+      } else if (feature.geometry.paths) {
+        geometry = new Polyline({
+          paths: feature.geometry.paths,
+          spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+        });
       } else if (feature.geometry.x !== undefined) {
         geometry = new Point({
           x: feature.geometry.x,
@@ -394,47 +518,38 @@ const MapView = forwardRef(function MapView(props, ref) {
 
       if (!geometry) return null;
 
-      // For multi-results, use a more subtle geometry style
-      // For single result, use the full highlight style
-      const symbol = feature.geometry.rings
-        ? new SimpleFillSymbol({
-            color: isMultiResult ? [r, g, b, 0.15] : [r, g, b, 0.2],
-            outline: new SimpleLineSymbol({
-              color: [r, g, b],
-              width: isMultiResult ? 1.5 : 2
-            })
-          })
-        : new SimpleMarkerSymbol({
+      let symbol;
+      if (feature.geometry.rings) {
+        symbol = new SimpleFillSymbol({
+          color: isMultiResult ? [r, g, b, 0.15] : [r, g, b, 0.2],
+          outline: new SimpleLineSymbol({
             color: [r, g, b],
-            size: 12,
-            outline: {
-              color: [255, 255, 255],
-              width: 2
-            }
-          });
+            width: isMultiResult ? 1.5 : 2
+          })
+        });
+      } else if (feature.geometry.paths) {
+        symbol = new SimpleLineSymbol({
+          color: [r, g, b],
+          width: isMultiResult ? 2 : 3
+        });
+      } else {
+        symbol = new SimpleMarkerSymbol({
+          color: [r, g, b],
+          size: 12,
+          outline: { color: [255, 255, 255], width: 2 }
+        });
+      }
 
       return new Graphic({
         geometry,
         symbol,
-        attributes: { ...feature.attributes, _index: idx },
-        popupTemplate: {
-          title: feature.attributes?.PROPERTYADDRESS || feature.attributes?.ADDRESS || 'Property',
-          content: [
-            {
-              type: 'fields',
-              fieldInfos: Object.keys(feature.attributes || {})
-                .filter(k => !k.startsWith('_') && feature.attributes[k] != null)
-                .slice(0, 10)
-                .map(k => ({ fieldName: k, label: k }))
-            }
-          ]
-        }
+        attributes: { ...feature.attributes, _index: idx }
       });
     }).filter(Boolean);
 
     graphicsLayerRef.current.addMany(geometryGraphics);
 
-    // For multi-result searches, add pushpin markers at the center of each feature
+    // For multi-result searches, add pushpin markers
     if (isMultiResult && pushpinLayerRef.current) {
       const pushpinGraphics = features.map((feature, idx) => {
         if (!feature.geometry) return null;
@@ -448,15 +563,11 @@ const MapView = forwardRef(function MapView(props, ref) {
           spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
         });
 
-        // Create a pushpin-style marker
         const pushpinSymbol = new SimpleMarkerSymbol({
           style: 'circle',
           color: [r, g, b],
           size: 14,
-          outline: {
-            color: [255, 255, 255],
-            width: 2
-          }
+          outline: { color: [255, 255, 255], width: 2 }
         });
 
         return new Graphic({
@@ -473,7 +584,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     if (viewRef.current && geometryGraphics.length > 0) {
       viewRef.current.goTo(geometryGraphics, { padding: 50 });
     }
-  }, [config?.ui?.themeColor, mapReady, getGeometryCenter]);
+  }, [themeColor, mapReady, getGeometryCenter]);
 
   /**
    * Highlight a single feature
@@ -483,15 +594,20 @@ const MapView = forwardRef(function MapView(props, ref) {
 
     highlightLayerRef.current.removeAll();
 
-    if (!feature) return;
+    if (!feature?.geometry) return;
 
     let geometry;
-    if (feature.geometry?.rings) {
+    if (feature.geometry.rings) {
       geometry = new Polygon({
         rings: feature.geometry.rings,
         spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
       });
-    } else if (feature.geometry?.x !== undefined) {
+    } else if (feature.geometry.paths) {
+      geometry = new Polyline({
+        paths: feature.geometry.paths,
+        spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+      });
+    } else if (feature.geometry.x !== undefined) {
       geometry = new Point({
         x: feature.geometry.x,
         y: feature.geometry.y,
@@ -501,22 +617,21 @@ const MapView = forwardRef(function MapView(props, ref) {
 
     if (!geometry) return;
 
-    const symbol = feature.geometry?.rings
-      ? new SimpleFillSymbol({
-          color: [255, 255, 0, 0.3],
-          outline: new SimpleLineSymbol({
-            color: [255, 200, 0],
-            width: 3
-          })
-        })
-      : new SimpleMarkerSymbol({
-          color: [255, 200, 0],
-          size: 16,
-          outline: {
-            color: [255, 255, 255],
-            width: 3
-          }
-        });
+    let symbol;
+    if (feature.geometry.rings) {
+      symbol = new SimpleFillSymbol({
+        color: [255, 255, 0, 0.3],
+        outline: new SimpleLineSymbol({ color: [255, 200, 0], width: 3 })
+      });
+    } else if (feature.geometry.paths) {
+      symbol = new SimpleLineSymbol({ color: [255, 200, 0], width: 4 });
+    } else {
+      symbol = new SimpleMarkerSymbol({
+        color: [255, 200, 0],
+        size: 16,
+        outline: { color: [255, 255, 255], width: 3 }
+      });
+    }
 
     highlightLayerRef.current.add(new Graphic({ geometry, symbol }));
   }, [mapReady]);
@@ -525,67 +640,31 @@ const MapView = forwardRef(function MapView(props, ref) {
    * Zoom to a specific feature
    */
   const zoomToFeature = useCallback((feature) => {
-    if (!viewRef.current || !feature || !mapReady) return;
+    if (!viewRef.current || !feature?.geometry || !mapReady) return;
 
     highlightFeature(feature);
 
-    if (feature.geometry) {
-      // Determine appropriate zoom level based on geometry type
-      const targetZoom = feature.geometry.rings ? undefined : 18;
-      
-      viewRef.current.goTo(
-        {
-          target: feature.geometry,
-          zoom: targetZoom
-        },
-        { duration: 500 }
-      );
-    }
+    const hasExtent = feature.geometry.rings || feature.geometry.paths;
+    const targetZoom = hasExtent ? undefined : 18;
+    
+    viewRef.current.goTo(
+      { target: feature.geometry, zoom: targetZoom },
+      { duration: 500 }
+    );
   }, [highlightFeature, mapReady]);
 
   /**
    * Clear results
    */
   const clearResults = useCallback(() => {
-    if (graphicsLayerRef.current) {
-      graphicsLayerRef.current.removeAll();
-    }
-    if (highlightLayerRef.current) {
-      highlightLayerRef.current.removeAll();
-    }
-    if (pushpinLayerRef.current) {
-      pushpinLayerRef.current.removeAll();
-    }
+    if (graphicsLayerRef.current) graphicsLayerRef.current.removeAll();
+    if (highlightLayerRef.current) highlightLayerRef.current.removeAll();
+    if (pushpinLayerRef.current) pushpinLayerRef.current.removeAll();
+    
     setSelectedFeature(null);
-    setShowSidePanel(false);
+    setShowFeaturePanel(false);
+    setRelatedFeatures([]);
   }, []);
-
-  /**
-   * Change basemap
-   */
-  const changeBasemap = useCallback((basemapConfig) => {
-    if (!mapRef.current || !mapReady) return;
-
-    try {
-      if (basemapConfig.type === 'esri') {
-        mapRef.current.basemap = basemapConfig.id;
-      } else if (basemapConfig.type === 'arcgis') {
-        const tileLayer = new TileLayer({ url: basemapConfig.url });
-        mapRef.current.basemap = new Basemap({ baseLayers: [tileLayer] });
-      } else if (basemapConfig.type === 'wms') {
-        const wmsLayer = new WMSLayer({
-          url: basemapConfig.url,
-          sublayers: basemapConfig.wmsLayers?.map(name => ({ name })) || []
-        });
-        mapRef.current.basemap = new Basemap({ baseLayers: [wmsLayer] });
-      }
-
-      setActiveBasemap(basemapConfig.id);
-      setShowBasemapPicker(false);
-    } catch (err) {
-      console.error('[MapView] Basemap change error:', err);
-    }
-  }, [mapReady]);
 
   /**
    * Zoom controls
@@ -608,6 +687,34 @@ const MapView = forwardRef(function MapView(props, ref) {
     }
   }, [mapReady]);
 
+  /**
+   * Handle saving a feature as markup
+   */
+  const handleSaveAsMarkup = useCallback((feature) => {
+    // This would integrate with MarkupTool to save the feature
+    console.log('[MapView] Save as markup:', feature);
+  }, []);
+
+  /**
+   * Handle export to PDF
+   */
+  const handleExportPDF = useCallback(() => {
+    console.log('[MapView] Export PDF not yet implemented');
+  }, []);
+
+  /**
+   * Close feature panel
+   */
+  const handleCloseFeaturePanel = useCallback(() => {
+    setShowFeaturePanel(false);
+    setSelectedFeature(null);
+    setRelatedFeatures([]);
+    setIsMarkupFeature(false);
+    if (highlightLayerRef.current) {
+      highlightLayerRef.current.removeAll();
+    }
+  }, []);
+
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     renderResults,
@@ -615,7 +722,8 @@ const MapView = forwardRef(function MapView(props, ref) {
     zoomToFeature,
     clearResults,
     get view() { return viewRef.current; },
-    get map() { return mapRef.current; }
+    get map() { return mapRef.current; },
+    get markupLayer() { return markupLayerRef.current; }
   }), [renderResults, highlightFeature, zoomToFeature, clearResults]);
 
   // Update results when searchResults change
@@ -625,9 +733,10 @@ const MapView = forwardRef(function MapView(props, ref) {
     }
   }, [searchResults, renderResults, mapReady]);
 
-  const themeColor = config?.ui?.themeColor || 'sky';
-  const colors = getThemeColors(themeColor);
-  const basemaps = config?.basemaps || [];
+  // Get config values
+  const basemaps = activeMap?.basemaps || config?.basemaps || [];
+  const hiddenLayers = activeMap?.hiddenLayers || [];
+  const mapId = `${config?.id || 'atlas'}_${activeMapIndex || 0}`;
 
   return (
     <div className={`relative w-full h-full ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
@@ -657,14 +766,64 @@ const MapView = forwardRef(function MapView(props, ref) {
         </div>
       )}
 
-      {/* TOP LEFT CONTROLS: Map Picker & Basemaps */}
+      {/* ==================== TOP LEFT CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
         <div className="absolute top-4 left-4 flex flex-col gap-2 z-20">
-          {/* Map Picker Dropdown (if multiple maps available) */}
+          {/* 1. Markup Tool (TOP) */}
+          <MarkupTool
+            view={viewRef.current}
+            graphicsLayer={markupLayerRef.current}
+            config={config}
+            mapId={mapId}
+            isExpanded={showMarkupTool}
+            onToggle={() => {
+              setShowMarkupTool(!showMarkupTool);
+              if (!showMarkupTool) {
+                setShowLayersPanel(false);
+                setShowBasemapPicker(false);
+              }
+            }}
+          />
+
+          {/* 2. Layers Panel */}
+          <LayersPanel
+            view={viewRef.current}
+            map={mapRef.current}
+            config={config}
+            mapId={mapId}
+            hiddenLayers={hiddenLayers}
+            isExpanded={showLayersPanel}
+            onToggle={() => {
+              setShowLayersPanel(!showLayersPanel);
+              if (!showLayersPanel) {
+                setShowMarkupTool(false);
+                setShowBasemapPicker(false);
+              }
+            }}
+          />
+
+          {/* 3. Basemap Picker */}
+          <BasemapPicker
+            view={viewRef.current}
+            map={mapRef.current}
+            basemaps={basemaps}
+            config={config}
+            mapId={mapId}
+            isExpanded={showBasemapPicker}
+            onToggle={() => {
+              setShowBasemapPicker(!showBasemapPicker);
+              if (!showBasemapPicker) {
+                setShowMarkupTool(false);
+                setShowLayersPanel(false);
+              }
+            }}
+          />
+
+          {/* 4. Map Picker (if multiple maps) */}
           {availableMaps?.length > 1 && (
             <div className="relative">
               <button
-                onClick={() => { setShowMapPicker(!showMapPicker); setShowBasemapPicker(false); }}
+                onClick={() => setShowMapPicker(!showMapPicker)}
                 className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg hover:bg-slate-50 transition text-sm font-medium text-slate-700 min-w-[160px]"
               >
                 <MapPin className="w-4 h-4 text-slate-500" />
@@ -699,51 +858,10 @@ const MapView = forwardRef(function MapView(props, ref) {
               )}
             </div>
           )}
-
-          {/* Basemap Picker */}
-          {basemaps.length > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => { setShowBasemapPicker(!showBasemapPicker); setShowMapPicker(false); }}
-                className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg hover:bg-slate-50 transition text-sm font-medium text-slate-700 ${
-                  showBasemapPicker ? 'ring-2 ring-sky-500' : ''
-                }`}
-              >
-                <Layers className="w-4 h-4 text-slate-500" />
-                <span>Basemap</span>
-                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showBasemapPicker ? 'rotate-180' : ''}`} />
-              </button>
-
-              {showBasemapPicker && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setShowBasemapPicker(false)} />
-                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1 max-h-80 overflow-y-auto z-40">
-                    <div className="px-3 py-2 border-b border-slate-100">
-                      <span className="text-xs font-semibold text-slate-500 uppercase">Basemaps</span>
-                    </div>
-                    {basemaps.map((bm) => (
-                      <button
-                        key={bm.id}
-                        onClick={() => changeBasemap(bm)}
-                        className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-100 flex items-center gap-2 ${
-                          activeBasemap === bm.id ? 'bg-sky-50 text-sky-700 font-medium' : 'text-slate-700'
-                        }`}
-                      >
-                        {activeBasemap === bm.id && (
-                          <div className="w-2 h-2 rounded-full bg-sky-500" />
-                        )}
-                        <span className={activeBasemap === bm.id ? '' : 'ml-4'}>{bm.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
         </div>
       )}
 
-      {/* TOP RIGHT: Results count and fullscreen */}
+      {/* ==================== TOP RIGHT CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
         <div className="absolute top-4 right-4 flex items-center gap-2 z-20">
           {/* Results Count Badge */}
@@ -782,7 +900,7 @@ const MapView = forwardRef(function MapView(props, ref) {
         </div>
       )}
 
-      {/* BOTTOM RIGHT: Zoom Controls */}
+      {/* ==================== BOTTOM RIGHT CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
         <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20">
           <div className="flex flex-col bg-white rounded-lg shadow-lg overflow-hidden">
@@ -811,44 +929,24 @@ const MapView = forwardRef(function MapView(props, ref) {
         </div>
       )}
 
-      {/* Feature Side Panel */}
-      {showSidePanel && selectedFeature && (
-        <div className="absolute top-0 right-0 bottom-0 w-80 bg-white shadow-xl z-30 overflow-y-auto">
-          <div 
-            className="p-4 text-white flex justify-between items-start"
-            style={{ backgroundColor: colors.bg600 }}
-          >
-            <div>
-              <h3 className="font-semibold">
-                {selectedFeature.attributes?.PROPERTYADDRESS || 'Property Details'}
-              </h3>
-              <p className="text-sm opacity-90">
-                {selectedFeature.attributes?.GPIN || selectedFeature.attributes?.PARCELID || ''}
-              </p>
-            </div>
-            <button
-              onClick={() => { setShowSidePanel(false); setSelectedFeature(null); }}
-              className="p-1 hover:bg-white/20 rounded"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="p-4">
-            <dl className="space-y-2">
-              {Object.entries(selectedFeature.attributes || {})
-                .filter(([k, v]) => !k.startsWith('_') && v != null)
-                .map(([key, value]) => (
-                  <div key={key}>
-                    <dt className="text-xs font-medium text-slate-500 uppercase">{key}</dt>
-                    <dd className="text-sm text-slate-800">{String(value)}</dd>
-                  </div>
-                ))}
-            </dl>
-          </div>
-        </div>
+      {/* ==================== FEATURE INFO PANEL ==================== */}
+      {showFeaturePanel && selectedFeature && (
+        <FeatureInfoPanel
+          feature={selectedFeature}
+          view={viewRef.current}
+          config={config}
+          onClose={handleCloseFeaturePanel}
+          onSaveAsMarkup={handleSaveAsMarkup}
+          onExportPDF={handleExportPDF}
+          onZoomTo={zoomToFeature}
+          relatedFeatures={relatedFeatures}
+          currentRelatedIndex={currentRelatedIndex}
+          onNavigateRelated={setCurrentRelatedIndex}
+          isMarkupFeature={isMarkupFeature}
+        />
       )}
 
-      {/* Searching Indicator */}
+      {/* ==================== SEARCHING INDICATOR ==================== */}
       {isSearching && mapReady && !isLoading && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg z-20 flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" style={{ color: colors.text600 }} />

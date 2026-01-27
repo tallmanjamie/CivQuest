@@ -3,6 +3,10 @@
 // Provides license types, limits, and validation helpers
 // 
 // Supports separate licensing for Notify and Atlas products
+//
+// LICENSE TIERS:
+// - Personal: For individuals with limited secure users (max 3, no public)
+// - Professional: Full access for professionals and organizations (unlimited, public allowed)
 
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
@@ -18,10 +22,24 @@ export const PRODUCTS = {
 
 /**
  * License Types
+ * 
+ * UPDATED: Renamed from Professional/Organization to Personal/Professional
+ * - personal: Basic tier for individuals (was "professional")
+ * - professional: Full tier for teams/organizations (was "organization")
  */
 export const LICENSE_TYPES = {
-  PROFESSIONAL: 'professional',
-  ORGANIZATION: 'organization'
+  PERSONAL: 'personal',
+  PROFESSIONAL: 'professional'
+};
+
+/**
+ * Legacy license type mapping (for backwards compatibility)
+ * Maps old license type values to new ones
+ */
+const LEGACY_LICENSE_MAP = {
+  'professional': 'personal',      // Old "professional" is now "personal"
+  'organization': 'professional',  // Old "organization" is now "professional"
+  'team': 'personal'               // If "team" was ever used
 };
 
 /**
@@ -29,9 +47,9 @@ export const LICENSE_TYPES = {
  * Defines the limits and restrictions for each license type per product
  */
 export const LICENSE_CONFIG = {
-  [LICENSE_TYPES.PROFESSIONAL]: {
-    label: 'Professional',
-    description: 'For professionals with limited secure users',
+  [LICENSE_TYPES.PERSONAL]: {
+    label: 'Personal',
+    description: 'For individuals with limited secure users',
     color: 'amber',
     limits: {
       [PRODUCTS.NOTIFY]: {
@@ -44,9 +62,9 @@ export const LICENSE_CONFIG = {
       }
     }
   },
-  [LICENSE_TYPES.ORGANIZATION]: {
-    label: 'Organization',
-    description: 'Full access for organizations',
+  [LICENSE_TYPES.PROFESSIONAL]: {
+    label: 'Professional',
+    description: 'Full access for professionals and organizations',
     color: 'emerald',
     limits: {
       [PRODUCTS.NOTIFY]: {
@@ -64,7 +82,28 @@ export const LICENSE_CONFIG = {
 /**
  * Default license for new organizations (per product)
  */
-export const DEFAULT_LICENSE = LICENSE_TYPES.PROFESSIONAL;
+export const DEFAULT_LICENSE = LICENSE_TYPES.PERSONAL;
+
+/**
+ * Normalize license type (handles legacy values)
+ * @param {string} licenseType - License type from database
+ * @returns {string} Normalized license type
+ */
+function normalizeLicenseType(licenseType) {
+  if (!licenseType) return null;
+  
+  // Check if it's already a valid new type
+  if (LICENSE_CONFIG[licenseType]) {
+    return licenseType;
+  }
+  
+  // Map legacy values to new values
+  if (LEGACY_LICENSE_MAP[licenseType]) {
+    return LEGACY_LICENSE_MAP[licenseType];
+  }
+  
+  return null;
+}
 
 /**
  * Get license type for a specific product
@@ -75,14 +114,16 @@ export const DEFAULT_LICENSE = LICENSE_TYPES.PROFESSIONAL;
 export function getProductLicenseType(orgData, product) {
   // Check for product-specific license first
   const productLicense = orgData?.license?.[product]?.type;
-  if (productLicense && LICENSE_CONFIG[productLicense]) {
-    return productLicense;
+  const normalizedProduct = normalizeLicenseType(productLicense);
+  if (normalizedProduct) {
+    return normalizedProduct;
   }
   
   // Fall back to legacy single license type
   const legacyLicense = orgData?.license?.type;
-  if (legacyLicense && LICENSE_CONFIG[legacyLicense]) {
-    return legacyLicense;
+  const normalizedLegacy = normalizeLicenseType(legacyLicense);
+  if (normalizedLegacy) {
+    return normalizedLegacy;
   }
   
   return DEFAULT_LICENSE;
@@ -126,7 +167,7 @@ export async function getOrgLicense(orgId) {
  * Update license for a specific product (super admin only)
  * @param {string} orgId - Organization ID
  * @param {string} product - Product type ('notify' or 'atlas')
- * @param {string} licenseType - New license type ('team' or 'organization')
+ * @param {string} licenseType - New license type ('personal' or 'professional')
  * @param {string} adminEmail - Email of admin making the change
  * @returns {Promise<boolean>} Success status
  */
@@ -257,7 +298,9 @@ export function getLicenseLimits(orgData) {
  * @returns {string} Label
  */
 export function getLicenseLabel(licenseType) {
-  return LICENSE_CONFIG[licenseType]?.label || 'Unknown';
+  // Handle legacy types
+  const normalized = normalizeLicenseType(licenseType) || licenseType;
+  return LICENSE_CONFIG[normalized]?.label || 'Unknown';
 }
 
 /**
@@ -271,6 +314,26 @@ export function getLicenseOptions() {
     description: config.description,
     color: config.color
   }));
+}
+
+/**
+ * Check if a license type is the premium/full tier
+ * @param {string} licenseType - License type
+ * @returns {boolean}
+ */
+export function isProfessionalLicense(licenseType) {
+  const normalized = normalizeLicenseType(licenseType) || licenseType;
+  return normalized === LICENSE_TYPES.PROFESSIONAL;
+}
+
+/**
+ * Check if a license type is the basic tier
+ * @param {string} licenseType - License type
+ * @returns {boolean}
+ */
+export function isPersonalLicense(licenseType) {
+  const normalized = normalizeLicenseType(licenseType) || licenseType;
+  return normalized === LICENSE_TYPES.PERSONAL;
 }
 
 export default {
@@ -290,5 +353,7 @@ export default {
   getProductLicenseLimits,
   getLicenseLimits,
   getLicenseLabel,
-  getLicenseOptions
+  getLicenseOptions,
+  isProfessionalLicense,
+  isPersonalLicense
 };

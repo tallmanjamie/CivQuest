@@ -1,69 +1,63 @@
 // src/admin/components/LicenseManagement.jsx
-// License Management Component for Super Admins
-// Allows viewing and editing organization license types for Notify and Atlas separately
+// License Management for CivQuest Admin
+// Super admin only - configure license types per organization per product
+//
+// LICENSE TIERS:
+// - Personal: For individuals with limited secure users (max 3, no public)
+// - Professional: Full access for professionals and organizations (unlimited, public allowed)
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   collection, 
   onSnapshot,
   doc,
-  updateDoc,
-  serverTimestamp
-} from 'firebase/firestore';
+  updateDoc
+} from "firebase/firestore";
 import { 
   Shield, 
-  Building2, 
   Search, 
-  Loader2, 
-  Check,
-  Users,
+  Building2,
+  Bell,
   Map,
-  Globe,
+  Users,
   Lock,
-  AlertTriangle,
+  Globe,
   ChevronDown,
-  ChevronRight,
-  Clock,
-  User,
-  Bell
+  ChevronUp,
+  Loader2,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
 import { 
-  PRODUCTS,
   LICENSE_TYPES, 
-  LICENSE_CONFIG, 
-  DEFAULT_LICENSE,
+  LICENSE_CONFIG,
+  PRODUCTS,
   getLicenseOptions,
-  getProductLicenseType
+  getProductLicenseType,
+  updateProductLicense
 } from '../../shared/services/licenses';
 
 /**
  * LicenseManagement Component
  * 
- * Super admin only component for managing organization licenses.
- * Displays all organizations with their current license types for both 
- * Notify and Atlas, and allows separate changes for each product.
- * 
- * @param {object} db - Firestore database instance
- * @param {function} addToast - Toast notification function
- * @param {function} confirm - Confirmation dialog function
- * @param {string} adminEmail - Current admin's email for audit trail
- * @param {string} accentColor - Theme accent color
+ * Allows super admins to view and modify license types for organizations.
+ * Each product (Notify, Atlas) can have its own license type.
  */
-export default function LicenseManagement({
-  db,
-  addToast,
-  confirm,
+export default function LicenseManagement({ 
+  db, 
+  accentColor,
   adminEmail,
-  accentColor = '#004E7C'
+  addToast
 }) {
+  // State
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [updating, setUpdating] = useState(null); // { orgId, product } being updated
   const [expandedOrg, setExpandedOrg] = useState(null);
+  const [updating, setUpdating] = useState(null); // { orgId, product }
 
-  // Fetch all organizations
+  // Load organizations
   useEffect(() => {
     const unsubscribe = onSnapshot(
       collection(db, PATHS.organizations),
@@ -72,85 +66,52 @@ export default function LicenseManagement({
           id: doc.id,
           ...doc.data()
         }));
-        // Sort by name
-        orgs.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
         setOrganizations(orgs);
         setLoading(false);
       },
       (error) => {
-        console.error('[LicenseManagement] Error fetching organizations:', error);
-        addToast('Failed to load organizations', 'error');
+        console.error('[LicenseManagement] Error loading orgs:', error);
         setLoading(false);
       }
     );
 
     return () => unsubscribe();
-  }, [db, addToast]);
+  }, [db]);
 
-  // Filter organizations by search term
-  const filteredOrgs = organizations.filter(org =>
-    (org.name || org.id).toLowerCase().includes(searchTerm.toLowerCase()) ||
-    org.id.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter organizations
+  const filteredOrgs = useMemo(() => {
+    if (!searchTerm) return organizations;
+    const term = searchTerm.toLowerCase();
+    return organizations.filter(org => 
+      org.name?.toLowerCase().includes(term) ||
+      org.id?.toLowerCase().includes(term)
+    );
+  }, [organizations, searchTerm]);
 
-  // Handle license change for a specific product
+  // Handle license change
   const handleLicenseChange = async (orgId, orgName, product, newLicenseType) => {
-    const org = organizations.find(o => o.id === orgId);
-    const currentType = getProductLicenseType(org, product);
+    setUpdating({ orgId, product });
     
-    if (currentType === newLicenseType) return;
-
-    const newConfig = LICENSE_CONFIG[newLicenseType];
-    const isDowngrade = newLicenseType === LICENSE_TYPES.PROFESSIONAL && currentType === LICENSE_TYPES.ORGANIZATION;
-    const productLabel = product === PRODUCTS.NOTIFY ? 'Notify' : 'Atlas';
-
-    let warningMessage = '';
-    if (isDowngrade) {
-      warningMessage = `
-        <strong>Warning:</strong> Downgrading ${productLabel} to Team license will:
-        <ul class="list-disc ml-4 mt-2">
-          <li>Limit ${productLabel} users to 5</li>
-          <li>Prevent public ${product === PRODUCTS.NOTIFY ? 'notifications' : 'maps'}</li>
-        </ul>
-        <p class="mt-2">Existing public items will need to be changed to private.</p>
-      `;
+    try {
+      await updateProductLicense(orgId, product, newLicenseType, adminEmail);
+      addToast?.(
+        `Updated ${product === PRODUCTS.NOTIFY ? 'Notify' : 'Atlas'} license for ${orgName} to ${LICENSE_CONFIG[newLicenseType].label}`,
+        'success'
+      );
+    } catch (error) {
+      console.error('[LicenseManagement] Update failed:', error);
+      addToast?.('Failed to update license. Please try again.', 'error');
+    } finally {
+      setUpdating(null);
     }
-
-    confirm({
-      title: `Change ${productLabel} License for ${orgName}`,
-      message: `
-        Change ${productLabel} license from <strong>${LICENSE_CONFIG[currentType].label}</strong> to <strong>${newConfig.label}</strong>?
-        ${warningMessage ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">${warningMessage}</div>` : ''}
-      `,
-      confirmLabel: 'Change License',
-      destructive: isDowngrade,
-      onConfirm: async () => {
-        setUpdating({ orgId, product });
-        try {
-          const orgRef = doc(db, PATHS.organization(orgId));
-          await updateDoc(orgRef, {
-            [`license.${product}.type`]: newLicenseType,
-            [`license.${product}.updatedAt`]: serverTimestamp(),
-            [`license.${product}.updatedBy`]: adminEmail
-          });
-          addToast(`${productLabel} license updated to ${newConfig.label} for ${orgName}`, 'success');
-        } catch (error) {
-          console.error('[LicenseManagement] Error updating license:', error);
-          addToast('Failed to update license: ' + error.message, 'error');
-        } finally {
-          setUpdating(null);
-        }
-      }
-    });
   };
 
-  // Get license badge color
-  const getLicenseBadgeClass = (licenseType) => {
-    const type = licenseType || DEFAULT_LICENSE;
-    switch (type) {
-      case LICENSE_TYPES.ORGANIZATION:
-        return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+  // Get badge classes for license type
+  const getLicenseBadgeClasses = (licenseType) => {
+    switch (licenseType) {
       case LICENSE_TYPES.PROFESSIONAL:
+        return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      case LICENSE_TYPES.PERSONAL:
       default:
         return 'bg-amber-100 text-amber-700 border-amber-200';
     }
@@ -207,14 +168,14 @@ export default function LicenseManagement({
             <div 
               key={option.value}
               className={`p-3 rounded-lg border ${
-                option.value === LICENSE_TYPES.ORGANIZATION 
+                option.value === LICENSE_TYPES.PROFESSIONAL 
                   ? 'bg-emerald-50 border-emerald-200' 
                   : 'bg-amber-50 border-amber-200'
               }`}
             >
               <div className="flex items-center gap-2 mb-2">
                 <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                  option.value === LICENSE_TYPES.ORGANIZATION 
+                  option.value === LICENSE_TYPES.PROFESSIONAL 
                     ? 'bg-emerald-100 text-emerald-700' 
                     : 'bg-amber-100 text-amber-700'
                 }`}>
@@ -223,7 +184,7 @@ export default function LicenseManagement({
               </div>
               <p className="text-xs text-slate-600 mb-2">{option.description}</p>
               <div className="space-y-1 text-xs">
-                {option.value === LICENSE_TYPES.PROFESSIONAL ? (
+                {option.value === LICENSE_TYPES.PERSONAL ? (
                   <>
                     <div className="flex items-center gap-1 text-slate-500">
                       <Users className="w-3 h-3" /> Max 3 users per product
@@ -278,56 +239,46 @@ export default function LicenseManagement({
                       className="p-1 text-slate-400 hover:text-slate-600 rounded"
                     >
                       {isExpanded ? (
-                        <ChevronDown className="w-4 h-4" />
+                        <ChevronUp className="w-5 h-5" />
                       ) : (
-                        <ChevronRight className="w-4 h-4" />
+                        <ChevronDown className="w-5 h-5" />
                       )}
                     </button>
                     
-                    {/* Org Icon */}
-                    <div 
-                      className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${accentColor}15` }}
-                    >
-                      <Building2 className="w-5 h-5" style={{ color: accentColor }} />
-                    </div>
-                    
                     {/* Org Info */}
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-slate-800 truncate">
-                        {org.name || org.id}
-                      </h4>
-                      <p className="text-xs text-slate-500 truncate">
-                        {org.id}
-                        {notificationCount > 0 && ` • ${notificationCount} notification${notificationCount !== 1 ? 's' : ''}`}
-                        {mapCount > 0 && ` • ${mapCount} map${mapCount !== 1 ? 's' : ''}`}
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-slate-400" />
+                        <h4 className="font-medium text-slate-800 truncate">
+                          {org.name || org.id}
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {notificationCount} notification{notificationCount !== 1 ? 's' : ''} • {mapCount} map{mapCount !== 1 ? 's' : ''}
                       </p>
                     </div>
-                    
+
                     {/* License Badges */}
                     <div className="flex items-center gap-2">
-                      {/* Notify License */}
                       <div className="flex items-center gap-1">
                         <Bell className="w-3 h-3 text-slate-400" />
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getLicenseBadgeClass(notifyLicenseType)}`}>
-                          {LICENSE_CONFIG[notifyLicenseType].label}
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium border ${getLicenseBadgeClasses(notifyLicenseType)}`}>
+                          {LICENSE_CONFIG[notifyLicenseType]?.label || 'Personal'}
                         </span>
                       </div>
-                      
-                      {/* Atlas License */}
                       <div className="flex items-center gap-1">
                         <Map className="w-3 h-3 text-slate-400" />
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getLicenseBadgeClass(atlasLicenseType)}`}>
-                          {LICENSE_CONFIG[atlasLicenseType].label}
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium border ${getLicenseBadgeClasses(atlasLicenseType)}`}>
+                          {LICENSE_CONFIG[atlasLicenseType]?.label || 'Personal'}
                         </span>
                       </div>
                     </div>
                   </div>
-                  
+
                   {/* Expanded Details */}
                   {isExpanded && (
-                    <div className="px-4 pb-4 ml-14">
-                      <div className="bg-slate-50 rounded-lg p-4 space-y-4">
+                    <div className="px-4 pb-4 pt-0">
+                      <div className="ml-10 space-y-3">
                         {/* Notify License */}
                         <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200">
                           <div className="flex items-center gap-3">
@@ -409,28 +360,18 @@ export default function LicenseManagement({
                             )}
                           </div>
                         </div>
-                        
-                        {/* Last Updated Info */}
-                        <div className="pt-2 border-t border-slate-200 grid grid-cols-2 gap-4 text-xs text-slate-500">
-                          {org.license?.notify?.updatedAt && (
-                            <div className="flex items-center gap-1">
-                              <Bell className="w-3 h-3" />
-                              <span>
-                                Notify updated: {org.license.notify.updatedAt.toDate?.().toLocaleDateString() || 'Unknown'}
-                                {org.license.notify.updatedBy && ` by ${org.license.notify.updatedBy}`}
-                              </span>
-                            </div>
-                          )}
-                          {org.license?.atlas?.updatedAt && (
-                            <div className="flex items-center gap-1">
-                              <Map className="w-3 h-3" />
-                              <span>
-                                Atlas updated: {org.license.atlas.updatedAt.toDate?.().toLocaleDateString() || 'Unknown'}
-                                {org.license.atlas.updatedBy && ` by ${org.license.atlas.updatedBy}`}
-                              </span>
-                            </div>
-                          )}
-                        </div>
+
+                        {/* License History */}
+                        {(org.license?.notify?.updatedAt || org.license?.atlas?.updatedAt) && (
+                          <div className="text-xs text-slate-400 px-3">
+                            {org.license?.notify?.updatedBy && (
+                              <p>Notify last updated by {org.license.notify.updatedBy}</p>
+                            )}
+                            {org.license?.atlas?.updatedBy && (
+                              <p>Atlas last updated by {org.license.atlas.updatedBy}</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
