@@ -530,41 +530,20 @@ export default function MapExportTool({
       }
     });
 
-    // Get basemap layers - handle vector tiles properly
-    const baseMapLayers = [];
-    if (mapView.map.basemap?.baseLayers) {
-      mapView.map.basemap.baseLayers.forEach(layer => {
-        if (layer.type === 'vector-tile') {
-          // Vector tile basemap - needs type, layerType, and styleUrl
-          // NOTE: Only supported by print services published from ArcGIS Pro!
-          const styleUrl = layer.styleUrl || 
-                          (layer.url ? `${layer.url}/resources/styles/root.json` : null);
-          if (styleUrl) {
-            console.log('🖨️ Adding vector tile basemap:', layer.title, 'styleUrl:', styleUrl);
-            console.log('🖨️ WARNING: Vector tile basemaps only work with ArcGIS Pro-published print services!');
-            baseMapLayers.push({
-              id: layer.id,
-              type: 'VectorTileLayer',
-              layerType: 'VectorTileLayer',
-              title: layer.title || layer.id,
-              styleUrl: styleUrl,
-              visibility: true,
-              opacity: layer.opacity ?? 1
-            });
-          }
-        } else if (layer.url) {
-          // Raster tile or other basemap
-          console.log('🖨️ Adding raster basemap:', layer.title, 'url:', layer.url);
-          baseMapLayers.push({
-            id: layer.id,
-            title: layer.title || layer.id,
-            url: layer.url,
-            visibility: true,
-            opacity: layer.opacity ?? 1
-          });
-        }
-      });
-    }
+    // Always use a standard ESRI raster basemap for exports
+    // Vector tile basemaps are NOT supported by most print services
+    // Using World Street Map as it's widely compatible
+    const ESRI_BASEMAP_URL = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer';
+
+    console.log('🖨️ Using standard ESRI basemap for export:', ESRI_BASEMAP_URL);
+
+    const baseMapLayers = [{
+      id: 'esri-world-street-map',
+      title: 'World Street Map',
+      url: ESRI_BASEMAP_URL,
+      visibility: true,
+      opacity: 1
+    }];
 
     // Map scale (feet per inch * 12 = scale denominator)
     const mapScale = exportArea.scale * 12;
@@ -613,11 +592,6 @@ export default function MapExportTool({
     console.log('🖨️ Web Map JSON:', webMapJson);
     console.log('🖨️ Web Map JSON (stringified):', JSON.stringify(webMapJson, null, 2));
 
-    // Check for potential issues
-    if (webMapJson.baseMap?.baseMapLayers?.some(l => l.type === 'VectorTileLayer')) {
-      console.warn('🖨️ WARNING: Vector tile basemaps may not work with this print service!');
-      console.warn('🖨️ Vector tile layers are only supported by print services published from ArcGIS Pro.');
-    }
 
     const params = new URLSearchParams();
     params.append('Web_Map_as_JSON', JSON.stringify(webMapJson));
