@@ -197,9 +197,19 @@ export default function LayersPanel({
   const createLegend = useCallback((layerData, containerEl) => {
     if (!view || !containerEl || !layerData.layer) return;
 
-    // Destroy existing legend
+    // Destroy existing legend and clear container
     if (legendWidgetsRef.current[layerData.id]) {
-      legendWidgetsRef.current[layerData.id].destroy();
+      try {
+        legendWidgetsRef.current[layerData.id].destroy();
+      } catch (e) {
+        // Widget may already be destroyed
+      }
+      delete legendWidgetsRef.current[layerData.id];
+    }
+
+    // Clear container contents to prevent React conflicts
+    while (containerEl.firstChild) {
+      containerEl.removeChild(containerEl.firstChild);
     }
 
     try {
@@ -219,23 +229,73 @@ export default function LayersPanel({
   }, [view]);
 
   /**
+   * Destroy legend for a layer
+   */
+  const destroyLegend = useCallback((layerId) => {
+    if (legendWidgetsRef.current[layerId]) {
+      try {
+        legendWidgetsRef.current[layerId].destroy();
+      } catch (e) {
+        // Widget may already be destroyed
+      }
+      delete legendWidgetsRef.current[layerId];
+    }
+    // Clear the container
+    if (legendContainersRef.current[layerId]) {
+      const container = legendContainersRef.current[layerId];
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
+    }
+  }, []);
+
+  /**
    * Handle combined legend view updates when switching views
    */
   useEffect(() => {
     if (viewMode === 'legend' && view && combinedLegendRef.current) {
-      // Destroy existing and recreate to ensure it's up to date
+      // Destroy existing widget
       if (combinedLegendWidgetRef.current) {
-        combinedLegendWidgetRef.current.destroy();
+        try {
+          combinedLegendWidgetRef.current.destroy();
+        } catch (e) {
+          // Widget may already be destroyed
+        }
+        combinedLegendWidgetRef.current = null;
       }
+
+      // Clear container contents
+      const container = combinedLegendRef.current;
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
+
+      // Create legend showing all visible layers
       try {
         const legend = new Legend({
           view: view,
-          container: combinedLegendRef.current,
+          container: container,
           style: 'classic'
         });
         combinedLegendWidgetRef.current = legend;
       } catch (e) {
         console.warn('[LayersPanel] Failed to create combined legend:', e);
+      }
+    } else if (viewMode !== 'legend' && combinedLegendWidgetRef.current) {
+      // Destroy when switching away from legend view
+      try {
+        combinedLegendWidgetRef.current.destroy();
+      } catch (e) {
+        // Widget may already be destroyed
+      }
+      combinedLegendWidgetRef.current = null;
+
+      // Clear container
+      if (combinedLegendRef.current) {
+        const container = combinedLegendRef.current;
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
       }
     }
   }, [viewMode, view, layers]);
@@ -247,13 +307,43 @@ export default function LayersPanel({
     setExpandedLegends(prev => {
       const next = new Set(prev);
       if (next.has(layerId)) {
+        // Destroy legend before hiding
+        destroyLegend(layerId);
         next.delete(layerId);
       } else {
         next.add(layerId);
       }
       return next;
     });
-  }, []);
+  }, [destroyLegend]);
+
+  /**
+   * Clean up legends when layers become invisible
+   */
+  useEffect(() => {
+    // Get all currently expanded legend IDs
+    expandedLegends.forEach(layerId => {
+      // Find if this layer is visible
+      const findLayer = (layerList) => {
+        for (const layer of layerList) {
+          if (layer.id === layerId) return layer;
+          if (layer.children) {
+            const found = findLayer(layer.children);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+
+      const layerData = findLayer(layers);
+      const isVisible = layerData?.visible || layerData?.sublayer?.visible;
+
+      // If layer is not visible, destroy its legend
+      if (layerData && !isVisible) {
+        destroyLegend(layerId);
+      }
+    });
+  }, [layers, expandedLegends, destroyLegend]);
 
   /**
    * Save layer state
@@ -481,17 +571,25 @@ export default function LayersPanel({
           )}
         </div>
 
-        {/* Legend (for visible non-group layers) */}
-        {showLegend && (
-          <div 
-            className="layer-legend ml-6 mb-2 p-2 bg-slate-50 rounded border border-slate-200"
-            ref={(el) => {
-              if (el && layerData.layer) {
-                legendContainersRef.current[layerData.id] = el;
-                createLegend(layerData, el);
-              }
-            }}
-          />
+        {/* Legend (for visible non-group layers) - always render, hide with CSS to avoid DOM conflicts */}
+        {layerData.hasLegend && !isGroup && (
+          <div
+            className={`layer-legend ml-6 mb-2 p-2 bg-slate-50 rounded border border-slate-200 ${showLegend ? '' : 'hidden'}`}
+          >
+            <div
+              ref={(el) => {
+                if (el) {
+                  legendContainersRef.current[layerData.id] = el;
+                  if (showLegend && layerData.layer && isVisible) {
+                    // Only create if not already created
+                    if (!legendWidgetsRef.current[layerData.id]) {
+                      createLegend(layerData, el);
+                    }
+                  }
+                }
+              }}
+            />
+          </div>
         )}
 
         {/* Group Children */}
@@ -632,38 +730,22 @@ export default function LayersPanel({
       )}
 
       {/* Legend View - Shows all visible layer legends */}
-      {viewMode === 'legend' && (
-        <div className="flex-1 overflow-y-auto p-3">
+      <div className={`flex-1 overflow-y-auto p-3 ${viewMode === 'legend' ? '' : 'hidden'}`}>
+        <div className="combined-legend">
           <div
-            className="combined-legend"
             ref={(el) => {
-              if (el && view && el !== combinedLegendRef.current) {
+              if (el) {
                 combinedLegendRef.current = el;
-                // Destroy existing widget
-                if (combinedLegendWidgetRef.current) {
-                  combinedLegendWidgetRef.current.destroy();
-                }
-                // Create legend showing all visible layers
-                try {
-                  const legend = new Legend({
-                    view: view,
-                    container: el,
-                    style: 'classic'
-                  });
-                  combinedLegendWidgetRef.current = legend;
-                } catch (e) {
-                  console.warn('[LayersPanel] Failed to create combined legend:', e);
-                }
               }
             }}
           />
-          {layers.length === 0 && (
-            <div className="text-center py-6 text-slate-400 text-xs">
-              No layers available
-            </div>
-          )}
         </div>
-      )}
+        {layers.length === 0 && (
+          <div className="text-center py-6 text-slate-400 text-xs">
+            No layers available
+          </div>
+        )}
+      </div>
 
       {/* Styles */}
       <style>{`
