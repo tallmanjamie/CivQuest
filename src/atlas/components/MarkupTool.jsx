@@ -4,7 +4,7 @@
 //
 // FIXED: Uses isExpanded prop (matching MapView), inline layout
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Pencil,
   Circle,
@@ -24,10 +24,6 @@ import SketchViewModel from '@arcgis/core/widgets/Sketch/SketchViewModel';
 import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import Graphic from '@arcgis/core/Graphic';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
-
-// Storage keys
-const MARKUP_STORAGE_KEY = 'atlas_markup_data';
-const FOLDER_STORAGE_KEY = 'atlas_markup_folders';
 
 // Color palette
 const COLORS = [
@@ -71,7 +67,6 @@ const FONT_FAMILIES = [
 
 // Measurement units for points (coordinates)
 const POINT_UNITS = [
-  { id: 'none', label: 'None' },
   { id: 'dms', label: 'DMS' },
   { id: 'dd', label: 'DD' },
   { id: 'latlon', label: 'Lat / Lon' }
@@ -79,7 +74,6 @@ const POINT_UNITS = [
 
 // Measurement units for lines (length)
 const LINE_UNITS = [
-  { id: 'none', label: 'None' },
   { id: 'feet', label: 'Feet' },
   { id: 'meters', label: 'Meters' },
   { id: 'miles', label: 'Miles' },
@@ -88,7 +82,6 @@ const LINE_UNITS = [
 
 // Measurement units for polygons (area)
 const POLYGON_UNITS = [
-  { id: 'none', label: 'None' },
   { id: 'acres', label: 'Acres' },
   { id: 'sqfeet', label: 'Sq Feet' },
   { id: 'sqmeters', label: 'Sq Meters' }
@@ -106,7 +99,7 @@ const hexToRgb = (hex) => {
 
 // Helper to format coordinates based on unit type
 const formatCoordinates = (geometry, unit) => {
-  if (!geometry || geometry.type !== 'point' || unit === 'none') return '';
+  if (!geometry || geometry.type !== 'point') return '';
 
   const lon = geometry.longitude || geometry.x;
   const lat = geometry.latitude || geometry.y;
@@ -207,6 +200,23 @@ function Select({ value, onChange, options, label }) {
 }
 
 /**
+ * Checkbox component
+ */
+function Checkbox({ checked, onChange, label }) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+      />
+      <span className="text-xs text-slate-600">{label}</span>
+    </label>
+  );
+}
+
+/**
  * Settings panel for each tool type
  */
 function ToolSettings({ type, settings, onChange }) {
@@ -241,11 +251,18 @@ function ToolSettings({ type, settings, onChange }) {
           min={0} max={1} step={0.1}
         />
         <div className="border-t border-slate-200 pt-2 mt-2">
-          <Select
-            label="Display Measurement"
-            value={settings.pointMeasurementUnit}
-            onChange={(v) => updateSetting('pointMeasurementUnit', v)}
-            options={POINT_UNITS}
+          <div className="flex items-center gap-2 mb-2">
+            <Select
+              label="Measurements"
+              value={settings.pointMeasurementUnit}
+              onChange={(v) => updateSetting('pointMeasurementUnit', v)}
+              options={POINT_UNITS}
+            />
+          </div>
+          <Checkbox
+            checked={settings.pointShowLabel}
+            onChange={(v) => updateSetting('pointShowLabel', v)}
+            label="Label"
           />
         </div>
       </div>
@@ -279,11 +296,18 @@ function ToolSettings({ type, settings, onChange }) {
           min={0} max={1} step={0.1}
         />
         <div className="border-t border-slate-200 pt-2 mt-2">
-          <Select
-            label="Display Measurement"
-            value={settings.lineMeasurementUnit}
-            onChange={(v) => updateSetting('lineMeasurementUnit', v)}
-            options={LINE_UNITS}
+          <div className="flex items-center gap-2 mb-2">
+            <Select
+              label="Measurements"
+              value={settings.lineMeasurementUnit}
+              onChange={(v) => updateSetting('lineMeasurementUnit', v)}
+              options={LINE_UNITS}
+            />
+          </div>
+          <Checkbox
+            checked={settings.lineShowLabel}
+            onChange={(v) => updateSetting('lineShowLabel', v)}
+            label="Label"
           />
         </div>
       </div>
@@ -316,11 +340,18 @@ function ToolSettings({ type, settings, onChange }) {
           min={0} max={1} step={0.1}
         />
         <div className="border-t border-slate-200 pt-2 mt-2">
-          <Select
-            label="Display Measurement"
-            value={settings.polygonMeasurementUnit}
-            onChange={(v) => updateSetting('polygonMeasurementUnit', v)}
-            options={POLYGON_UNITS}
+          <div className="flex items-center gap-2 mb-2">
+            <Select
+              label="Measurements"
+              value={settings.polygonMeasurementUnit}
+              onChange={(v) => updateSetting('polygonMeasurementUnit', v)}
+              options={POLYGON_UNITS}
+            />
+          </div>
+          <Checkbox
+            checked={settings.polygonShowLabel}
+            onChange={(v) => updateSetting('polygonShowLabel', v)}
+            label="Label"
           />
         </div>
       </div>
@@ -330,6 +361,16 @@ function ToolSettings({ type, settings, onChange }) {
   if (type === 'text') {
     return (
       <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
+        <div>
+          <label className="text-xs text-slate-500 mb-1 block">Text</label>
+          <input
+            type="text"
+            value={settings.textContent}
+            onChange={(e) => updateSetting('textContent', e.target.value)}
+            placeholder="Enter text..."
+            className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded bg-white text-slate-700"
+          />
+        </div>
         <Select
           label="Font"
           value={settings.textFont}
@@ -386,8 +427,6 @@ export default function MarkupTool({
   const [activeTool, setActiveTool] = useState(null);
   const [expandedSettings, setExpandedSettings] = useState(null);
   const [markups, setMarkups] = useState([]);
-  const [folders, setFolders] = useState([{ id: 'default', name: 'My Markup' }]);
-  const [activeFolder, setActiveFolder] = useState('default');
 
   // Per-type settings
   const [settings, setSettings] = useState({
@@ -396,20 +435,24 @@ export default function MarkupTool({
     pointColor: COLORS[0],
     pointSize: 10,
     pointOpacity: 0.8,
-    pointMeasurementUnit: 'none',
+    pointMeasurementUnit: 'dms',
+    pointShowLabel: false,
     // Line settings
     lineType: 'solid',
     lineColor: COLORS[1],
     lineWidth: 2,
     lineOpacity: 1,
     lineMeasurementUnit: 'feet',
+    lineShowLabel: false,
     // Polygon settings
     polygonLineColor: COLORS[2],
     polygonFillColor: COLORS[2],
     polygonLineWidth: 2,
     polygonOpacity: 0.4,
     polygonMeasurementUnit: 'acres',
+    polygonShowLabel: false,
     // Text settings
+    textContent: '',
     textFont: 'sans-serif',
     textColor: COLORS[8],
     textSize: 14,
@@ -455,9 +498,6 @@ export default function MarkupTool({
       }
     });
 
-    // Load saved data
-    loadMarkups();
-
     return () => {
       sketchVM.destroy();
       if (!graphicsLayer) {
@@ -465,54 +505,6 @@ export default function MarkupTool({
       }
     };
   }, [view, graphicsLayer]);
-
-  /**
-   * Load markups from storage
-   */
-  const loadMarkups = () => {
-    if (!markupLayerRef.current) return;
-
-    try {
-      const key = `${MARKUP_STORAGE_KEY}_${mapId || 'default'}`;
-      const data = localStorage.getItem(key);
-      if (data) {
-        const items = JSON.parse(data);
-        const graphics = items.map(item => {
-          try {
-            const g = Graphic.fromJSON(item);
-            if (item.visible !== undefined) g.visible = item.visible;
-            return g;
-          } catch (e) {
-            return null;
-          }
-        }).filter(Boolean);
-
-        markupLayerRef.current.addMany(graphics);
-        setMarkups(graphics.filter(g => g.attributes?.id));
-      }
-    } catch (e) {
-      console.warn('[MarkupTool] Failed to load markups:', e);
-    }
-  };
-
-  /**
-   * Save markups to storage
-   */
-  const saveMarkups = useCallback(() => {
-    if (!markupLayerRef.current) return;
-
-    try {
-      const key = `${MARKUP_STORAGE_KEY}_${mapId || 'default'}`;
-      const items = markupLayerRef.current.graphics.map(g => {
-        const json = g.toJSON();
-        json.visible = g.visible;
-        return json;
-      }).toArray();
-      localStorage.setItem(key, JSON.stringify(items));
-    } catch (e) {
-      console.warn('[MarkupTool] Failed to save markups:', e);
-    }
-  }, [mapId]);
 
   /**
    * Get symbol for current settings
@@ -613,12 +605,16 @@ export default function MarkupTool({
   const handleDrawComplete = (event) => {
     const geometry = event.graphic.geometry;
     const id = `markup_${Date.now()}`;
+    const currentTool = activeTool;
 
     // Calculate measurement based on selected units
     let measurement = '';
-    if (geometry.type === 'point' && settings.pointMeasurementUnit !== 'none') {
+    let showLabel = false;
+
+    if (geometry.type === 'point' && currentTool !== 'text') {
       measurement = formatCoordinates(geometry, settings.pointMeasurementUnit);
-    } else if (geometry.type === 'polygon' && settings.polygonMeasurementUnit !== 'none') {
+      showLabel = settings.pointShowLabel;
+    } else if (geometry.type === 'polygon') {
       const unit = settings.polygonMeasurementUnit;
       if (unit === 'acres') {
         const area = geometryEngine.geodesicArea(geometry, 'acres');
@@ -630,7 +626,8 @@ export default function MarkupTool({
         const area = geometryEngine.geodesicArea(geometry, 'square-meters');
         measurement = `${area.toLocaleString(undefined, { maximumFractionDigits: 0 })} sq m`;
       }
-    } else if (geometry.type === 'polyline' && settings.lineMeasurementUnit !== 'none') {
+      showLabel = settings.polygonShowLabel;
+    } else if (geometry.type === 'polyline') {
       const unit = settings.lineMeasurementUnit;
       if (unit === 'feet') {
         const length = geometryEngine.geodesicLength(geometry, 'feet');
@@ -645,53 +642,109 @@ export default function MarkupTool({
         const length = geometryEngine.geodesicLength(geometry, 'kilometers');
         measurement = `${length.toFixed(2)} km`;
       }
+      showLabel = settings.lineShowLabel;
     }
 
     // Determine color for display
     let displayColor = settings.pointColor.value;
-    if (activeTool === 'polyline') displayColor = settings.lineColor.value;
-    if (activeTool === 'polygon') displayColor = settings.polygonFillColor.value;
-    if (activeTool === 'text') displayColor = settings.textColor.value;
+    if (currentTool === 'polyline') displayColor = settings.lineColor.value;
+    if (currentTool === 'polygon') displayColor = settings.polygonFillColor.value;
+    if (currentTool === 'text') displayColor = settings.textColor.value;
 
     // Create attributes
     const attributes = {
       id,
       title: 'New Markup',
-      tool: activeTool,
+      tool: currentTool,
       color: displayColor,
-      folderId: activeFolder,
       metric: measurement,
       createdAt: Date.now()
     };
 
     event.graphic.attributes = attributes;
 
-    // Handle text tool
-    if (activeTool === 'text') {
-      const textInput = prompt('Enter text:', 'Label');
-      if (textInput) {
-        const rgb = hexToRgb(settings.textColor.value);
-        event.graphic.symbol = {
-          type: 'text',
-          color: [...rgb, settings.textOpacity],
-          text: textInput,
-          font: {
-            size: settings.textSize,
-            weight: 'bold',
-            family: settings.textFont
-          },
-          haloColor: [255, 255, 255, 1],
-          haloSize: 2
-        };
-        event.graphic.attributes.text = textInput;
-        event.graphic.attributes.title = textInput;
-      }
+    // Handle text tool - use textContent from settings
+    if (currentTool === 'text') {
+      const textContent = settings.textContent || 'Label';
+      const rgb = hexToRgb(settings.textColor.value);
+      event.graphic.symbol = {
+        type: 'text',
+        color: [...rgb, settings.textOpacity],
+        text: textContent,
+        font: {
+          size: settings.textSize,
+          weight: 'bold',
+          family: settings.textFont
+        },
+        haloColor: [255, 255, 255, 1],
+        haloSize: 2
+      };
+      event.graphic.attributes.text = textContent;
+      event.graphic.attributes.title = textContent;
     }
 
     // Update list
     setMarkups(prev => [...prev, event.graphic]);
-    saveMarkups();
-    setActiveTool(null);
+
+    // Add measurement label graphic if showLabel is enabled
+    if (showLabel && measurement && markupLayerRef.current) {
+      let labelPoint;
+      if (geometry.type === 'point') {
+        labelPoint = geometry;
+      } else if (geometry.type === 'polygon') {
+        labelPoint = geometry.centroid;
+      } else if (geometry.type === 'polyline') {
+        // Get midpoint of polyline
+        const paths = geometry.paths[0];
+        const midIndex = Math.floor(paths.length / 2);
+        labelPoint = {
+          type: 'point',
+          x: paths[midIndex][0],
+          y: paths[midIndex][1],
+          spatialReference: geometry.spatialReference
+        };
+      }
+
+      if (labelPoint) {
+        const labelGraphic = new Graphic({
+          geometry: labelPoint,
+          symbol: {
+            type: 'text',
+            color: [30, 41, 59, 1],
+            text: measurement,
+            font: {
+              size: 11,
+              weight: 'bold',
+              family: 'sans-serif'
+            },
+            haloColor: [255, 255, 255, 1],
+            haloSize: 2
+          },
+          attributes: {
+            id: `${id}_label`,
+            parentId: id,
+            isLabel: true
+          }
+        });
+        markupLayerRef.current.add(labelGraphic);
+      }
+    }
+
+    // Continue drawing the same tool type
+    if (currentTool && sketchVMRef.current) {
+      setTimeout(() => {
+        const symbol = getSymbol(currentTool);
+        if (currentTool === 'point') {
+          sketchVMRef.current.pointSymbol = symbol;
+        } else if (currentTool === 'polyline') {
+          sketchVMRef.current.polylineSymbol = symbol;
+        } else if (currentTool === 'polygon') {
+          sketchVMRef.current.polygonSymbol = symbol;
+        }
+        const createType = currentTool === 'text' ? 'point' : currentTool;
+        sketchVMRef.current.create(createType);
+      }, 50);
+    }
   };
 
   /**
@@ -742,9 +795,18 @@ export default function MarkupTool({
    */
   const deleteMarkup = (graphic) => {
     if (!markupLayerRef.current) return;
+    // Also remove any associated label graphic
+    const parentId = graphic.attributes?.id;
+    if (parentId) {
+      const labelGraphic = markupLayerRef.current.graphics.find(
+        g => g.attributes?.parentId === parentId
+      );
+      if (labelGraphic) {
+        markupLayerRef.current.remove(labelGraphic);
+      }
+    }
     markupLayerRef.current.remove(graphic);
     setMarkups(prev => prev.filter(m => m !== graphic));
-    saveMarkups();
   };
 
   /**
@@ -755,7 +817,6 @@ export default function MarkupTool({
     if (!confirm('Delete all markups?')) return;
     markupLayerRef.current.removeAll();
     setMarkups([]);
-    saveMarkups();
   };
 
   // Tool definitions
