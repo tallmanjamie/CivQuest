@@ -287,9 +287,16 @@ const MapView = forwardRef(function MapView(props, ref) {
             components: ['attribution']
           },
           popup: {
-            autoOpenEnabled: false // Disable default popup - we use FeatureInfoPanel
+            autoOpenEnabled: false, // Disable default popup - we use FeatureInfoPanel
+            dockEnabled: false,
+            collapseEnabled: false
           }
         });
+
+        // Ensure popup is fully disabled - close it if it opens and prevent auto-open
+        view.popup.autoOpenEnabled = false;
+        view.popup.visible = false;
+        console.log('[MapView] Popup disabled - autoOpenEnabled:', view.popup.autoOpenEnabled);
 
         viewRef.current = view;
 
@@ -318,6 +325,38 @@ const MapView = forwardRef(function MapView(props, ref) {
           unit: 'dual'
         });
         view.ui.add(scaleBar, 'bottom-left');
+
+        // Watch for popup opening and close it immediately (belt and suspenders approach)
+        reactiveUtils.watch(
+          () => view.popup?.visible,
+          (visible) => {
+            if (visible) {
+              console.log('[MapView] Popup attempted to open - closing it');
+              view.popup.close();
+              view.popup.visible = false;
+            }
+          }
+        );
+
+        // Also disable popup on all operational layers
+        webMap.allLayers.forEach(layer => {
+          if (layer.popupEnabled !== undefined) {
+            console.log('[MapView] Disabling popup on layer:', layer.id, layer.title);
+            layer.popupEnabled = false;
+          }
+        });
+
+        // Watch for new layers being added and disable their popups
+        webMap.allLayers.on('change', (event) => {
+          if (event.added) {
+            event.added.forEach(layer => {
+              if (layer.popupEnabled !== undefined) {
+                console.log('[MapView] Disabling popup on newly added layer:', layer.id, layer.title);
+                layer.popupEnabled = false;
+              }
+            });
+          }
+        });
 
         // Save extent on view change
         reactiveUtils.when(
@@ -369,8 +408,21 @@ const MapView = forwardRef(function MapView(props, ref) {
   const handleMapClick = useCallback(async (event) => {
     if (!viewRef.current) return;
 
+    // Force close the Esri popup on every click
+    if (viewRef.current.popup) {
+      viewRef.current.popup.close();
+      viewRef.current.popup.visible = false;
+    }
+
+    console.log('[MapView] handleMapClick - Starting hit test');
+    console.log('[MapView] handleMapClick - Popup state before:', {
+      autoOpenEnabled: viewRef.current.popup?.autoOpenEnabled,
+      visible: viewRef.current.popup?.visible
+    });
+
     try {
       const response = await viewRef.current.hitTest(event);
+      console.log('[MapView] handleMapClick - Hit test results:', response.results.length, 'hits');
       
       // Check for graphics layer hits (search results, pushpins, markup)
       const graphicHits = response.results.filter(r => 
@@ -428,6 +480,16 @@ const MapView = forwardRef(function MapView(props, ref) {
         r.graphic.layer.id !== MARKUP_LAYER_ID
       );
 
+      console.log('[MapView] handleMapClick - Layer hits:', layerHits.length);
+      layerHits.forEach((hit, idx) => {
+        console.log(`[MapView] handleMapClick - Layer hit ${idx}:`, {
+          layerId: hit.graphic.layer?.id,
+          layerTitle: hit.graphic.layer?.title,
+          hasPopupTemplate: !!hit.graphic.layer?.popupTemplate,
+          popupEnabled: hit.graphic.layer?.popupEnabled
+        });
+      });
+
       if (layerHits.length > 0) {
         const hit = layerHits[0];
         const feature = {
@@ -435,6 +497,18 @@ const MapView = forwardRef(function MapView(props, ref) {
           attributes: hit.graphic.attributes || {},
           sourceLayerId: hit.graphic.layer?.id
         };
+
+        console.log('[MapView] handleMapClick - Selected feature:', {
+          sourceLayerId: feature.sourceLayerId,
+          attributeKeys: Object.keys(feature.attributes || {}),
+          hasGeometry: !!feature.geometry
+        });
+
+        // Force close popup again before opening panel
+        if (viewRef.current.popup) {
+          viewRef.current.popup.close();
+          viewRef.current.popup.visible = false;
+        }
 
         handleFeatureSelect(feature, hit.graphic, hit.graphic.layer);
       }
@@ -448,19 +522,49 @@ const MapView = forwardRef(function MapView(props, ref) {
    * Handle feature selection (opens FeatureInfoPanel)
    */
   const handleFeatureSelect = useCallback((feature, graphic = null, layer = null) => {
+    console.log('[MapView] handleFeatureSelect - Input:', {
+      featureSourceLayerId: feature?.sourceLayerId,
+      featureAttributeKeys: Object.keys(feature?.attributes || {}),
+      graphicProvided: !!graphic,
+      layerProvided: !!layer,
+      layerId: layer?.id,
+      layerTitle: layer?.title
+    });
+
     // If no layer provided, try to find the custom feature layer
     let resolvedLayer = layer;
     let enrichedFeature = feature;
 
     if (!layer && activeMap?.customFeatureInfo?.layerId && mapRef.current) {
       const customLayerId = activeMap.customFeatureInfo.layerId;
+      console.log('[MapView] handleFeatureSelect - Looking for custom layer:', customLayerId);
       resolvedLayer = mapRef.current.allLayers?.find(l => l.id === customLayerId);
+      console.log('[MapView] handleFeatureSelect - Found custom layer:', !!resolvedLayer, resolvedLayer?.title);
       if (resolvedLayer) {
         enrichedFeature = {
           ...feature,
           sourceLayerId: customLayerId
         };
       }
+    }
+
+    console.log('[MapView] handleFeatureSelect - Resolved:', {
+      resolvedLayerId: resolvedLayer?.id,
+      resolvedLayerTitle: resolvedLayer?.title,
+      hasPopupTemplate: !!resolvedLayer?.popupTemplate,
+      popupTemplateTitle: resolvedLayer?.popupTemplate?.title,
+      popupTemplateContentType: typeof resolvedLayer?.popupTemplate?.content,
+      popupTemplateContentIsArray: Array.isArray(resolvedLayer?.popupTemplate?.content),
+      enrichedFeatureSourceLayerId: enrichedFeature?.sourceLayerId,
+      customFeatureInfoLayerId: activeMap?.customFeatureInfo?.layerId,
+      customFeatureInfoTabs: activeMap?.customFeatureInfo?.tabs?.length || 0
+    });
+
+    // Log popup template content details for debugging
+    if (resolvedLayer?.popupTemplate?.content) {
+      console.log('[MapView] handleFeatureSelect - PopupTemplate content:',
+        JSON.stringify(resolvedLayer.popupTemplate.content, null, 2).substring(0, 1000)
+      );
     }
 
     setSelectedFeature(enrichedFeature);
