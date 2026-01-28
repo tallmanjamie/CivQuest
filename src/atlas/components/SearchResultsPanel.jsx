@@ -210,14 +210,22 @@ export default function SearchResultsPanel({
 
     if (onFeatureSelect) {
       console.log('[SearchResultsPanel] Calling onFeatureSelect');
-      onFeatureSelect(feature);
+      // Enrich feature with displayName based on current display field setting
+      const enrichedFeature = {
+        ...feature,
+        attributes: {
+          ...feature?.attributes,
+          displayName: getFeatureTitle(feature, index)
+        }
+      };
+      onFeatureSelect(enrichedFeature);
     }
 
     // Zoom to feature
     if (zoomToFeature) {
       zoomToFeature(feature);
     }
-  }, [onFeatureSelect, zoomToFeature, activeMap?.customFeatureInfo?.layerId]);
+  }, [onFeatureSelect, zoomToFeature, activeMap?.customFeatureInfo?.layerId, getFeatureTitle]);
 
   /**
    * Handle feature hover
@@ -387,7 +395,7 @@ export default function SearchResultsPanel({
                       <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Sort Order</p>
                       <div className="flex gap-1">
                         <button
-                          onClick={() => setSortOrder('asc')}
+                          onClick={() => { setSortOrder('asc'); setShowConfig(false); }}
                           className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sm transition ${
                             sortOrder === 'asc'
                               ? 'text-white'
@@ -399,7 +407,7 @@ export default function SearchResultsPanel({
                           Asc
                         </button>
                         <button
-                          onClick={() => setSortOrder('desc')}
+                          onClick={() => { setSortOrder('desc'); setShowConfig(false); }}
                           className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sm transition ${
                             sortOrder === 'desc'
                               ? 'text-white'
@@ -419,7 +427,7 @@ export default function SearchResultsPanel({
                       <div className="max-h-40 overflow-y-auto space-y-0.5">
                         {/* Auto option */}
                         <button
-                          onClick={() => handleDisplayFieldChange('')}
+                          onClick={() => { handleDisplayFieldChange(''); setShowConfig(false); }}
                           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition ${
                             !displayField ? 'bg-slate-100 font-medium' : 'hover:bg-slate-50'
                           }`}
@@ -433,7 +441,7 @@ export default function SearchResultsPanel({
                         {availableSearchFields.map((field) => (
                           <button
                             key={field.field}
-                            onClick={() => handleDisplayFieldChange(field.field)}
+                            onClick={() => { handleDisplayFieldChange(field.field); setShowConfig(false); }}
                             className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition ${
                               displayField === field.field ? 'bg-slate-100 font-medium' : 'hover:bg-slate-50'
                             }`}
