@@ -222,9 +222,34 @@ Stored at `organizations/{orgId}.atlasConfig` (live) and `organizations/{orgId}.
         // Feature Service Endpoint
         endpoint: "https://services.arcgis.com/.../FeatureServer/0",
         
-        // Autocomplete
+        // Autocomplete - Pattern-based suggestions in the search bar
+        // Each autocomplete field can specify:
+        // - type: unique identifier (e.g., "parcel", "address")
+        // - field: feature service field to query
+        // - label: display label shown in dropdown
+        // - icon: emoji or icon character (e.g., "🆔", "🏠")
+        // - pattern: regex to match user input (e.g., "(\\d{5,})$" for 5+ digits)
+        // - description: help text describing what this matches
+        // - maxSuggestions: max number of suggestions to show (default: 10)
         autocomplete: [
-          { field: "ADDRESS", label: "Address", maxSuggestions: 10 }
+          {
+            type: "parcel",
+            field: "PARCELID",
+            label: "Parcel ID",
+            icon: "🆔",
+            pattern: "(\\d{5,})$",
+            description: "Matches 5+ digit parcel IDs",
+            maxSuggestions: 10
+          },
+          {
+            type: "address",
+            field: "PROPERTYADDRESS",
+            label: "Address",
+            icon: "🏠",
+            pattern: "\\b(\\d{1,5}\\s+[a-zA-Z0-9\\s.\\-\\']*)$",
+            description: "Matches street addresses",
+            maxSuggestions: 10
+          }
         ],
         
         // Search Fields

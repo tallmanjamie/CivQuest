@@ -67,11 +67,14 @@ const MODES = {
  * SearchToolbar Component
  * Unified search bar with mode toggle - available in all modes
  * Position can be 'top' or 'bottom' based on config.ui.searchBarPosition
+ *
+ * UPDATED: Now includes autocomplete suggestions based on activeMap.autocomplete configuration
+ * Each autocomplete field can have: type, field, label, icon, pattern, description, maxSuggestions
  */
-function SearchToolbar({ 
-  config, 
-  mode, 
-  onModeChange, 
+function SearchToolbar({
+  config,
+  mode,
+  onModeChange,
   enabledModes,
   searchQuery,
   onSearch,
@@ -83,27 +86,230 @@ function SearchToolbar({
 }) {
   const [inputValue, setInputValue] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const inputRef = useRef(null);
-  
+  const suggestionsRef = useRef(null);
+  const debounceRef = useRef(null);
+
   // Get theme colors from config
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
   const isBottom = position === 'bottom';
-  
+
+  // Get autocomplete configuration from active map
+  const autocompleteConfig = activeMap?.autocomplete || [];
+
+  /**
+   * Check which autocomplete patterns match the current input
+   */
+  const getMatchingAutocomplete = useCallback((input) => {
+    if (!input || !autocompleteConfig.length) return null;
+
+    for (const ac of autocompleteConfig) {
+      if (ac.pattern) {
+        try {
+          const regex = new RegExp(ac.pattern, 'i');
+          if (regex.test(input)) {
+            return ac;
+          }
+        } catch (e) {
+          console.warn('[SearchToolbar] Invalid regex pattern:', ac.pattern, e);
+        }
+      }
+    }
+    return null;
+  }, [autocompleteConfig]);
+
+  /**
+   * Fetch suggestions from the feature service
+   */
+  const fetchSuggestions = useCallback(async (input, autocompleteField) => {
+    if (!activeMap?.endpoint || !autocompleteField?.field) return [];
+
+    try {
+      const searchValue = input.toUpperCase();
+      const maxSuggestions = autocompleteField.maxSuggestions || 10;
+
+      // Query for suggestions using LIKE
+      const params = new URLSearchParams({
+        f: 'json',
+        where: `UPPER(${autocompleteField.field}) LIKE '%${searchValue}%'`,
+        outFields: autocompleteField.field,
+        returnGeometry: 'false',
+        returnDistinctValues: 'true',
+        resultRecordCount: String(maxSuggestions),
+        orderByFields: autocompleteField.field
+      });
+
+      const response = await fetch(`${activeMap.endpoint}/query?${params}`);
+      const data = await response.json();
+
+      if (data.features && data.features.length > 0) {
+        return data.features.map(f => ({
+          value: f.attributes[autocompleteField.field],
+          type: autocompleteField.type,
+          label: autocompleteField.label,
+          icon: autocompleteField.icon,
+          description: autocompleteField.description,
+          field: autocompleteField.field
+        }));
+      }
+    } catch (err) {
+      console.error('[SearchToolbar] Error fetching suggestions:', err);
+    }
+
+    return [];
+  }, [activeMap?.endpoint]);
+
+  /**
+   * Handle input change with debounced suggestion fetching
+   */
+  const handleInputChange = useCallback((e) => {
+    const value = e.target.value;
+    setInputValue(value);
+    setSelectedSuggestionIndex(-1);
+
+    // Clear previous debounce
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    // Don't fetch suggestions for very short inputs
+    if (value.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    // Find matching autocomplete config
+    const matchingAc = getMatchingAutocomplete(value);
+
+    if (matchingAc) {
+      // Show loading state
+      setIsLoadingSuggestions(true);
+      setShowSuggestions(true);
+
+      // Debounce the fetch
+      debounceRef.current = setTimeout(async () => {
+        const results = await fetchSuggestions(value, matchingAc);
+        setSuggestions(results);
+        setIsLoadingSuggestions(false);
+      }, 300);
+    } else if (autocompleteConfig.length > 0) {
+      // No pattern match, but show all available autocomplete types as options
+      const typeHints = autocompleteConfig.map(ac => ({
+        value: null,
+        type: ac.type,
+        label: ac.label,
+        icon: ac.icon,
+        description: ac.description,
+        isTypeHint: true
+      }));
+      setSuggestions(typeHints);
+      setShowSuggestions(true);
+      setIsLoadingSuggestions(false);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  }, [getMatchingAutocomplete, fetchSuggestions, autocompleteConfig]);
+
+  /**
+   * Handle suggestion selection
+   */
+  const handleSelectSuggestion = useCallback((suggestion) => {
+    if (suggestion.isTypeHint) {
+      // Just close suggestions, user needs to continue typing
+      setShowSuggestions(false);
+      inputRef.current?.focus();
+      return;
+    }
+
+    setInputValue(suggestion.value);
+    setShowSuggestions(false);
+    setSuggestions([]);
+
+    // Auto-submit the search
+    if (onSearch) {
+      onSearch(suggestion.value);
+      setInputValue('');
+    }
+  }, [onSearch]);
+
+  /**
+   * Handle keyboard navigation in suggestions
+   */
+  const handleKeyDown = useCallback((e) => {
+    if (!showSuggestions || suggestions.length === 0) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSubmit();
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSelectedSuggestionIndex(prev =>
+          prev < suggestions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSelectedSuggestionIndex(prev =>
+          prev > 0 ? prev - 1 : suggestions.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
+          handleSelectSuggestion(suggestions[selectedSuggestionIndex]);
+        } else {
+          handleSubmit();
+        }
+        break;
+      case 'Escape':
+        setShowSuggestions(false);
+        setSelectedSuggestionIndex(-1);
+        break;
+    }
+  }, [showSuggestions, suggestions, selectedSuggestionIndex, handleSelectSuggestion]);
+
   const handleSubmit = (e) => {
     e?.preventDefault();
     if (inputValue.trim() && onSearch) {
       onSearch(inputValue.trim());
       setInputValue('');
+      setShowSuggestions(false);
+      setSuggestions([]);
     }
   };
-  
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target) &&
+          inputRef.current && !inputRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className={`bg-white ${isBottom ? 'border-t' : 'border-b'} border-slate-200 px-3 py-2 flex items-center gap-2`}>
@@ -119,7 +325,7 @@ function SearchToolbar({
                 key={m.id}
                 onClick={() => onModeChange(m.id)}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-all ${
-                  isActive 
+                  isActive
                     ? 'bg-white shadow-sm'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
@@ -132,7 +338,7 @@ function SearchToolbar({
             );
           })}
       </div>
-      
+
       {/* Search Input */}
       <div className="flex-1 flex items-center gap-2 relative">
         {/* Menu Button */}
@@ -143,7 +349,7 @@ function SearchToolbar({
         >
           <Plus className="w-5 h-5" />
         </button>
-        
+
         {/* Menu Dropdown */}
         {showMenu && (
           <>
@@ -153,7 +359,7 @@ function SearchToolbar({
                 onClick={() => { onShowAdvanced?.(); setShowMenu(false); }}
                 className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
               >
-                <div 
+                <div
                   className="w-8 h-8 rounded-full flex items-center justify-center"
                   style={{ backgroundColor: colors.bg100, color: colors.text600 }}
                 >
@@ -168,7 +374,7 @@ function SearchToolbar({
                 onClick={() => { onShowHistory?.(); setShowMenu(false); }}
                 className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
               >
-                <div 
+                <div
                   className="w-8 h-8 rounded-full flex items-center justify-center"
                   style={{ backgroundColor: colors.bg100, color: colors.text600 }}
                 >
@@ -182,32 +388,99 @@ function SearchToolbar({
             </div>
           </>
         )}
-        
-        {/* Search Input */}
+
+        {/* Search Input with Autocomplete */}
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             ref={inputRef}
             type="text"
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              if (inputValue.length >= 2 && suggestions.length > 0) {
+                setShowSuggestions(true);
+              }
+            }}
             placeholder={activeMap?.searchPlaceholder || config?.ui?.searchPlaceholder || "Search properties..."}
             className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:bg-white transition"
-            style={{ 
+            style={{
               '--tw-ring-color': colors.bg500,
               borderColor: inputValue ? colors.border300 : undefined
             }}
+            autoComplete="off"
           />
+
+          {/* Autocomplete Suggestions Dropdown */}
+          {showSuggestions && (suggestions.length > 0 || isLoadingSuggestions) && (
+            <div
+              ref={suggestionsRef}
+              className={`absolute ${isBottom ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 right-0 bg-white border border-slate-200 shadow-xl rounded-lg overflow-hidden z-50`}
+            >
+              {isLoadingSuggestions ? (
+                <div className="p-3 flex items-center gap-2 text-slate-500">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Loading suggestions...</span>
+                </div>
+              ) : (
+                <div className="max-h-64 overflow-y-auto">
+                  {suggestions.map((suggestion, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleSelectSuggestion(suggestion)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                        selectedSuggestionIndex === idx
+                          ? 'bg-slate-100'
+                          : 'hover:bg-slate-50'
+                      } ${suggestion.isTypeHint ? 'opacity-60' : ''}`}
+                    >
+                      {/* Icon */}
+                      <span className="text-lg flex-shrink-0 w-6 text-center">
+                        {suggestion.icon || '🔍'}
+                      </span>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        {suggestion.isTypeHint ? (
+                          <>
+                            <span className="text-sm text-slate-500">{suggestion.label}</span>
+                            {suggestion.description && (
+                              <span className="block text-xs text-slate-400 truncate">{suggestion.description}</span>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-sm font-medium text-slate-800 block truncate">{suggestion.value}</span>
+                            <span className="text-xs text-slate-500">{suggestion.label}</span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Type badge */}
+                      {suggestion.type && (
+                        <span
+                          className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: colors.bg100, color: colors.text700 }}
+                        >
+                          {suggestion.type}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-        
+
         {/* Submit Button */}
         <button
           onClick={handleSubmit}
           disabled={!inputValue.trim() || isSearching}
           className={`p-2 rounded-lg transition-colors ${
-            inputValue.trim() 
-              ? 'text-white hover:opacity-90' 
+            inputValue.trim()
+              ? 'text-white hover:opacity-90'
               : 'bg-slate-100 text-slate-400'
           }`}
           style={inputValue.trim() ? { backgroundColor: colors.bg600 } : {}}

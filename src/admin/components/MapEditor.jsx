@@ -260,7 +260,15 @@ export default function MapEditor({
       ...prev,
       autocomplete: [
         ...(prev.autocomplete || []),
-        { field: '', label: '', maxSuggestions: 10 }
+        {
+          type: '',
+          field: '',
+          label: '',
+          icon: '',
+          pattern: '',
+          description: '',
+          maxSuggestions: 10
+        }
       ]
     }));
   };
@@ -788,39 +796,98 @@ export default function MapEditor({
                     <Plus className="w-4 h-4" /> Add Field
                   </button>
                 </div>
+                <p className="text-xs text-slate-500 mb-3">
+                  Configure autocomplete suggestions that appear as users type in the search bar.
+                  Use patterns to match specific input formats (e.g., parcel IDs, addresses).
+                </p>
                 {(mapConfig.autocomplete || []).length === 0 ? (
                   <p className="text-sm text-slate-500 italic">No autocomplete fields configured</p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {mapConfig.autocomplete.map((ac, idx) => (
-                      <div key={idx} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
-                        <input
-                          type="text"
-                          value={ac.field}
-                          onChange={(e) => updateAutocomplete(idx, 'field', e.target.value)}
-                          placeholder="FIELD"
-                          className="w-32 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                        />
-                        <input
-                          type="text"
-                          value={ac.label}
-                          onChange={(e) => updateAutocomplete(idx, 'label', e.target.value)}
-                          placeholder="Label"
-                          className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
-                        />
-                        <input
-                          type="number"
-                          value={ac.maxSuggestions || 10}
-                          onChange={(e) => updateAutocomplete(idx, 'maxSuggestions', parseInt(e.target.value))}
-                          className="w-16 px-2 py-1 text-sm border border-slate-300 rounded"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeAutocomplete(idx)}
-                          className="p-1 text-slate-400 hover:text-red-500"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        {/* Row 1: Type, Icon, Label */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <input
+                            type="text"
+                            value={ac.type || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'type', e.target.value)}
+                            placeholder="type"
+                            title="Unique identifier for this autocomplete type (e.g., 'parcel', 'address')"
+                            className="w-24 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                          />
+                          <input
+                            type="text"
+                            value={ac.icon || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'icon', e.target.value)}
+                            placeholder="Icon"
+                            title="Emoji or icon to display (e.g., '&#x1F3E0;' for house)"
+                            className="w-16 px-2 py-1 text-sm border border-slate-300 rounded text-center"
+                          />
+                          <input
+                            type="text"
+                            value={ac.label || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'label', e.target.value)}
+                            placeholder="Display Label"
+                            title="Human-readable label shown in autocomplete dropdown"
+                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeAutocomplete(idx)}
+                            className="p-1 text-slate-400 hover:text-red-500"
+                            title="Remove this autocomplete field"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        {/* Row 2: Field, Max Suggestions */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <input
+                            type="text"
+                            value={ac.field || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'field', e.target.value)}
+                            placeholder="FIELD_NAME"
+                            title="Feature service field to query for suggestions"
+                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                          />
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-slate-500">Max:</span>
+                            <input
+                              type="number"
+                              value={ac.maxSuggestions || 10}
+                              onChange={(e) => updateAutocomplete(idx, 'maxSuggestions', parseInt(e.target.value) || 10)}
+                              title="Maximum number of suggestions to show"
+                              className="w-16 px-2 py-1 text-sm border border-slate-300 rounded"
+                              min="1"
+                              max="50"
+                            />
+                          </div>
+                        </div>
+                        {/* Row 3: Pattern */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs text-slate-500 w-14">Pattern:</span>
+                          <input
+                            type="text"
+                            value={ac.pattern || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'pattern', e.target.value)}
+                            placeholder="(\\d{5,})$ — regex to match input"
+                            title="Regular expression pattern to match user input. Use $ for end of string."
+                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono text-xs"
+                          />
+                        </div>
+                        {/* Row 4: Description */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500 w-14">Desc:</span>
+                          <input
+                            type="text"
+                            value={ac.description || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'description', e.target.value)}
+                            placeholder="Description shown to users"
+                            title="Help text describing what this autocomplete matches"
+                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded text-xs"
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
