@@ -961,11 +961,12 @@ export default function AtlasApp() {
           />
         )}
 
-        {/* Advanced Search Modal */}
+        {/* Advanced Search Panel */}
         <AdvancedSearchModal
           isOpen={showAdvanced}
           onClose={() => setShowAdvanced(false)}
           onSearch={handleAdvancedSearch}
+          position={searchBarPosition}
         />
       </div>
     </AtlasContext.Provider>
