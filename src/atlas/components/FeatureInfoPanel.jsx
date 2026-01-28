@@ -12,16 +12,8 @@ import {
   GripVertical
 } from 'lucide-react';
 
-// --- MOCK/INTERNAL UTILS (To resolve compilation errors in this environment) ---
-const useAtlas = () => ({ config: { ui: { themeColor: 'sky' } } });
-const getThemeColors = (color = 'sky') => ({
-  bg50: '#f0f9ff',
-  bg100: '#e0f2fe',
-  bg500: '#0ea5e9',
-  bg600: '#0284c7',
-  text600: '#0284c7',
-  text700: '#0369a1',
-});
+import { useAtlas } from '../AtlasApp';
+import { getThemeColors } from '../utils/themeColors';
 
 /**
  * FeatureInfoPanel Component
@@ -239,10 +231,10 @@ export default function FeatureInfoPanel({
         className="fixed inset-x-0 bottom-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300"
         style={{ top: '64px' }}
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-white sticky top-0 z-20">
+        <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: colors.bg100 }}>
-              <MapPin className="w-4 h-4" style={{ color: colors.text600 }} />
+            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-white shadow-sm border border-slate-100">
+              <MapPin className="w-4 h-4" style={{ color: colors.bg500 }} />
             </div>
             <h3 className="font-bold text-slate-800 truncate text-lg">{getFeatureTitle()}</h3>
           </div>
@@ -274,9 +266,9 @@ export default function FeatureInfoPanel({
         <div className="hidden group-hover:block"><GripVertical className="w-3 h-3" style={{ color: colors.text600 }} /></div>
       </div>
 
-      <div className="flex items-center justify-between p-4 border-b border-slate-200" style={{ backgroundColor: colors.bg50 }}>
+      <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50/50">
         <div className="flex items-center gap-3 min-w-0">
-          <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: colors.text600 }} />
+          <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: colors.bg500 }} />
           <h3 className="font-bold text-slate-800 truncate text-base">{getFeatureTitle()}</h3>
         </div>
         <button onClick={onClose} className="p-2 hover:bg-white rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>

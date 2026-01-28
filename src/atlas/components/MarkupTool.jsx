@@ -691,34 +691,34 @@ export default function MarkupTool({
         </button>
       </div>
 
-      {/* Toolbar - COMPACTED */}
+      {/* Toolbar - COMPACTED - Hidden when editing */}
       <div className="p-1.5 border-b border-slate-100">
-        <div className="grid grid-cols-4 gap-1">
-          {[
-            { id: 'point', icon: Circle, label: 'Point' },
-            { id: 'polyline', icon: Minus, label: 'Line' },
-            { id: 'polygon', icon: Square, label: 'Area' },
-            { id: 'text', icon: Type, label: 'Text' }
-          ].map(t => (
-            <button
-              key={t.id}
-              onClick={() => startTool(t.id)}
-              disabled={!!editingMarkup}
-              className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg border transition-all
-                ${activeTool === t.id ? 'bg-blue-50 border-blue-200 shadow-inner' : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm'}
-                ${editingMarkup ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <t.icon className={`w-3.5 h-3.5 ${activeTool === t.id ? 'text-blue-600' : 'text-slate-500'}`} />
-              <span className={`text-[9px] font-bold uppercase tracking-wide ${activeTool === t.id ? 'text-blue-700' : 'text-slate-400'}`}>
-                {t.label}
-              </span>
-            </button>
-          ))}
-        </div>
+        {!editingMarkup && (
+          <div className="grid grid-cols-4 gap-1">
+            {[
+              { id: 'point', icon: Circle, label: 'Point' },
+              { id: 'polyline', icon: Minus, label: 'Line' },
+              { id: 'polygon', icon: Square, label: 'Area' },
+              { id: 'text', icon: Type, label: 'Text' }
+            ].map(t => (
+              <button
+                key={t.id}
+                onClick={() => startTool(t.id)}
+                className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg border transition-all
+                  ${activeTool === t.id ? 'bg-blue-50 border-blue-200 shadow-inner' : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm'}`}
+              >
+                <t.icon className={`w-3.5 h-3.5 ${activeTool === t.id ? 'text-blue-600' : 'text-slate-500'}`} />
+                <span className={`text-[9px] font-bold uppercase tracking-wide ${activeTool === t.id ? 'text-blue-700' : 'text-slate-400'}`}>
+                  {t.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Dynamic Tool Settings */}
         {expandedSettings && (
-          <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-4 animate-in slide-in-from-top-1 duration-200">
+          <div className={`${editingMarkup ? '' : 'mt-3'} p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-4 animate-in slide-in-from-top-1 duration-200`}>
              {/* Editing Header with Done/Cancel buttons */}
              {editingMarkup && (
                <div className="pb-2 mb-2 border-b border-slate-200">
