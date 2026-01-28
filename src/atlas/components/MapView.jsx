@@ -99,6 +99,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   
   // Feature Panel State
   const [selectedFeature, setSelectedFeature] = useState(null);
+  const [selectedFeatureLayer, setSelectedFeatureLayer] = useState(null);
   const [relatedFeatures, setRelatedFeatures] = useState([]);
   const [currentRelatedIndex, setCurrentRelatedIndex] = useState(0);
   const [isMarkupFeature, setIsMarkupFeature] = useState(false);
@@ -382,7 +383,7 @@ const MapView = forwardRef(function MapView(props, ref) {
       
       if (graphicHits.length > 0) {
         const clickedGraphic = graphicHits[0].graphic;
-        
+
         // Check if it's a markup feature
         if (clickedGraphic.layer === markupLayerRef.current) {
           setSelectedFeature({
@@ -394,22 +395,33 @@ const MapView = forwardRef(function MapView(props, ref) {
           setShowFeaturePanel(true);
           return;
         }
-        
+
         // Handle search result click
         const featureIndex = clickedGraphic.attributes?._index;
         if (featureIndex !== undefined && searchResults?.features) {
           const feature = searchResults.features[featureIndex];
           if (feature) {
-            handleFeatureSelect(feature);
+            // Try to find the source layer for custom popup support
+            const customLayerId = activeMap?.customFeatureInfo?.layerId;
+            let sourceLayer = null;
+            if (customLayerId && mapRef.current) {
+              sourceLayer = mapRef.current.allLayers?.find(l => l.id === customLayerId);
+            }
+            // Add the layer ID to the feature for FeatureInfoPanel
+            const enrichedFeature = sourceLayer ? {
+              ...feature,
+              sourceLayerId: customLayerId
+            } : feature;
+            handleFeatureSelect(enrichedFeature, null, sourceLayer);
           }
         }
         return;
       }
 
       // Check for operational layer hits
-      const layerHits = response.results.filter(r => 
-        r.graphic && 
-        r.graphic.layer && 
+      const layerHits = response.results.filter(r =>
+        r.graphic &&
+        r.graphic.layer &&
         r.graphic.layer.id !== RESULTS_LAYER_ID &&
         r.graphic.layer.id !== HIGHLIGHT_LAYER_ID &&
         r.graphic.layer.id !== PUSHPIN_LAYER_ID &&
@@ -420,10 +432,11 @@ const MapView = forwardRef(function MapView(props, ref) {
         const hit = layerHits[0];
         const feature = {
           geometry: hit.graphic.geometry?.toJSON?.() || hit.graphic.geometry,
-          attributes: hit.graphic.attributes || {}
+          attributes: hit.graphic.attributes || {},
+          sourceLayerId: hit.graphic.layer?.id
         };
-        
-        handleFeatureSelect(feature, hit.graphic);
+
+        handleFeatureSelect(feature, hit.graphic, hit.graphic.layer);
       }
       
     } catch (err) {
@@ -434,17 +447,33 @@ const MapView = forwardRef(function MapView(props, ref) {
   /**
    * Handle feature selection (opens FeatureInfoPanel)
    */
-  const handleFeatureSelect = useCallback((feature, graphic = null) => {
-    setSelectedFeature(feature);
+  const handleFeatureSelect = useCallback((feature, graphic = null, layer = null) => {
+    // If no layer provided, try to find the custom feature layer
+    let resolvedLayer = layer;
+    let enrichedFeature = feature;
+
+    if (!layer && activeMap?.customFeatureInfo?.layerId && mapRef.current) {
+      const customLayerId = activeMap.customFeatureInfo.layerId;
+      resolvedLayer = mapRef.current.allLayers?.find(l => l.id === customLayerId);
+      if (resolvedLayer) {
+        enrichedFeature = {
+          ...feature,
+          sourceLayerId: customLayerId
+        };
+      }
+    }
+
+    setSelectedFeature(enrichedFeature);
+    setSelectedFeatureLayer(resolvedLayer);
     setIsMarkupFeature(false);
     setShowFeaturePanel(true);
-    
+
     // Highlight the feature
     highlightFeature(feature);
-    
+
     // Query for related features if configured
     queryRelatedFeatures(feature, graphic);
-  }, []);
+  }, [activeMap?.customFeatureInfo?.layerId]);
 
   /**
    * Query related features based on config
@@ -819,6 +848,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const handleCloseFeaturePanel = useCallback(() => {
     setShowFeaturePanel(false);
     setSelectedFeature(null);
+    setSelectedFeatureLayer(null);
     setRelatedFeatures([]);
     setIsMarkupFeature(false);
     if (highlightLayerRef.current) {
@@ -1188,6 +1218,8 @@ const MapView = forwardRef(function MapView(props, ref) {
           feature={selectedFeature}
           view={viewRef.current}
           config={config}
+          customFeatureInfo={activeMap?.customFeatureInfo}
+          sourceLayer={selectedFeatureLayer}
           onClose={handleCloseFeaturePanel}
           onSaveAsMarkup={handleSaveAsMarkup}
           onExportPDF={handleExportPDF}
