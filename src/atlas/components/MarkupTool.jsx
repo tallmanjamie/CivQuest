@@ -692,39 +692,62 @@ export default function MarkupTool({
       createdAt: Date.now()
     };
 
-    event.graphic.attributes = attributes;
-
     // Handle text tool - use the textContent from settings
     if (currentTool === 'text') {
       const textInput = settings.textContent || 'Label';
       const rgb = hexToRgb(settings.textColor.value);
-      event.graphic.symbol = {
-        type: 'text',
-        color: [...rgb, settings.textOpacity],
-        text: textInput,
-        font: {
-          size: settings.textSize,
-          weight: 'bold',
-          family: settings.textFont
-        },
-        haloColor: [255, 255, 255, 1],
-        haloSize: 2
-      };
-      event.graphic.attributes.text = textInput;
-      event.graphic.attributes.title = textInput;
-    }
 
-    // Update list
-    setMarkups(prev => [...prev, event.graphic]);
+      // Remove the original point marker graphic that SketchViewModel created
+      if (markupLayerRef.current) {
+        markupLayerRef.current.remove(event.graphic);
+      }
+
+      // Create a new graphic with the text symbol
+      const textGraphic = new Graphic({
+        geometry: event.graphic.geometry,
+        symbol: {
+          type: 'text',
+          color: [...rgb, settings.textOpacity],
+          text: textInput,
+          font: {
+            size: settings.textSize,
+            weight: 'bold',
+            family: settings.textFont
+          },
+          haloColor: [255, 255, 255, 1],
+          haloSize: 2
+        },
+        attributes: {
+          ...attributes,
+          text: textInput,
+          title: textInput
+        }
+      });
+
+      // Add the text graphic to the layer
+      if (markupLayerRef.current) {
+        markupLayerRef.current.add(textGraphic);
+      }
+
+      // Update list with the text graphic instead
+      setMarkups(prev => [...prev, textGraphic]);
+    } else {
+      event.graphic.attributes = attributes;
+      // Update list
+      setMarkups(prev => [...prev, event.graphic]);
+    }
 
     // Create label graphic if showLabel is enabled and we have a measurement
     if (showLabel && measurement && markupLayerRef.current) {
       let labelPoint = null;
+      let labelYOffset = 15; // Default: place label above
 
       if (geometry.type === 'point') {
         labelPoint = geometry;
+        labelYOffset = 20; // Place above point marker
       } else if (geometry.type === 'polygon') {
         labelPoint = geometry.centroid;
+        labelYOffset = 0; // Center on polygon
       } else if (geometry.type === 'polyline') {
         // Get the midpoint of the line
         const paths = geometry.paths[0];
@@ -734,6 +757,7 @@ export default function MarkupTool({
           y: paths[midIndex][1],
           spatialReference: geometry.spatialReference
         });
+        labelYOffset = 15; // Place above line
       }
 
       if (labelPoint) {
@@ -750,7 +774,7 @@ export default function MarkupTool({
             },
             haloColor: [255, 255, 255, 1],
             haloSize: 2,
-            yoffset: -15
+            yoffset: labelYOffset
           },
           attributes: {
             id: `label_${id}`,
@@ -946,6 +970,15 @@ export default function MarkupTool({
                 : toolType === 'text' ? Type
                 : Circle;
 
+              // Get display name based on tool type
+              const typeNames = {
+                point: 'Point',
+                polyline: 'Line',
+                polygon: 'Polygon',
+                text: 'Text'
+              };
+              const displayName = typeNames[toolType] || 'Markup';
+
               return (
               <div
                 key={markup.attributes?.id || idx}
@@ -958,7 +991,7 @@ export default function MarkupTool({
                   strokeWidth={toolType === 'polygon' ? 1 : 2}
                 />
                 <span className="flex-1 text-xs text-slate-700 truncate">
-                  {markup.attributes?.title || 'Markup'}
+                  {displayName}
                 </span>
                 {markup.attributes?.metric && (
                   <span className="text-xs text-slate-400 hidden sm:inline">
