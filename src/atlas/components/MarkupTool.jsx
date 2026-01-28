@@ -1,6 +1,6 @@
 // src/atlas/components/MarkupTool.jsx
 // CivQuest Atlas - Enhanced Markup Tool Component
-// Drawing tools with color, style, and folder management
+// Drawing tools with per-type settings and markup management
 //
 // FIXED: Uses isExpanded prop (matching MapView), inline layout
 
@@ -13,7 +13,10 @@ import {
   Type,
   X,
   Trash2,
-  Settings
+  ChevronDown,
+  ChevronRight,
+  ZoomIn,
+  MessageSquare
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -42,6 +45,32 @@ const COLORS = [
   { name: 'White', value: '#ffffff', dark: '#e2e8f0' }
 ];
 
+// Point marker types
+const POINT_TYPES = [
+  { id: 'circle', label: 'Circle' },
+  { id: 'square', label: 'Square' },
+  { id: 'diamond', label: 'Diamond' },
+  { id: 'cross', label: 'Cross' },
+  { id: 'x', label: 'X' }
+];
+
+// Line style types
+const LINE_TYPES = [
+  { id: 'solid', label: 'Solid' },
+  { id: 'dash', label: 'Dash' },
+  { id: 'dot', label: 'Dot' },
+  { id: 'dash-dot', label: 'Dash-Dot' }
+];
+
+// Font families
+const FONT_FAMILIES = [
+  { id: 'sans-serif', label: 'Sans Serif' },
+  { id: 'serif', label: 'Serif' },
+  { id: 'monospace', label: 'Monospace' },
+  { id: 'Arial', label: 'Arial' },
+  { id: 'Georgia', label: 'Georgia' }
+];
+
 // Helper to convert hex to RGB array
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -53,9 +82,208 @@ const hexToRgb = (hex) => {
 };
 
 /**
+ * Color picker component
+ */
+function ColorPicker({ value, onChange, label }) {
+  return (
+    <div>
+      <label className="text-xs text-slate-500 mb-1 block">{label}</label>
+      <div className="flex flex-wrap gap-1">
+        {COLORS.map(color => (
+          <button
+            key={color.value}
+            onClick={() => onChange(color)}
+            className={`w-5 h-5 rounded-full border-2 transition
+                       ${value.value === color.value
+                         ? 'border-slate-800 scale-110'
+                         : 'border-transparent hover:scale-105'}`}
+            style={{ backgroundColor: color.value }}
+            title={color.name}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Slider component
+ */
+function Slider({ value, onChange, min, max, step = 1, label, suffix = '' }) {
+  return (
+    <div>
+      <label className="text-xs text-slate-500 mb-1 block">
+        {label}: {typeof value === 'number' && value < 1 && step < 1
+          ? Math.round(value * 100) + '%'
+          : value}{suffix}
+      </label>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value))}
+        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+      />
+    </div>
+  );
+}
+
+/**
+ * Select dropdown component
+ */
+function Select({ value, onChange, options, label }) {
+  return (
+    <div>
+      <label className="text-xs text-slate-500 mb-1 block">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full text-xs px-2 py-1 border border-slate-200 rounded bg-white text-slate-700"
+      >
+        {options.map(opt => (
+          <option key={opt.id} value={opt.id}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/**
+ * Settings panel for each tool type
+ */
+function ToolSettings({ type, settings, onChange }) {
+  const updateSetting = (key, value) => {
+    onChange({ ...settings, [key]: value });
+  };
+
+  if (type === 'point') {
+    return (
+      <div className="space-y-2 p-2 bg-slate-50 rounded text-xs">
+        <Select
+          label="Type"
+          value={settings.pointType}
+          onChange={(v) => updateSetting('pointType', v)}
+          options={POINT_TYPES}
+        />
+        <ColorPicker
+          label="Color"
+          value={settings.pointColor}
+          onChange={(v) => updateSetting('pointColor', v)}
+        />
+        <Slider
+          label="Size"
+          value={settings.pointSize}
+          onChange={(v) => updateSetting('pointSize', v)}
+          min={4} max={24}
+        />
+        <Slider
+          label="Opacity"
+          value={settings.pointOpacity}
+          onChange={(v) => updateSetting('pointOpacity', v)}
+          min={0} max={1} step={0.1}
+        />
+      </div>
+    );
+  }
+
+  if (type === 'polyline') {
+    return (
+      <div className="space-y-2 p-2 bg-slate-50 rounded text-xs">
+        <Select
+          label="Type"
+          value={settings.lineType}
+          onChange={(v) => updateSetting('lineType', v)}
+          options={LINE_TYPES}
+        />
+        <ColorPicker
+          label="Color"
+          value={settings.lineColor}
+          onChange={(v) => updateSetting('lineColor', v)}
+        />
+        <Slider
+          label="Size"
+          value={settings.lineWidth}
+          onChange={(v) => updateSetting('lineWidth', v)}
+          min={1} max={10}
+        />
+        <Slider
+          label="Opacity"
+          value={settings.lineOpacity}
+          onChange={(v) => updateSetting('lineOpacity', v)}
+          min={0} max={1} step={0.1}
+        />
+      </div>
+    );
+  }
+
+  if (type === 'polygon') {
+    return (
+      <div className="space-y-2 p-2 bg-slate-50 rounded text-xs">
+        <ColorPicker
+          label="Line Color"
+          value={settings.polygonLineColor}
+          onChange={(v) => updateSetting('polygonLineColor', v)}
+        />
+        <ColorPicker
+          label="Fill Color"
+          value={settings.polygonFillColor}
+          onChange={(v) => updateSetting('polygonFillColor', v)}
+        />
+        <Slider
+          label="Line Size"
+          value={settings.polygonLineWidth}
+          onChange={(v) => updateSetting('polygonLineWidth', v)}
+          min={1} max={10}
+        />
+        <Slider
+          label="Opacity"
+          value={settings.polygonOpacity}
+          onChange={(v) => updateSetting('polygonOpacity', v)}
+          min={0} max={1} step={0.1}
+        />
+      </div>
+    );
+  }
+
+  if (type === 'text') {
+    return (
+      <div className="space-y-2 p-2 bg-slate-50 rounded text-xs">
+        <Select
+          label="Font"
+          value={settings.textFont}
+          onChange={(v) => updateSetting('textFont', v)}
+          options={FONT_FAMILIES}
+        />
+        <ColorPicker
+          label="Color"
+          value={settings.textColor}
+          onChange={(v) => updateSetting('textColor', v)}
+        />
+        <Slider
+          label="Size"
+          value={settings.textSize}
+          onChange={(v) => updateSetting('textSize', v)}
+          min={8} max={32}
+        />
+        <Slider
+          label="Opacity"
+          value={settings.textOpacity}
+          onChange={(v) => updateSetting('textOpacity', v)}
+          min={0} max={1} step={0.1}
+        />
+      </div>
+    );
+  }
+
+  return null;
+}
+
+/**
  * MarkupTool Component
- * Enhanced drawing tool with styling options
- * 
+ * Enhanced drawing tool with per-type settings
+ *
  * Props match what MapView passes:
  * - isExpanded (not isOpen)
  * - onToggle
@@ -65,7 +293,7 @@ export default function MarkupTool({
   graphicsLayer,
   config,
   mapId,
-  isExpanded = false,  // MapView passes isExpanded
+  isExpanded = false,
   onToggle,
   onFeatureClick,
   className = ''
@@ -76,16 +304,34 @@ export default function MarkupTool({
 
   // State
   const [activeTool, setActiveTool] = useState(null);
+  const [expandedSettings, setExpandedSettings] = useState(null);
   const [markups, setMarkups] = useState([]);
   const [folders, setFolders] = useState([{ id: 'default', name: 'My Markup' }]);
   const [activeFolder, setActiveFolder] = useState('default');
-  const [showSettings, setShowSettings] = useState(false);
 
-  // Style settings
-  const [currentColor, setCurrentColor] = useState(COLORS[0]);
-  const [lineWidth, setLineWidth] = useState(2);
-  const [pointSize, setPointSize] = useState(10);
-  const [fillOpacity, setFillOpacity] = useState(0.4);
+  // Per-type settings
+  const [settings, setSettings] = useState({
+    // Point settings
+    pointType: 'circle',
+    pointColor: COLORS[0],
+    pointSize: 10,
+    pointOpacity: 0.8,
+    // Line settings
+    lineType: 'solid',
+    lineColor: COLORS[1],
+    lineWidth: 2,
+    lineOpacity: 1,
+    // Polygon settings
+    polygonLineColor: COLORS[2],
+    polygonFillColor: COLORS[2],
+    polygonLineWidth: 2,
+    polygonOpacity: 0.4,
+    // Text settings
+    textFont: 'sans-serif',
+    textColor: COLORS[8],
+    textSize: 14,
+    textOpacity: 1
+  });
 
   // Refs
   const sketchVMRef = useRef(null);
@@ -189,52 +435,55 @@ export default function MarkupTool({
    * Get symbol for current settings
    */
   const getSymbol = useCallback((type) => {
-    const rgb = hexToRgb(currentColor.value);
-
     if (type === 'point') {
+      const rgb = hexToRgb(settings.pointColor.value);
       return {
         type: 'simple-marker',
-        style: 'circle',
-        color: [...rgb, 0.8],
-        size: pointSize,
+        style: settings.pointType,
+        color: [...rgb, settings.pointOpacity],
+        size: settings.pointSize,
         outline: {
-          color: hexToRgb(currentColor.dark),
+          color: hexToRgb(settings.pointColor.dark),
           width: 2
         }
       };
     }
 
     if (type === 'polyline') {
+      const rgb = hexToRgb(settings.lineColor.value);
       return {
         type: 'simple-line',
-        style: 'solid',
-        color: [...rgb, 1],
-        width: lineWidth
+        style: settings.lineType,
+        color: [...rgb, settings.lineOpacity],
+        width: settings.lineWidth
       };
     }
 
     if (type === 'polygon') {
+      const lineRgb = hexToRgb(settings.polygonLineColor.value);
+      const fillRgb = hexToRgb(settings.polygonFillColor.value);
       return {
         type: 'simple-fill',
         style: 'solid',
-        color: [...rgb, fillOpacity],
+        color: [...fillRgb, settings.polygonOpacity],
         outline: {
-          color: [...rgb, 1],
+          color: [...lineRgb, 1],
           style: 'solid',
-          width: lineWidth
+          width: settings.polygonLineWidth
         }
       };
     }
 
     if (type === 'text') {
+      const rgb = hexToRgb(settings.textColor.value);
       return {
         type: 'text',
-        color: [...rgb, 1],
+        color: [...rgb, settings.textOpacity],
         text: 'Text',
         font: {
-          size: 14,
+          size: settings.textSize,
           weight: 'bold',
-          family: 'sans-serif'
+          family: settings.textFont
         },
         haloColor: [255, 255, 255, 1],
         haloSize: 2
@@ -242,7 +491,7 @@ export default function MarkupTool({
     }
 
     return null;
-  }, [currentColor, pointSize, lineWidth, fillOpacity]);
+  }, [settings]);
 
   /**
    * Start drawing
@@ -261,7 +510,7 @@ export default function MarkupTool({
 
     // Configure symbol
     const symbol = getSymbol(tool);
-    
+
     if (tool === 'point') {
       sketchVMRef.current.pointSymbol = symbol;
     } else if (tool === 'polyline') {
@@ -292,12 +541,18 @@ export default function MarkupTool({
       measurement = `${length.toFixed(0)} ft`;
     }
 
+    // Determine color for display
+    let displayColor = settings.pointColor.value;
+    if (activeTool === 'polyline') displayColor = settings.lineColor.value;
+    if (activeTool === 'polygon') displayColor = settings.polygonFillColor.value;
+    if (activeTool === 'text') displayColor = settings.textColor.value;
+
     // Create attributes
     const attributes = {
       id,
       title: 'New Markup',
       tool: activeTool,
-      color: currentColor.value,
+      color: displayColor,
       folderId: activeFolder,
       metric: measurement,
       createdAt: Date.now()
@@ -309,15 +564,21 @@ export default function MarkupTool({
     if (activeTool === 'text') {
       const textInput = prompt('Enter text:', 'Label');
       if (textInput) {
+        const rgb = hexToRgb(settings.textColor.value);
         event.graphic.symbol = {
           type: 'text',
-          color: hexToRgb(currentColor.value),
+          color: [...rgb, settings.textOpacity],
           text: textInput,
-          font: { size: 14, weight: 'bold', family: 'sans-serif' },
+          font: {
+            size: settings.textSize,
+            weight: 'bold',
+            family: settings.textFont
+          },
           haloColor: [255, 255, 255, 1],
           haloSize: 2
         };
         event.graphic.attributes.text = textInput;
+        event.graphic.attributes.title = textInput;
       }
     }
 
@@ -325,6 +586,49 @@ export default function MarkupTool({
     setMarkups(prev => [...prev, event.graphic]);
     saveMarkups();
     setActiveTool(null);
+  };
+
+  /**
+   * Zoom to markup
+   */
+  const zoomToMarkup = (graphic) => {
+    if (!view || !graphic.geometry) return;
+
+    const geometry = graphic.geometry;
+    if (geometry.type === 'point') {
+      view.goTo({
+        target: geometry,
+        zoom: 18
+      }, { duration: 500 });
+    } else {
+      view.goTo({
+        target: geometry.extent.expand(1.5)
+      }, { duration: 500 });
+    }
+  };
+
+  /**
+   * Open popup for markup
+   */
+  const openMarkupPopup = (graphic) => {
+    if (!view || !graphic.geometry) return;
+
+    const attrs = graphic.attributes || {};
+
+    view.popup.open({
+      title: attrs.title || 'Markup',
+      content: `
+        <div style="font-size: 13px; line-height: 1.5;">
+          ${attrs.text ? `<p><strong>Text:</strong> ${attrs.text}</p>` : ''}
+          ${attrs.metric ? `<p><strong>Measurement:</strong> ${attrs.metric}</p>` : ''}
+          <p><strong>Type:</strong> ${attrs.tool || 'unknown'}</p>
+          <p><strong>Created:</strong> ${attrs.createdAt ? new Date(attrs.createdAt).toLocaleString() : 'unknown'}</p>
+        </div>
+      `,
+      location: graphic.geometry.type === 'point'
+        ? graphic.geometry
+        : graphic.geometry.extent?.center
+    });
   };
 
   /**
@@ -346,6 +650,13 @@ export default function MarkupTool({
     markupLayerRef.current.removeAll();
     setMarkups([]);
     saveMarkups();
+  };
+
+  /**
+   * Toggle settings for a tool
+   */
+  const toggleSettings = (toolId) => {
+    setExpandedSettings(expandedSettings === toolId ? null : toolId);
   };
 
   // Tool definitions
@@ -375,11 +686,11 @@ export default function MarkupTool({
   return (
     <div
       ref={panelRef}
-      className={`bg-white rounded-lg shadow-xl border border-slate-200 w-72 
+      className={`bg-white rounded-lg shadow-xl border border-slate-200 w-72
                  flex flex-col max-h-[70vh] ${className}`}
     >
       {/* Header */}
-      <div 
+      <div
         className="flex items-center justify-between px-3 py-2 border-b border-slate-200 flex-shrink-0"
         style={{ backgroundColor: colors.bg50 }}
       >
@@ -387,101 +698,62 @@ export default function MarkupTool({
           <Pencil className="w-4 h-4" style={{ color: colors.text600 }} />
           <span className="text-sm font-semibold text-slate-700">Markup</span>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={`p-1.5 rounded transition ${showSettings ? 'bg-slate-200' : 'hover:bg-slate-100'}`}
-            title="Style Settings"
-          >
-            <Settings className="w-4 h-4 text-slate-500" />
-          </button>
-          <button onClick={onToggle} className="p-1.5 hover:bg-slate-100 rounded">
-            <X className="w-4 h-4 text-slate-500" />
-          </button>
-        </div>
+        <button onClick={onToggle} className="p-1 hover:bg-slate-100 rounded">
+          <X className="w-4 h-4 text-slate-500" />
+        </button>
       </div>
 
-      {/* Drawing Tools */}
-      <div className="p-3 border-b border-slate-200">
-        <div className="grid grid-cols-4 gap-2">
+      {/* Drawing Tools - Compact */}
+      <div className="p-2 border-b border-slate-200">
+        <div className="space-y-1">
           {tools.map(tool => (
-            <button
-              key={tool.id}
-              onClick={() => startDrawing(tool.id)}
-              className={`flex flex-col items-center gap-1 p-2 rounded-lg transition
-                         ${activeTool === tool.id 
-                           ? 'ring-2 ring-offset-1' 
-                           : 'hover:bg-slate-100 border border-slate-200'}`}
-              style={activeTool === tool.id ? {
-                backgroundColor: colors.bg50,
-                ringColor: colors.bg500
-              } : {}}
-              title={tool.label}
-            >
-              <tool.icon 
-                className="w-5 h-5" 
-                style={{ color: activeTool === tool.id ? colors.text600 : '#64748b' }}
-              />
-              <span className="text-xs text-slate-600">{tool.label}</span>
-            </button>
+            <div key={tool.id}>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => startDrawing(tool.id)}
+                  className={`flex items-center gap-2 flex-1 px-2 py-1.5 rounded transition text-left
+                             ${activeTool === tool.id
+                               ? 'ring-2 ring-offset-1'
+                               : 'hover:bg-slate-100 border border-slate-200'}`}
+                  style={activeTool === tool.id ? {
+                    backgroundColor: colors.bg50,
+                    ringColor: colors.bg500
+                  } : {}}
+                  title={`Draw ${tool.label}`}
+                >
+                  <tool.icon
+                    className="w-4 h-4"
+                    style={{ color: activeTool === tool.id ? colors.text600 : '#64748b' }}
+                  />
+                  <span className="text-xs text-slate-600">{tool.label}</span>
+                </button>
+                <button
+                  onClick={() => toggleSettings(tool.id)}
+                  className={`p-1.5 rounded transition ${expandedSettings === tool.id
+                    ? 'bg-slate-200'
+                    : 'hover:bg-slate-100'}`}
+                  title={`${tool.label} Settings`}
+                >
+                  {expandedSettings === tool.id
+                    ? <ChevronDown className="w-3 h-3 text-slate-500" />
+                    : <ChevronRight className="w-3 h-3 text-slate-500" />
+                  }
+                </button>
+              </div>
+              {/* Per-tool settings */}
+              {expandedSettings === tool.id && (
+                <div className="mt-1 ml-1">
+                  <ToolSettings
+                    type={tool.id}
+                    settings={settings}
+                    onChange={setSettings}
+                  />
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>
-
-      {/* Settings Panel */}
-      {showSettings && (
-        <div className="p-3 border-b border-slate-200 space-y-3">
-          {/* Color Picker */}
-          <div>
-            <label className="text-xs font-semibold text-slate-600 mb-2 block">Color</label>
-            <div className="flex flex-wrap gap-1">
-              {COLORS.map(color => (
-                <button
-                  key={color.value}
-                  onClick={() => setCurrentColor(color)}
-                  className={`w-6 h-6 rounded-full border-2 transition
-                             ${currentColor.value === color.value 
-                               ? 'border-slate-800 scale-110' 
-                               : 'border-transparent hover:scale-105'}`}
-                  style={{ backgroundColor: color.value }}
-                  title={color.name}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Line Width */}
-          <div>
-            <label className="text-xs font-semibold text-slate-600 mb-1 block">
-              Line Width: {lineWidth}px
-            </label>
-            <input
-              type="range"
-              min="1"
-              max="10"
-              value={lineWidth}
-              onChange={(e) => setLineWidth(parseInt(e.target.value))}
-              className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-            />
-          </div>
-
-          {/* Fill Opacity */}
-          <div>
-            <label className="text-xs font-semibold text-slate-600 mb-1 block">
-              Fill Opacity: {Math.round(fillOpacity * 100)}%
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={fillOpacity}
-              onChange={(e) => setFillOpacity(parseFloat(e.target.value))}
-              className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-            />
-          </div>
-        </div>
-      )}
 
       {/* Markup List */}
       <div className="flex-1 overflow-y-auto p-2">
@@ -494,7 +766,7 @@ export default function MarkupTool({
             {markups.map((markup, idx) => (
               <div
                 key={markup.attributes?.id || idx}
-                className="flex items-center gap-2 p-2 rounded hover:bg-slate-50 group"
+                className="flex items-center gap-2 p-1.5 rounded hover:bg-slate-50 group"
               >
                 <div
                   className="w-3 h-3 rounded-full flex-shrink-0"
@@ -504,16 +776,34 @@ export default function MarkupTool({
                   {markup.attributes?.title || 'Markup'}
                 </span>
                 {markup.attributes?.metric && (
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-400 hidden sm:inline">
                     {markup.attributes.metric}
                   </span>
                 )}
-                <button
-                  onClick={() => deleteMarkup(markup)}
-                  className="p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition"
-                >
-                  <Trash2 className="w-3 h-3 text-red-500" />
-                </button>
+                {/* Action buttons */}
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    onClick={() => zoomToMarkup(markup)}
+                    className="p-1 hover:bg-blue-100 rounded transition"
+                    title="Zoom to"
+                  >
+                    <ZoomIn className="w-3 h-3 text-blue-500" />
+                  </button>
+                  <button
+                    onClick={() => openMarkupPopup(markup)}
+                    className="p-1 hover:bg-green-100 rounded transition"
+                    title="Open popup"
+                  >
+                    <MessageSquare className="w-3 h-3 text-green-500" />
+                  </button>
+                  <button
+                    onClick={() => deleteMarkup(markup)}
+                    className="p-1 hover:bg-red-100 rounded transition"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3 h-3 text-red-500" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
