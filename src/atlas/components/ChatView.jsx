@@ -797,6 +797,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
             botAvatar={botAvatar}
             colors={colors}
             tableColumns={activeMap?.tableColumns}
+            searchFields={activeMap?.searchFields || config?.data?.searchFields}
             onViewMap={() => setMode('map')}
             onViewTable={() => setMode('table')}
             onExportCSV={exportCSV}
@@ -842,16 +843,29 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
 
 /**
  * Results Table Component - shows preview of multiple results
+ * Uses searchFields with chatResults: true, or falls back to tableColumns
  */
-function ResultsTable({ features, tableColumns, colors }) {
-  // Get columns to display (use tableColumns or auto-generate)
+function ResultsTable({ features, tableColumns, searchFields, colors }) {
+  // Priority: searchFields with chatResults: true > tableColumns > auto-generate
   let columns;
-  if (tableColumns && tableColumns.length > 0) {
+
+  // First, check for searchFields with chatResults enabled
+  const chatResultsFields = searchFields?.filter(sf => sf.chatResults === true) || [];
+
+  if (chatResultsFields.length > 0) {
+    // Use fields marked for chat results (limit to 5 for table preview)
+    columns = chatResultsFields.slice(0, 5).map(sf => ({
+      field: sf.field,
+      headerName: sf.label || sf.field
+    }));
+  } else if (tableColumns && tableColumns.length > 0) {
+    // Fall back to tableColumns if no chatResults fields configured
     columns = tableColumns.slice(0, 5).map(col => ({
       field: col.field,
       headerName: col.headerName || col.field
     }));
   } else if (features?.[0]?.attributes) {
+    // Fallback to auto-generated columns
     columns = Object.keys(features[0].attributes)
       .filter(k => !k.startsWith('_') && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
       .slice(0, 5)
@@ -902,7 +916,7 @@ function ResultsTable({ features, tableColumns, colors }) {
 /**
  * Message Bubble Component
  */
-function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onExportCSV, onExportPDF, tableColumns }) {
+function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onExportCSV, onExportPDF, tableColumns, searchFields }) {
   if (message.type === 'user') {
     return (
       <div className="flex justify-end">
@@ -953,7 +967,7 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onE
         {/* Single result: show details with View in Map and Export PDF buttons */}
         {message.showDetails && message.feature && (
           <div className="mt-3 pt-3 border-t border-slate-100">
-            <FeatureDetails feature={message.feature} colors={colors} tableColumns={tableColumns} />
+            <FeatureDetails feature={message.feature} colors={colors} tableColumns={tableColumns} searchFields={searchFields} />
             <div className="mt-3 flex gap-2">
               <button
                 onClick={onViewMap}
@@ -979,7 +993,7 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onE
         {/* Multiple results: show table preview with View on Map, View in Table, and Export CSV buttons */}
         {message.showResultActions && message.features && (
           <div className="mt-3 pt-3 border-t border-slate-100">
-            <ResultsTable features={message.features} tableColumns={tableColumns} colors={colors} />
+            <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} />
             <div className="mt-3 flex gap-2 flex-wrap">
               <button
                 onClick={onViewMap}
@@ -1014,14 +1028,28 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onE
 }
 
 /**
- * Feature Details Component - uses tableColumns configuration
+ * Feature Details Component - uses searchFields with chatResults: true, or falls back to tableColumns
  */
-function FeatureDetails({ feature, colors, tableColumns }) {
+function FeatureDetails({ feature, colors, tableColumns, searchFields }) {
   const attrs = feature.attributes || {};
 
-  // Use tableColumns if available, otherwise fall back to auto-generated fields
+  // Priority: searchFields with chatResults: true > tableColumns > auto-generated
   let displayFields;
-  if (tableColumns && tableColumns.length > 0) {
+
+  // First, check for searchFields with chatResults enabled
+  const chatResultsFields = searchFields?.filter(sf => sf.chatResults === true) || [];
+
+  if (chatResultsFields.length > 0) {
+    // Use fields marked for chat results
+    displayFields = chatResultsFields
+      .filter(sf => attrs[sf.field] != null)
+      .map(sf => ({
+        key: sf.field,
+        label: sf.label || sf.field,
+        value: attrs[sf.field]
+      }));
+  } else if (tableColumns && tableColumns.length > 0) {
+    // Fall back to tableColumns if no chatResults fields configured
     displayFields = tableColumns
       .filter(col => attrs[col.field] != null)
       .map(col => ({
