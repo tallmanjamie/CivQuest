@@ -9,7 +9,9 @@ import {
   Trash2,
   ZoomIn,
   MessageSquare,
-  Plus
+  Plus,
+  Edit3,
+  Check
 } from 'lucide-react';
 
 /**
@@ -191,6 +193,7 @@ export default function MarkupTool({
   const [activeTool, setActiveTool] = useState(null);
   const [expandedSettings, setExpandedSettings] = useState(null);
   const [markups, setMarkups] = useState([]);
+  const [editingMarkup, setEditingMarkup] = useState(null); // The graphic currently being edited
   
   const [settings, setSettings] = useState({
     pointType: 'circle',
@@ -223,9 +226,56 @@ export default function MarkupTool({
   const layerRef = useRef(null);
   const activeToolRef = useRef(null);
   const settingsRef = useRef(settings);
+  const editingMarkupRef = useRef(null);
 
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { editingMarkupRef.current = editingMarkup; }, [editingMarkup]);
+
+  // Helper to find color object from hex value
+  const findColorByValue = (hexValue) => {
+    if (!hexValue) return COLORS[1];
+    const found = COLORS.find(c => c.value.toLowerCase() === hexValue.toLowerCase());
+    return found || { name: 'Custom', value: hexValue, dark: hexValue };
+  };
+
+  // Extract settings from an existing graphic
+  const extractSettingsFromGraphic = useCallback((graphic) => {
+    const tool = graphic.attributes?.tool;
+    const symbol = graphic.symbol;
+
+    if (!tool || !symbol) return null;
+
+    const extracted = {};
+
+    if (tool === 'point') {
+      extracted.pointType = symbol.style || 'circle';
+      extracted.pointColor = findColorByValue(graphic.attributes?.color);
+      extracted.pointSize = symbol.size || 10;
+      extracted.pointOpacity = Array.isArray(symbol.color) ? symbol.color[3] : 0.9;
+    } else if (tool === 'polyline') {
+      extracted.lineType = symbol.style || 'solid';
+      extracted.lineColor = findColorByValue(graphic.attributes?.color);
+      extracted.lineWidth = symbol.width || 3;
+      extracted.lineOpacity = Array.isArray(symbol.color) ? symbol.color[3] : 1;
+    } else if (tool === 'polygon') {
+      extracted.polygonLineType = symbol.outline?.style || 'solid';
+      extracted.polygonFillColor = findColorByValue(graphic.attributes?.color);
+      extracted.polygonLineColor = findColorByValue(symbol.outline?.color ?
+        `#${symbol.outline.color.slice(0,3).map(c => c.toString(16).padStart(2,'0')).join('')}` :
+        graphic.attributes?.color);
+      extracted.polygonLineWidth = symbol.outline?.width || 2;
+      extracted.polygonOpacity = Array.isArray(symbol.color) ? symbol.color[3] : 0.35;
+    } else if (tool === 'text') {
+      extracted.textContent = symbol.text || 'Label';
+      extracted.textColor = findColorByValue(graphic.attributes?.color);
+      extracted.textFont = symbol.font?.family || 'sans-serif';
+      extracted.textSize = symbol.font?.size || 14;
+      extracted.textOpacity = Array.isArray(symbol.color) ? symbol.color[3] : 1;
+    }
+
+    return extracted;
+  }, []);
 
   const getSymbol = useCallback((type, s) => {
     if (!s) return null;
@@ -381,6 +431,59 @@ export default function MarkupTool({
       }
     });
 
+    // Handle update events for editing geometry
+    sketchVM.on('update', (event) => {
+      if (event.state === 'complete') {
+        // Editing is complete, update metrics if geometry changed
+        const graphic = event.graphics?.[0];
+        if (graphic && graphic.attributes?.isMarkup) {
+          const tool = graphic.attributes?.tool;
+          const s = settingsRef.current;
+          let metricText = '';
+
+          try {
+            if (tool === 'point' || tool === 'text') {
+              const lon = graphic.geometry.longitude || graphic.geometry.x;
+              const lat = graphic.geometry.latitude || graphic.geometry.y;
+              const unit = s.pointMeasurementUnit;
+              if (unit === 'dd') metricText = `${lat.toFixed(6)}°, ${lon.toFixed(6)}°`;
+              else if (unit === 'dms') metricText = `${toDMS(lat, true)}, ${toDMS(lon, false)}`;
+              else if (unit === 'latlon') metricText = `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
+            } else if (tool === 'polyline' && geometryEngine) {
+              const len = geometryEngine.geodesicLength(graphic.geometry, s.lineMeasurementUnit);
+              const labelMap = { feet: 'ft', meters: 'm', miles: 'mi', kilometers: 'km' };
+              metricText = `${len.toLocaleString(undefined, {maxFractionDigits:1})} ${labelMap[s.lineMeasurementUnit] || s.lineMeasurementUnit}`;
+            } else if (tool === 'polygon' && geometryEngine) {
+              const unitMapping = { 'acres': 'acres', 'sqfeet': 'square-feet', 'sqmeters': 'square-meters' };
+              const arcgisUnit = unitMapping[s.polygonMeasurementUnit] || 'acres';
+              const area = geometryEngine.geodesicArea(graphic.geometry, arcgisUnit);
+              const labelMap = { acres: 'ac', sqfeet: 'sq ft', sqmeters: 'sq m' };
+              metricText = `${area.toLocaleString(undefined, {maxFractionDigits:1})} ${labelMap[s.polygonMeasurementUnit] || s.polygonMeasurementUnit}`;
+            }
+
+            if (metricText) {
+              graphic.attributes.metric = metricText;
+            }
+          } catch (e) { console.error("Measurement update error:", e); }
+
+          // Clear editing state
+          if (editingMarkupRef.current === graphic) {
+            setEditingMarkup(null);
+            setExpandedSettings(null);
+          }
+
+          // Refresh markups list
+          setMarkups(prev => [...prev]);
+        }
+      } else if (event.state === 'cancel') {
+        // Editing was cancelled
+        if (editingMarkupRef.current) {
+          setEditingMarkup(null);
+          setExpandedSettings(null);
+        }
+      }
+    });
+
     sketchVMRef.current = sketchVM;
 
     return () => {
@@ -393,7 +496,13 @@ export default function MarkupTool({
 
   const startTool = (tool) => {
     if (!sketchVMRef.current) return;
-    
+
+    // Cancel any editing in progress
+    if (editingMarkup) {
+      sketchVMRef.current.cancel();
+      setEditingMarkup(null);
+    }
+
     if (activeTool === tool) {
       sketchVMRef.current.cancel();
       setActiveTool(null);
@@ -428,6 +537,125 @@ export default function MarkupTool({
     const target = graphic.geometry.type === 'point' ? { target: graphic.geometry, zoom: 16 } : graphic.geometry.extent.expand(1.5);
     view.goTo(target);
   };
+
+  // Start editing a markup - enables geometry editing and opens settings panel
+  const startEdit = (graphic) => {
+    if (!sketchVMRef.current || !graphic) return;
+
+    // Cancel any active creation tool
+    sketchVMRef.current.cancel();
+    setActiveTool(null);
+
+    // Extract settings from the graphic and update the settings state
+    const extracted = extractSettingsFromGraphic(graphic);
+    if (extracted) {
+      setSettings(prev => ({ ...prev, ...extracted }));
+    }
+
+    // Set editing state
+    setEditingMarkup(graphic);
+
+    // Map tool to settings panel key
+    const tool = graphic.attributes?.tool;
+    const settingsKey = tool === 'text' ? 'text' :
+                        tool === 'polyline' ? 'polyline' :
+                        tool === 'polygon' ? 'polygon' : 'point';
+    setExpandedSettings(settingsKey);
+
+    // Start geometry editing with SketchViewModel
+    sketchVMRef.current.update(graphic, {
+      tool: 'reshape',
+      enableRotation: false,
+      enableScaling: false,
+      preserveAspectRatio: false,
+      toggleToolOnClick: false
+    });
+
+    // Zoom to the graphic for better visibility
+    zoomTo(graphic);
+  };
+
+  // Cancel editing and restore original state
+  const cancelEdit = () => {
+    if (!sketchVMRef.current) return;
+    sketchVMRef.current.cancel();
+    setEditingMarkup(null);
+    setExpandedSettings(null);
+  };
+
+  // Complete editing
+  const completeEdit = () => {
+    if (!sketchVMRef.current) return;
+    sketchVMRef.current.complete();
+    setEditingMarkup(null);
+    setExpandedSettings(null);
+  };
+
+  // Apply symbol changes to the graphic being edited
+  const applySymbolToEditingMarkup = useCallback((newSettings) => {
+    const graphic = editingMarkupRef.current;
+    if (!graphic) return;
+
+    const tool = graphic.attributes?.tool;
+    let newSymbol;
+
+    if (tool === 'point') {
+      newSymbol = {
+        type: 'simple-marker',
+        style: newSettings.pointType || 'circle',
+        color: hexToRgba(newSettings.pointColor.value, newSettings.pointOpacity),
+        size: newSettings.pointSize,
+        outline: { color: hexToRgba(newSettings.pointColor.dark, 1), width: 1.5 }
+      };
+      graphic.attributes.color = newSettings.pointColor.value;
+      graphic.attributes.symbolStyle = newSettings.pointType;
+    } else if (tool === 'polyline') {
+      newSymbol = {
+        type: 'simple-line',
+        style: newSettings.lineType || 'solid',
+        color: hexToRgba(newSettings.lineColor.value, newSettings.lineOpacity),
+        width: newSettings.lineWidth
+      };
+      graphic.attributes.color = newSettings.lineColor.value;
+      graphic.attributes.symbolStyle = newSettings.lineType;
+    } else if (tool === 'polygon') {
+      newSymbol = {
+        type: 'simple-fill',
+        color: hexToRgba(newSettings.polygonFillColor.value, newSettings.polygonOpacity),
+        outline: {
+          color: hexToRgba(newSettings.polygonLineColor.value, 1),
+          style: newSettings.polygonLineType,
+          width: newSettings.polygonLineWidth
+        }
+      };
+      graphic.attributes.color = newSettings.polygonFillColor.value;
+      graphic.attributes.symbolStyle = newSettings.polygonLineType;
+    } else if (tool === 'text') {
+      newSymbol = {
+        type: 'text',
+        color: hexToRgba(newSettings.textColor.value, newSettings.textOpacity),
+        text: newSettings.textContent || 'Text',
+        font: { size: newSettings.textSize, family: newSettings.textFont, weight: 'bold' },
+        haloColor: [255, 255, 255, 0.8],
+        haloSize: 1.5
+      };
+      graphic.attributes.color = newSettings.textColor.value;
+      graphic.attributes.symbolStyle = newSettings.textFont;
+    }
+
+    if (newSymbol) {
+      graphic.symbol = newSymbol;
+      // Force markups state update to reflect changes in UI
+      setMarkups(prev => [...prev]);
+    }
+  }, []);
+
+  // Effect to apply symbol changes when editing
+  useEffect(() => {
+    if (editingMarkup) {
+      applySymbolToEditingMarkup(settings);
+    }
+  }, [settings, editingMarkup, applySymbolToEditingMarkup]);
 
   if (!isExpanded) {
     return (
@@ -468,8 +696,10 @@ export default function MarkupTool({
             <button
               key={t.id}
               onClick={() => startTool(t.id)}
+              disabled={!!editingMarkup}
               className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg border transition-all
-                ${activeTool === t.id ? 'bg-blue-50 border-blue-200 shadow-inner' : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm'}`}
+                ${activeTool === t.id ? 'bg-blue-50 border-blue-200 shadow-inner' : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm'}
+                ${editingMarkup ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <t.icon className={`w-3.5 h-3.5 ${activeTool === t.id ? 'text-blue-600' : 'text-slate-500'}`} />
               <span className={`text-[9px] font-bold uppercase tracking-wide ${activeTool === t.id ? 'text-blue-700' : 'text-slate-400'}`}>
@@ -482,6 +712,37 @@ export default function MarkupTool({
         {/* Dynamic Tool Settings */}
         {expandedSettings && (
           <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-4 animate-in slide-in-from-top-1 duration-200">
+             {/* Editing Header with Done/Cancel buttons */}
+             {editingMarkup && (
+               <div className="pb-2 mb-2 border-b border-slate-200">
+                 <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-2">
+                     <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                     <span className="text-xs font-bold text-blue-700">Editing Markup</span>
+                   </div>
+                   <div className="flex items-center gap-1">
+                     <button
+                       onClick={cancelEdit}
+                       className="px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-200 rounded transition-colors"
+                     >
+                       Cancel
+                     </button>
+                     <button
+                       onClick={completeEdit}
+                       className="px-2 py-1 text-[10px] font-semibold text-white bg-blue-500 hover:bg-blue-600 rounded transition-colors flex items-center gap-1"
+                     >
+                       <Check className="w-3 h-3" />
+                       Done
+                     </button>
+                   </div>
+                 </div>
+                 <p className="text-[10px] text-slate-500 mt-1.5">
+                   {editingMarkup.attributes?.tool === 'point' || editingMarkup.attributes?.tool === 'text'
+                     ? 'Drag on map to move. Change style settings below.'
+                     : 'Drag vertices on map to reshape. Change style settings below.'}
+                 </p>
+               </div>
+             )}
              {expandedSettings === 'point' && (
                <>
                  <ColorPicker label="Color" value={settings.pointColor} onChange={v => setSettings(p => ({...p, pointColor: v}))} />
@@ -570,7 +831,8 @@ export default function MarkupTool({
               const tool = m.attributes?.tool;
               const styleId = m.attributes?.symbolStyle;
               const Icon = tool === 'polyline' ? Minus : tool === 'polygon' ? Square : tool === 'text' ? Type : Circle;
-              
+              const isBeingEdited = editingMarkup && editingMarkup.attributes?.id === m.attributes?.id;
+
               const getFriendlyStyleLabel = (tool, id) => {
                 if (tool === 'point') return POINT_TYPES.find(t => t.id === id)?.label || id;
                 if (tool === 'polyline' || tool === 'polygon') return LINE_TYPES.find(t => t.id === id)?.label || id;
@@ -579,8 +841,14 @@ export default function MarkupTool({
               };
 
               return (
-                <div key={m.attributes?.id} className="group flex items-center gap-3 p-2 rounded-lg bg-white border border-slate-100 hover:border-blue-200 transition-all shadow-sm">
-                  <div className="w-8 h-8 rounded flex items-center justify-center bg-slate-50">
+                <div
+                  key={m.attributes?.id}
+                  className={`group flex items-center gap-3 p-2 rounded-lg border transition-all shadow-sm
+                    ${isBeingEdited
+                      ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200'
+                      : 'bg-white border-slate-100 hover:border-blue-200'}`}
+                >
+                  <div className={`w-8 h-8 rounded flex items-center justify-center ${isBeingEdited ? 'bg-blue-100' : 'bg-slate-50'}`}>
                     <Icon className="w-4 h-4" style={{ color: m.attributes?.color }} fill={tool === 'polygon' ? m.attributes?.color : 'none'} opacity={tool === 'polygon' ? 0.4 : 1} />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -591,11 +859,23 @@ export default function MarkupTool({
                       <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-slate-100 text-slate-500 uppercase tracking-tight">
                         {getFriendlyStyleLabel(tool, styleId)}
                       </span>
+                      {isBeingEdited && (
+                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500 text-white uppercase tracking-tight animate-pulse">
+                          Editing
+                        </span>
+                      )}
                     </div>
                     <p className="text-[10px] text-slate-400 font-mono mt-0.5">{m.attributes?.metric}</p>
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className={`flex items-center gap-1 transition-opacity ${isBeingEdited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                     <button onClick={() => zoomTo(m)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="Zoom to"><ZoomIn className="w-3.5 h-3.5" /></button>
+                    <button
+                      onClick={() => isBeingEdited ? completeEdit() : startEdit(m)}
+                      className={`p-1.5 rounded ${isBeingEdited ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'hover:bg-amber-50 text-amber-600'}`}
+                      title={isBeingEdited ? "Done editing" : "Edit markup"}
+                    >
+                      {isBeingEdited ? <Check className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
+                    </button>
                     <button onClick={() => deleteMarkup(m)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
