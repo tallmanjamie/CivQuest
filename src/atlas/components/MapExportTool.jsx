@@ -717,10 +717,10 @@ export default function MapExportTool({
     return (
       <button
         onClick={onToggle}
-        className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+        className="flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
         title="Export Map"
       >
-        <Printer className="w-5 h-5" style={{ color: accentColor }} />
+        <Printer className="w-4 h-4" style={{ color: accentColor }} />
         <span className="text-sm font-medium text-slate-700">Export</span>
       </button>
     );

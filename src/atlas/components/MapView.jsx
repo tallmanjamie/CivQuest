@@ -16,12 +16,19 @@
 // - Bottom Right: Zoom controls
 
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { 
-  ZoomIn, 
-  ZoomOut, 
-  Home, 
+import {
+  ZoomIn,
+  ZoomOut,
+  Home,
   X,
-  Loader2
+  Loader2,
+  Menu,
+  Search,
+  Pencil,
+  Layers,
+  Globe,
+  Printer,
+  ChevronRight
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors, COLOR_PALETTE } from '../utils/themeColors';
@@ -104,9 +111,39 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [showMapExport, setShowMapExport] = useState(false);
   const [showMarkupTool, setShowMarkupTool] = useState(false);
 
+  // Mobile state
+  const [isMobile, setIsMobile] = useState(false);
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const toolsMenuRef = useRef(null);
+
   // Theme
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
+
+  // Detect mobile screen size
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Close tools menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target)) {
+        setShowToolsMenu(false);
+      }
+    };
+
+    if (showToolsMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showToolsMenu]);
 
   /**
    * Get storage key for persisting map extent
@@ -807,98 +844,245 @@ const MapView = forwardRef(function MapView(props, ref) {
       {/* ==================== TOP LEFT CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
         <div className="absolute top-4 left-4 flex flex-col gap-2 z-20">
-          {/* 1. Search Results (TOP) */}
-          <SearchResultsPanel
-            view={viewRef.current}
-            config={config}
-            isExpanded={showSearchResults}
-            onToggle={() => {
-              setShowSearchResults(!showSearchResults);
-              if (!showSearchResults) {
-                setShowMarkupTool(false);
-                setShowLayersPanel(false);
-                setShowBasemapPicker(false);
-                setShowMapExport(false);
-              }
-            }}
-            onFeatureSelect={handleFeatureSelect}
-            onClearResults={clearResults}
-          />
+          {/* Mobile Tools Menu */}
+          {isMobile ? (
+            <>
+              {/* Tools Menu Button */}
+              {!showSearchResults && !showMarkupTool && !showLayersPanel && !showBasemapPicker && !showMapExport && (
+                <div className="relative" ref={toolsMenuRef}>
+                  <button
+                    onClick={() => setShowToolsMenu(!showToolsMenu)}
+                    className="flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200
+                               hover:bg-slate-50 transition-colors"
+                    title="Map Tools"
+                  >
+                    <Menu className="w-4 h-4" style={{ color: colors.bg600 }} />
+                    <span className="text-sm font-medium text-slate-700">Tools</span>
+                  </button>
 
-          {/* 2. Markup Tool */}
-          <MarkupTool
-            view={viewRef.current}
-            graphicsLayer={markupLayerRef.current}
-            config={config}
-            mapId={mapId}
-            isExpanded={showMarkupTool}
-            onToggle={() => {
-              setShowMarkupTool(!showMarkupTool);
-              if (!showMarkupTool) {
-                setShowSearchResults(false);
-                setShowLayersPanel(false);
-                setShowBasemapPicker(false);
-                setShowMapExport(false);
-              }
-            }}
-          />
+                  {/* Tools Dropdown Menu */}
+                  {showToolsMenu && (
+                    <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[140px]">
+                      <button
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setShowSearchResults(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <Search className="w-4 h-4" style={{ color: colors.bg600 }} />
+                        <span className="text-sm text-slate-700">Results</span>
+                        {searchResults?.features?.length > 0 && (
+                          <span
+                            className="ml-auto px-1.5 py-0.5 text-xs rounded-full text-white"
+                            style={{ backgroundColor: colors.bg500 }}
+                          >
+                            {searchResults.features.length}
+                          </span>
+                        )}
+                        <ChevronRight className="w-3 h-3 text-slate-400 ml-auto" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setShowMarkupTool(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <Pencil className="w-4 h-4" style={{ color: colors.bg600 }} />
+                        <span className="text-sm text-slate-700">Markup</span>
+                        <ChevronRight className="w-3 h-3 text-slate-400 ml-auto" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setShowLayersPanel(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <Layers className="w-4 h-4" style={{ color: colors.bg600 }} />
+                        <span className="text-sm text-slate-700">Layers</span>
+                        <ChevronRight className="w-3 h-3 text-slate-400 ml-auto" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setShowBasemapPicker(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <Globe className="w-4 h-4" style={{ color: colors.bg600 }} />
+                        <span className="text-sm text-slate-700">Base</span>
+                        <ChevronRight className="w-3 h-3 text-slate-400 ml-auto" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setShowMapExport(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <Printer className="w-4 h-4" style={{ color: colors.bg600 }} />
+                        <span className="text-sm text-slate-700">Export</span>
+                        <ChevronRight className="w-3 h-3 text-slate-400 ml-auto" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
-          {/* 3. Layers Panel */}
-          <LayersPanel
-            view={viewRef.current}
-            map={mapRef.current}
-            config={config}
-            mapId={mapId}
-            hiddenLayers={hiddenLayers}
-            isExpanded={showLayersPanel}
-            onToggle={() => {
-              setShowLayersPanel(!showLayersPanel);
-              if (!showLayersPanel) {
-                setShowSearchResults(false);
-                setShowMarkupTool(false);
-                setShowBasemapPicker(false);
-                setShowMapExport(false);
-              }
-            }}
-          />
+              {/* Expanded Tool Panels (Mobile) */}
+              {showSearchResults && (
+                <SearchResultsPanel
+                  view={viewRef.current}
+                  config={config}
+                  isExpanded={true}
+                  onToggle={() => setShowSearchResults(false)}
+                  onFeatureSelect={handleFeatureSelect}
+                  onClearResults={clearResults}
+                />
+              )}
+              {showMarkupTool && (
+                <MarkupTool
+                  view={viewRef.current}
+                  graphicsLayer={markupLayerRef.current}
+                  config={config}
+                  mapId={mapId}
+                  isExpanded={true}
+                  onToggle={() => setShowMarkupTool(false)}
+                />
+              )}
+              {showLayersPanel && (
+                <LayersPanel
+                  view={viewRef.current}
+                  map={mapRef.current}
+                  config={config}
+                  mapId={mapId}
+                  hiddenLayers={hiddenLayers}
+                  isExpanded={true}
+                  onToggle={() => setShowLayersPanel(false)}
+                />
+              )}
+              {showBasemapPicker && (
+                <BasemapPicker
+                  view={viewRef.current}
+                  map={mapRef.current}
+                  basemaps={basemaps}
+                  config={config}
+                  mapId={mapId}
+                  isExpanded={true}
+                  onToggle={() => setShowBasemapPicker(false)}
+                />
+              )}
+              {showMapExport && (
+                <MapExportTool
+                  mapView={viewRef.current}
+                  mapConfig={activeMap}
+                  atlasConfig={config}
+                  accentColor={colors.bg600}
+                  isExpanded={true}
+                  onToggle={() => setShowMapExport(false)}
+                  onClose={() => setShowMapExport(false)}
+                />
+              )}
+            </>
+          ) : (
+            /* Desktop: Show all tool buttons */
+            <>
+              {/* 1. Search Results (TOP) */}
+              <SearchResultsPanel
+                view={viewRef.current}
+                config={config}
+                isExpanded={showSearchResults}
+                onToggle={() => {
+                  setShowSearchResults(!showSearchResults);
+                  if (!showSearchResults) {
+                    setShowMarkupTool(false);
+                    setShowLayersPanel(false);
+                    setShowBasemapPicker(false);
+                    setShowMapExport(false);
+                  }
+                }}
+                onFeatureSelect={handleFeatureSelect}
+                onClearResults={clearResults}
+              />
 
-          {/* 4. Basemap Picker */}
-          <BasemapPicker
-            view={viewRef.current}
-            map={mapRef.current}
-            basemaps={basemaps}
-            config={config}
-            mapId={mapId}
-            isExpanded={showBasemapPicker}
-            onToggle={() => {
-              setShowBasemapPicker(!showBasemapPicker);
-              if (!showBasemapPicker) {
-                setShowSearchResults(false);
-                setShowMarkupTool(false);
-                setShowLayersPanel(false);
-                setShowMapExport(false);
-              }
-            }}
-          />
+              {/* 2. Markup Tool */}
+              <MarkupTool
+                view={viewRef.current}
+                graphicsLayer={markupLayerRef.current}
+                config={config}
+                mapId={mapId}
+                isExpanded={showMarkupTool}
+                onToggle={() => {
+                  setShowMarkupTool(!showMarkupTool);
+                  if (!showMarkupTool) {
+                    setShowSearchResults(false);
+                    setShowLayersPanel(false);
+                    setShowBasemapPicker(false);
+                    setShowMapExport(false);
+                  }
+                }}
+              />
 
-          {/* 5. Map Export */}
-          <MapExportTool
-            mapView={viewRef.current}
-            mapConfig={activeMap}
-            atlasConfig={config}
-            accentColor={colors.bg600}
-            isExpanded={showMapExport}
-            onToggle={() => {
-              setShowMapExport(!showMapExport);
-              if (!showMapExport) {
-                setShowSearchResults(false);
-                setShowMarkupTool(false);
-                setShowLayersPanel(false);
-                setShowBasemapPicker(false);
-              }
-            }}
-            onClose={() => setShowMapExport(false)}
-          />
+              {/* 3. Layers Panel */}
+              <LayersPanel
+                view={viewRef.current}
+                map={mapRef.current}
+                config={config}
+                mapId={mapId}
+                hiddenLayers={hiddenLayers}
+                isExpanded={showLayersPanel}
+                onToggle={() => {
+                  setShowLayersPanel(!showLayersPanel);
+                  if (!showLayersPanel) {
+                    setShowSearchResults(false);
+                    setShowMarkupTool(false);
+                    setShowBasemapPicker(false);
+                    setShowMapExport(false);
+                  }
+                }}
+              />
+
+              {/* 4. Basemap Picker */}
+              <BasemapPicker
+                view={viewRef.current}
+                map={mapRef.current}
+                basemaps={basemaps}
+                config={config}
+                mapId={mapId}
+                isExpanded={showBasemapPicker}
+                onToggle={() => {
+                  setShowBasemapPicker(!showBasemapPicker);
+                  if (!showBasemapPicker) {
+                    setShowSearchResults(false);
+                    setShowMarkupTool(false);
+                    setShowLayersPanel(false);
+                    setShowMapExport(false);
+                  }
+                }}
+              />
+
+              {/* 5. Map Export */}
+              <MapExportTool
+                mapView={viewRef.current}
+                mapConfig={activeMap}
+                atlasConfig={config}
+                accentColor={colors.bg600}
+                isExpanded={showMapExport}
+                onToggle={() => {
+                  setShowMapExport(!showMapExport);
+                  if (!showMapExport) {
+                    setShowSearchResults(false);
+                    setShowMarkupTool(false);
+                    setShowLayersPanel(false);
+                    setShowBasemapPicker(false);
+                  }
+                }}
+                onClose={() => setShowMapExport(false)}
+              />
+            </>
+          )}
         </div>
       )}
 
