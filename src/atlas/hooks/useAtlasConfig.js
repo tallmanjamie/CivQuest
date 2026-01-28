@@ -173,13 +173,15 @@ export function useAtlasConfig(providedOrgId = null) {
             data: { ...DEFAULT_CONFIG.data, ...atlasConfig.data },
             // Explicitly preserve arrays from atlasConfig
             basemaps: atlasConfig.basemaps || DEFAULT_CONFIG.basemaps || [],
-            exportTemplates: atlasConfig.exportTemplates || []
+            exportTemplates: atlasConfig.exportTemplates || [],
+            featureExportTemplates: atlasConfig.featureExportTemplates || []
           };
-          
+
           // DEBUG: Log the merged config
           console.log('[useAtlasConfig] Merged config:', mergedConfig);
           console.log('[useAtlasConfig] Final themeColor:', mergedConfig.ui.themeColor);
           console.log('[useAtlasConfig] exportTemplates:', mergedConfig.exportTemplates);
+          console.log('[useAtlasConfig] featureExportTemplates:', mergedConfig.featureExportTemplates);
           
           setConfig(mergedConfig);
           setAvailableMaps(mergedConfig.data?.maps || []);
