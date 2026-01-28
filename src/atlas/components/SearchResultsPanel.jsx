@@ -172,17 +172,26 @@ export default function SearchResultsPanel({
    * Handle feature click
    */
   const handleFeatureClick = useCallback((feature, index) => {
+    console.log('[SearchResultsPanel] handleFeatureClick:', {
+      index,
+      featureSourceLayerId: feature?.sourceLayerId,
+      featureAttributeKeys: Object.keys(feature?.attributes || {}),
+      hasGeometry: !!feature?.geometry,
+      customFeatureInfoLayerId: activeMap?.customFeatureInfo?.layerId
+    });
+
     setSelectedIndex(index);
-    
+
     if (onFeatureSelect) {
+      console.log('[SearchResultsPanel] Calling onFeatureSelect');
       onFeatureSelect(feature);
     }
-    
+
     // Zoom to feature
     if (zoomToFeature) {
       zoomToFeature(feature);
     }
-  }, [onFeatureSelect, zoomToFeature]);
+  }, [onFeatureSelect, zoomToFeature, activeMap?.customFeatureInfo?.layerId]);
 
   /**
    * Handle feature hover

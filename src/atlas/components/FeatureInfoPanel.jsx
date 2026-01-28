@@ -70,17 +70,30 @@ export default function FeatureInfoPanel({
 
   // Check if this feature's layer matches the custom feature info config
   const useCustomTabs = useMemo(() => {
+    console.log('[FeatureInfoPanel] useCustomTabs check:', {
+      customFeatureInfoLayerId: customFeatureInfo?.layerId,
+      customFeatureInfoTabsCount: customFeatureInfo?.tabs?.length || 0,
+      featureSourceLayerId: feature?.sourceLayerId,
+      sourceLayerId: sourceLayer?.id
+    });
+
     if (!customFeatureInfo?.layerId || !customFeatureInfo?.tabs?.length) {
+      console.log('[FeatureInfoPanel] useCustomTabs = false (missing layerId or tabs)');
       return false;
     }
     // Check if the source layer ID matches the config layer ID
     const featureLayerId = feature?.sourceLayerId || sourceLayer?.id;
-    return featureLayerId === customFeatureInfo.layerId;
+    const matches = featureLayerId === customFeatureInfo.layerId;
+    console.log('[FeatureInfoPanel] useCustomTabs =', matches, '(featureLayerId:', featureLayerId, '=== configLayerId:', customFeatureInfo.layerId, ')');
+    return matches;
   }, [customFeatureInfo, feature?.sourceLayerId, sourceLayer?.id]);
 
   // Build tabs based on config or default
   const tabs = useMemo(() => {
+    console.log('[FeatureInfoPanel] Building tabs - isMarkupFeature:', isMarkupFeature, 'useCustomTabs:', useCustomTabs);
+
     if (isMarkupFeature) {
+      console.log('[FeatureInfoPanel] Using markup feature tabs');
       return [
         { id: 'properties', label: 'Properties', icon: FileText },
         { id: 'style', label: 'Style', icon: Layers },
@@ -90,16 +103,24 @@ export default function FeatureInfoPanel({
 
     if (useCustomTabs && customFeatureInfo?.tabs?.length > 0) {
       // Use custom tabs from config
-      return customFeatureInfo.tabs.map((tab, index) => ({
+      const customTabs = customFeatureInfo.tabs.map((tab, index) => ({
         id: `custom-${index}`,
         label: tab.name || `Tab ${index + 1}`,
         icon: FileText,
         elements: tab.elements || [],
         isCustom: true
       }));
+      console.log('[FeatureInfoPanel] Using custom tabs:', customTabs.map(t => ({
+        id: t.id,
+        label: t.label,
+        elements: t.elements,
+        isCustom: t.isCustom
+      })));
+      return customTabs;
     }
 
     // Default tabs
+    console.log('[FeatureInfoPanel] Using default tabs (Info/Markup)');
     return [
       { id: 'info', label: 'Info', icon: FileText },
       { id: 'markup', label: 'Markup', icon: Pencil, disabled: !onSaveAsMarkup }
@@ -125,19 +146,33 @@ export default function FeatureInfoPanel({
 
   // Initialize Feature widget when feature or active tab changes
   useEffect(() => {
-    if (!feature || !view || !featureContainerRef.current) return;
+    console.log('[FeatureInfoPanel] useEffect for Feature widget - activeTab:', activeTab);
+    console.log('[FeatureInfoPanel] useEffect - feature:', !!feature, 'view:', !!view, 'container:', !!featureContainerRef.current);
+
+    if (!feature || !view || !featureContainerRef.current) {
+      console.log('[FeatureInfoPanel] useEffect - Missing required refs, skipping widget creation');
+      return;
+    }
 
     // Clear previous widget
     if (featureWidgetRef.current) {
+      console.log('[FeatureInfoPanel] useEffect - Destroying previous widget');
       featureWidgetRef.current.destroy();
       featureWidgetRef.current = null;
     }
 
     // Find the current tab config
     const currentTab = tabs.find(t => t.id === activeTab);
+    console.log('[FeatureInfoPanel] useEffect - Current tab:', {
+      id: currentTab?.id,
+      label: currentTab?.label,
+      isCustom: currentTab?.isCustom,
+      elements: currentTab?.elements
+    });
 
     // Skip widget creation for non-info tabs (markup, properties, etc.)
     if (!currentTab?.isCustom && activeTab !== 'info') {
+      console.log('[FeatureInfoPanel] useEffect - Skipping widget creation for non-info tab:', activeTab);
       return;
     }
 
@@ -170,11 +205,59 @@ export default function FeatureInfoPanel({
       layer: sourceLayer
     });
 
+    console.log('[FeatureInfoPanel] useEffect - Created graphic:', {
+      hasGeometry: !!geometry,
+      geometryType: geometry?.type,
+      attributeKeys: Object.keys(feature.attributes || {}),
+      sourceLayerId: sourceLayer?.id,
+      sourceLayerTitle: sourceLayer?.title,
+      hasSourceLayerPopupTemplate: !!sourceLayer?.popupTemplate
+    });
+
     // If we have a custom tab with elements, filter the popup template
     let popupTemplate = null;
     if (currentTab?.isCustom && currentTab.elements?.length > 0 && sourceLayer?.popupTemplate) {
       const originalTemplate = sourceLayer.popupTemplate;
+      console.log('[FeatureInfoPanel] useEffect - Original popup template:', {
+        title: originalTemplate.title,
+        contentType: typeof originalTemplate.content,
+        contentIsArray: Array.isArray(originalTemplate.content),
+        contentLength: Array.isArray(originalTemplate.content) ? originalTemplate.content.length : 'N/A',
+        outFields: originalTemplate.outFields
+      });
+
+      // Log each content element in the original template
+      if (Array.isArray(originalTemplate.content)) {
+        console.log('[FeatureInfoPanel] useEffect - Original template content elements:');
+        originalTemplate.content.forEach((element, idx) => {
+          console.log(`  [${idx}]:`, {
+            type: element.type,
+            title: element.title,
+            description: element.description,
+            text: element.text?.substring?.(0, 100),
+            expressionInfo: element.expressionInfo?.name || element.expressionInfo?.title,
+            fieldInfos: element.fieldInfos?.length
+          });
+        });
+      } else {
+        console.log('[FeatureInfoPanel] useEffect - Original template content (non-array):', {
+          type: originalTemplate.content?.type,
+          title: originalTemplate.content?.title,
+          description: originalTemplate.content?.description
+        });
+      }
+
+      console.log('[FeatureInfoPanel] useEffect - Filtering with elements:', currentTab.elements);
       const filteredContent = filterPopupContent(originalTemplate.content, currentTab.elements);
+      console.log('[FeatureInfoPanel] useEffect - Filtered content result:', {
+        filteredIsArray: Array.isArray(filteredContent),
+        filteredLength: Array.isArray(filteredContent) ? filteredContent.length : 'N/A',
+        filteredItems: Array.isArray(filteredContent) ? filteredContent.map(c => ({
+          type: c.type,
+          title: c.title,
+          description: c.description
+        })) : typeof filteredContent
+      });
 
       popupTemplate = {
         title: originalTemplate.title,
@@ -182,6 +265,12 @@ export default function FeatureInfoPanel({
         outFields: originalTemplate.outFields || ['*'],
         fieldInfos: originalTemplate.fieldInfos
       };
+    } else {
+      console.log('[FeatureInfoPanel] useEffect - NOT filtering popup template:', {
+        isCustomTab: currentTab?.isCustom,
+        hasElements: currentTab?.elements?.length > 0,
+        hasSourceLayerPopupTemplate: !!sourceLayer?.popupTemplate
+      });
     }
 
     // Create new Feature widget
@@ -195,11 +284,16 @@ export default function FeatureInfoPanel({
 
       // Apply custom popup template if we have one
       if (popupTemplate) {
+        console.log('[FeatureInfoPanel] useEffect - Applying custom popup template to graphic');
         graphic.popupTemplate = popupTemplate;
+      } else {
+        console.log('[FeatureInfoPanel] useEffect - Using default popup template (defaultPopupTemplateEnabled: true)');
       }
 
+      console.log('[FeatureInfoPanel] useEffect - Creating Feature widget');
       const widget = new Feature(widgetConfig);
       featureWidgetRef.current = widget;
+      console.log('[FeatureInfoPanel] useEffect - Feature widget created successfully');
     } catch (err) {
       console.error('[FeatureInfoPanel] Error creating Feature widget:', err);
     }
@@ -216,29 +310,81 @@ export default function FeatureInfoPanel({
    * Filter popup content to only include elements matching the given names
    */
   function filterPopupContent(content, elementNames) {
-    if (!content || !elementNames?.length) return content;
+    console.log('[FeatureInfoPanel] filterPopupContent called:', {
+      contentType: typeof content,
+      contentIsArray: Array.isArray(content),
+      contentLength: Array.isArray(content) ? content.length : 'N/A',
+      elementNames: elementNames
+    });
+
+    if (!content || !elementNames?.length) {
+      console.log('[FeatureInfoPanel] filterPopupContent - No content or elementNames, returning original');
+      return content;
+    }
 
     // Handle array content (multiple elements)
     if (Array.isArray(content)) {
-      return content.filter(element => {
+      const filtered = content.filter(element => {
         // Check if element title/description matches any of the configured element names
+        // Also check expressionInfo.name for Arcade expressions
         const elementTitle = element.title || element.description || '';
-        return elementNames.some(name =>
+        const expressionName = element.expressionInfo?.name || element.expressionInfo?.title || '';
+        const textContent = element.text || '';
+
+        console.log('[FeatureInfoPanel] filterPopupContent - Checking element:', {
+          type: element.type,
+          title: elementTitle,
+          expressionName: expressionName,
+          textPreview: textContent.substring(0, 50)
+        });
+
+        const matchesTitle = elementNames.some(name =>
           name && elementTitle.toLowerCase().includes(name.toLowerCase())
         );
+        const matchesExpression = elementNames.some(name =>
+          name && expressionName.toLowerCase().includes(name.toLowerCase())
+        );
+        const matchesText = elementNames.some(name =>
+          name && textContent.toLowerCase().includes(name.toLowerCase())
+        );
+
+        const matches = matchesTitle || matchesExpression || matchesText;
+        console.log('[FeatureInfoPanel] filterPopupContent - Element match result:', {
+          matchesTitle,
+          matchesExpression,
+          matchesText,
+          finalMatch: matches
+        });
+
+        return matches;
       });
+      console.log('[FeatureInfoPanel] filterPopupContent - Filtered array from', content.length, 'to', filtered.length, 'elements');
+      return filtered;
     }
 
     // If content is a single object, check if it matches
     if (typeof content === 'object') {
       const elementTitle = content.title || content.description || '';
-      const matches = elementNames.some(name =>
+      const expressionName = content.expressionInfo?.name || content.expressionInfo?.title || '';
+      const textContent = content.text || '';
+
+      const matchesTitle = elementNames.some(name =>
         name && elementTitle.toLowerCase().includes(name.toLowerCase())
       );
+      const matchesExpression = elementNames.some(name =>
+        name && expressionName.toLowerCase().includes(name.toLowerCase())
+      );
+      const matchesText = elementNames.some(name =>
+        name && textContent.toLowerCase().includes(name.toLowerCase())
+      );
+
+      const matches = matchesTitle || matchesExpression || matchesText;
+      console.log('[FeatureInfoPanel] filterPopupContent - Single object match:', matches);
       return matches ? [content] : [];
     }
 
     // For string/function content, return as-is
+    console.log('[FeatureInfoPanel] filterPopupContent - String/function content, returning as-is');
     return content;
   }
 
