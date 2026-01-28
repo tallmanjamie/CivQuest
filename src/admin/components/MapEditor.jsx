@@ -206,7 +206,7 @@ export default function MapEditor({
       ...prev,
       searchFields: [
         ...(prev.searchFields || []),
-        { field: '', label: '', type: 'text' }
+        { field: '', label: '', type: 'text', chatResults: false }
       ]
     }));
   };
@@ -909,44 +909,71 @@ export default function MapEditor({
                     <Plus className="w-4 h-4" /> Add Field
                   </button>
                 </div>
+                <p className="text-xs text-slate-500 mb-3">
+                  Configure fields available for advanced search. Enable "Chat Results" to include the field in chat response displays.
+                </p>
                 {(mapConfig.searchFields || []).length === 0 ? (
                   <p className="text-sm text-slate-500 italic">No search fields configured</p>
                 ) : (
                   <div className="space-y-2">
+                    <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
+                      <div className="col-span-3">Field</div>
+                      <div className="col-span-3">Label</div>
+                      <div className="col-span-3">Type</div>
+                      <div className="col-span-2 text-center">Chat Results</div>
+                      <div className="col-span-1"></div>
+                    </div>
                     {mapConfig.searchFields.map((sf, idx) => (
-                      <div key={idx} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
-                        <input
-                          type="text"
-                          value={sf.field}
-                          onChange={(e) => updateSearchField(idx, 'field', e.target.value)}
-                          placeholder="FIELD"
-                          className="w-32 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                        />
-                        <input
-                          type="text"
-                          value={sf.label}
-                          onChange={(e) => updateSearchField(idx, 'label', e.target.value)}
-                          placeholder="Label"
-                          className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
-                        />
-                        <select
-                          value={sf.type || 'text'}
-                          onChange={(e) => updateSearchField(idx, 'type', e.target.value)}
-                          className="w-32 px-2 py-1 text-sm border border-slate-300 rounded"
-                        >
-                          <option value="text">Text</option>
-                          <option value="number">Number</option>
-                          <option value="date">Date</option>
-                          <option value="single-select">Single Select</option>
-                          <option value="multi-select">Multi Select</option>
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => removeSearchField(idx)}
-                          className="p-1 text-slate-400 hover:text-red-500"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg">
+                        <div className="col-span-3">
+                          <input
+                            type="text"
+                            value={sf.field}
+                            onChange={(e) => updateSearchField(idx, 'field', e.target.value)}
+                            placeholder="FIELD"
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <input
+                            type="text"
+                            value={sf.label}
+                            onChange={(e) => updateSearchField(idx, 'label', e.target.value)}
+                            placeholder="Label"
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <select
+                            value={sf.type || 'text'}
+                            onChange={(e) => updateSearchField(idx, 'type', e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                          >
+                            <option value="text">Text</option>
+                            <option value="number">Number</option>
+                            <option value="date">Date</option>
+                            <option value="single-select">Single Select</option>
+                            <option value="multi-select">Multi Select</option>
+                          </select>
+                        </div>
+                        <div className="col-span-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={sf.chatResults === true}
+                            onChange={(e) => updateSearchField(idx, 'chatResults', e.target.checked)}
+                            className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                            title="Include this field in chat result displays"
+                          />
+                        </div>
+                        <div className="col-span-1 text-right">
+                          <button
+                            type="button"
+                            onClick={() => removeSearchField(idx)}
+                            className="p-1 text-slate-400 hover:text-red-500"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
