@@ -679,7 +679,8 @@ function buildWhereClause(filterStates, searchFields) {
 export default function AdvancedSearchModal({
   isOpen,
   onClose,
-  onSearch
+  onSearch,
+  position = 'top' // 'top' or 'bottom' - matches search bar position
 }) {
   const {
     config,
@@ -816,6 +817,7 @@ export default function AdvancedSearchModal({
         where: whereClause,
         outFields: '*',
         returnGeometry: 'true',
+        outSR: '4326', // Request geometry in WGS84 (lat/lon) for consistent handling
         resultRecordCount: '1000'
       });
 
@@ -826,8 +828,17 @@ export default function AdvancedSearchModal({
         throw new Error(data.error.message || 'Query failed');
       }
 
-      const features = data.features || [];
-      console.log(`[AdvancedSearch] Found ${features.length} features`);
+      // Get spatial reference from response (applies to all features)
+      const responseSR = data.spatialReference || { wkid: 4326 };
+
+      // Ensure each feature's geometry has the spatial reference
+      const features = (data.features || []).map(feature => {
+        if (feature.geometry && !feature.geometry.spatialReference) {
+          feature.geometry.spatialReference = responseSR;
+        }
+        return feature;
+      });
+      console.log(`[AdvancedSearch] Found ${features.length} features with SR:`, responseSR);
 
       // Update results in context
       updateSearchResults?.({ features });
@@ -905,17 +916,19 @@ export default function AdvancedSearchModal({
 
   if (!isOpen) return null;
 
+  const isBottom = position === 'bottom';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
+    <div className="fixed inset-0 z-50">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/30"
         onClick={onClose}
       />
 
-      {/* Modal - slides up from bottom on mobile, centered on desktop */}
+      {/* Panel - positioned near the search bar's plus button */}
       <div
-        className="relative bg-white rounded-t-xl md:rounded-xl shadow-2xl w-full md:max-w-md max-h-[85vh] md:max-h-[80vh] flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-200"
+        className={`absolute ${isBottom ? 'bottom-16 left-3' : 'top-28 left-3'} bg-white rounded-xl shadow-2xl w-[calc(100%-1.5rem)] sm:w-96 max-h-[70vh] flex flex-col animate-in fade-in ${isBottom ? 'slide-in-from-bottom-4' : 'slide-in-from-top-4'} duration-200`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -973,7 +986,7 @@ export default function AdvancedSearchModal({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 rounded-b-xl flex justify-end gap-3 shrink-0">
+        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 rounded-b-xl flex justify-between gap-3 shrink-0">
           <button
             type="button"
             onClick={handleReset}
