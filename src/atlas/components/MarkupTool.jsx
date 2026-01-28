@@ -378,12 +378,19 @@ export default function MarkupTool({
           tool === 'polygon' ? s.polygonLineType :
           tool === 'text' ? s.textFont : 'default';
 
+        // Generate default name based on tool type
+        const defaultName = tool === 'point' ? 'Point' :
+                            tool === 'polyline' ? 'Polyline' :
+                            tool === 'polygon' ? 'Polygon' :
+                            tool === 'text' ? (s.textContent || 'Label') : 'Markup';
+
         graphic.attributes = {
           id: `markup_${Date.now()}`,
+          name: defaultName,
           tool,
           symbolStyle,
-          color: tool === 'polygon' ? s.polygonFillColor.value : 
-                 tool === 'polyline' ? s.lineColor.value : 
+          color: tool === 'polygon' ? s.polygonFillColor.value :
+                 tool === 'polyline' ? s.lineColor.value :
                  tool === 'text' ? s.textColor.value : s.pointColor.value,
           metric: metricText,
           isMarkup: true,
@@ -741,6 +748,20 @@ export default function MarkupTool({
                      ? 'Drag on map to move. Change style settings below.'
                      : 'Drag vertices on map to reshape. Change style settings below.'}
                  </p>
+                 {/* Name editing field */}
+                 <div className="mt-2">
+                   <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Name</label>
+                   <input
+                     type="text"
+                     value={editingMarkup.attributes?.name || ''}
+                     onChange={(e) => {
+                       editingMarkup.attributes.name = e.target.value;
+                       setMarkups(prev => [...prev]);
+                     }}
+                     placeholder="Enter markup name..."
+                     className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                   />
+                 </div>
                </div>
              )}
              {expandedSettings === 'point' && (
@@ -853,8 +874,8 @@ export default function MarkupTool({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-xs font-bold text-slate-700 truncate capitalize">
-                        {tool === 'text' ? (m.symbol?.text || 'Label') : (tool || 'Markup')}
+                      <p className="text-xs font-bold text-slate-700 truncate">
+                        {m.attributes?.name || (tool === 'text' ? (m.symbol?.text || 'Label') : (tool || 'Markup'))}
                       </p>
                       <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-slate-100 text-slate-500 uppercase tracking-tight">
                         {getFriendlyStyleLabel(tool, styleId)}
