@@ -13,8 +13,6 @@ import {
   Type,
   X,
   Trash2,
-  ChevronDown,
-  ChevronRight,
   ZoomIn,
   MessageSquare
 } from 'lucide-react';
@@ -71,6 +69,31 @@ const FONT_FAMILIES = [
   { id: 'Georgia', label: 'Georgia' }
 ];
 
+// Measurement units for points (coordinates)
+const POINT_UNITS = [
+  { id: 'none', label: 'None' },
+  { id: 'dms', label: 'DMS' },
+  { id: 'dd', label: 'DD' },
+  { id: 'latlon', label: 'Lat / Lon' }
+];
+
+// Measurement units for lines (length)
+const LINE_UNITS = [
+  { id: 'none', label: 'None' },
+  { id: 'feet', label: 'Feet' },
+  { id: 'meters', label: 'Meters' },
+  { id: 'miles', label: 'Miles' },
+  { id: 'kilometers', label: 'Kilometers' }
+];
+
+// Measurement units for polygons (area)
+const POLYGON_UNITS = [
+  { id: 'none', label: 'None' },
+  { id: 'acres', label: 'Acres' },
+  { id: 'sqfeet', label: 'Sq Feet' },
+  { id: 'sqmeters', label: 'Sq Meters' }
+];
+
 // Helper to convert hex to RGB array
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -79,6 +102,39 @@ const hexToRgb = (hex) => {
     parseInt(result[2], 16),
     parseInt(result[3], 16)
   ] : [0, 0, 0];
+};
+
+// Helper to format coordinates based on unit type
+const formatCoordinates = (geometry, unit) => {
+  if (!geometry || geometry.type !== 'point' || unit === 'none') return '';
+
+  const lon = geometry.longitude || geometry.x;
+  const lat = geometry.latitude || geometry.y;
+
+  if (unit === 'dd') {
+    return `${lat.toFixed(6)}°, ${lon.toFixed(6)}°`;
+  }
+
+  if (unit === 'latlon') {
+    return `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
+  }
+
+  if (unit === 'dms') {
+    const toDMS = (coord, isLat) => {
+      const absolute = Math.abs(coord);
+      const degrees = Math.floor(absolute);
+      const minutesNotTruncated = (absolute - degrees) * 60;
+      const minutes = Math.floor(minutesNotTruncated);
+      const seconds = ((minutesNotTruncated - minutes) * 60).toFixed(1);
+      const direction = isLat
+        ? (coord >= 0 ? 'N' : 'S')
+        : (coord >= 0 ? 'E' : 'W');
+      return `${degrees}° ${minutes}' ${seconds}" ${direction}`;
+    };
+    return `${toDMS(lat, true)}, ${toDMS(lon, false)}`;
+  }
+
+  return '';
 };
 
 /**
@@ -160,7 +216,7 @@ function ToolSettings({ type, settings, onChange }) {
 
   if (type === 'point') {
     return (
-      <div className="space-y-2 p-2 bg-slate-50 rounded text-xs">
+      <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
         <Select
           label="Type"
           value={settings.pointType}
@@ -184,13 +240,21 @@ function ToolSettings({ type, settings, onChange }) {
           onChange={(v) => updateSetting('pointOpacity', v)}
           min={0} max={1} step={0.1}
         />
+        <div className="border-t border-slate-200 pt-2 mt-2">
+          <Select
+            label="Display Measurement"
+            value={settings.pointMeasurementUnit}
+            onChange={(v) => updateSetting('pointMeasurementUnit', v)}
+            options={POINT_UNITS}
+          />
+        </div>
       </div>
     );
   }
 
   if (type === 'polyline') {
     return (
-      <div className="space-y-2 p-2 bg-slate-50 rounded text-xs">
+      <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
         <Select
           label="Type"
           value={settings.lineType}
@@ -214,13 +278,21 @@ function ToolSettings({ type, settings, onChange }) {
           onChange={(v) => updateSetting('lineOpacity', v)}
           min={0} max={1} step={0.1}
         />
+        <div className="border-t border-slate-200 pt-2 mt-2">
+          <Select
+            label="Display Measurement"
+            value={settings.lineMeasurementUnit}
+            onChange={(v) => updateSetting('lineMeasurementUnit', v)}
+            options={LINE_UNITS}
+          />
+        </div>
       </div>
     );
   }
 
   if (type === 'polygon') {
     return (
-      <div className="space-y-2 p-2 bg-slate-50 rounded text-xs">
+      <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
         <ColorPicker
           label="Line Color"
           value={settings.polygonLineColor}
@@ -243,13 +315,21 @@ function ToolSettings({ type, settings, onChange }) {
           onChange={(v) => updateSetting('polygonOpacity', v)}
           min={0} max={1} step={0.1}
         />
+        <div className="border-t border-slate-200 pt-2 mt-2">
+          <Select
+            label="Display Measurement"
+            value={settings.polygonMeasurementUnit}
+            onChange={(v) => updateSetting('polygonMeasurementUnit', v)}
+            options={POLYGON_UNITS}
+          />
+        </div>
       </div>
     );
   }
 
   if (type === 'text') {
     return (
-      <div className="space-y-2 p-2 bg-slate-50 rounded text-xs">
+      <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
         <Select
           label="Font"
           value={settings.textFont}
@@ -316,16 +396,19 @@ export default function MarkupTool({
     pointColor: COLORS[0],
     pointSize: 10,
     pointOpacity: 0.8,
+    pointMeasurementUnit: 'none',
     // Line settings
     lineType: 'solid',
     lineColor: COLORS[1],
     lineWidth: 2,
     lineOpacity: 1,
+    lineMeasurementUnit: 'feet',
     // Polygon settings
     polygonLineColor: COLORS[2],
     polygonFillColor: COLORS[2],
     polygonLineWidth: 2,
     polygonOpacity: 0.4,
+    polygonMeasurementUnit: 'acres',
     // Text settings
     textFont: 'sans-serif',
     textColor: COLORS[8],
@@ -531,14 +614,37 @@ export default function MarkupTool({
     const geometry = event.graphic.geometry;
     const id = `markup_${Date.now()}`;
 
-    // Calculate measurement
+    // Calculate measurement based on selected units
     let measurement = '';
-    if (geometry.type === 'polygon') {
-      const area = geometryEngine.geodesicArea(geometry, 'acres');
-      measurement = `${area.toFixed(2)} acres`;
-    } else if (geometry.type === 'polyline') {
-      const length = geometryEngine.geodesicLength(geometry, 'feet');
-      measurement = `${length.toFixed(0)} ft`;
+    if (geometry.type === 'point' && settings.pointMeasurementUnit !== 'none') {
+      measurement = formatCoordinates(geometry, settings.pointMeasurementUnit);
+    } else if (geometry.type === 'polygon' && settings.polygonMeasurementUnit !== 'none') {
+      const unit = settings.polygonMeasurementUnit;
+      if (unit === 'acres') {
+        const area = geometryEngine.geodesicArea(geometry, 'acres');
+        measurement = `${area.toFixed(2)} acres`;
+      } else if (unit === 'sqfeet') {
+        const area = geometryEngine.geodesicArea(geometry, 'square-feet');
+        measurement = `${area.toLocaleString(undefined, { maximumFractionDigits: 0 })} sq ft`;
+      } else if (unit === 'sqmeters') {
+        const area = geometryEngine.geodesicArea(geometry, 'square-meters');
+        measurement = `${area.toLocaleString(undefined, { maximumFractionDigits: 0 })} sq m`;
+      }
+    } else if (geometry.type === 'polyline' && settings.lineMeasurementUnit !== 'none') {
+      const unit = settings.lineMeasurementUnit;
+      if (unit === 'feet') {
+        const length = geometryEngine.geodesicLength(geometry, 'feet');
+        measurement = `${length.toLocaleString(undefined, { maximumFractionDigits: 0 })} ft`;
+      } else if (unit === 'meters') {
+        const length = geometryEngine.geodesicLength(geometry, 'meters');
+        measurement = `${length.toLocaleString(undefined, { maximumFractionDigits: 0 })} m`;
+      } else if (unit === 'miles') {
+        const length = geometryEngine.geodesicLength(geometry, 'miles');
+        measurement = `${length.toFixed(2)} mi`;
+      } else if (unit === 'kilometers') {
+        const length = geometryEngine.geodesicLength(geometry, 'kilometers');
+        measurement = `${length.toFixed(2)} km`;
+      }
     }
 
     // Determine color for display
@@ -652,13 +758,6 @@ export default function MarkupTool({
     saveMarkups();
   };
 
-  /**
-   * Toggle settings for a tool
-   */
-  const toggleSettings = (toolId) => {
-    setExpandedSettings(expandedSettings === toolId ? null : toolId);
-  };
-
   // Tool definitions
   const tools = [
     { id: 'point', icon: Circle, label: 'Point' },
@@ -703,56 +802,46 @@ export default function MarkupTool({
         </button>
       </div>
 
-      {/* Drawing Tools - Compact */}
+      {/* Drawing Tools - Horizontal Toolbar */}
       <div className="p-2 border-b border-slate-200">
-        <div className="space-y-1">
+        {/* Tool Icon Buttons */}
+        <div className="flex items-center justify-center gap-1">
           {tools.map(tool => (
-            <div key={tool.id}>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => startDrawing(tool.id)}
-                  className={`flex items-center gap-2 flex-1 px-2 py-1.5 rounded transition text-left
-                             ${activeTool === tool.id
-                               ? 'ring-2 ring-offset-1'
-                               : 'hover:bg-slate-100 border border-slate-200'}`}
-                  style={activeTool === tool.id ? {
-                    backgroundColor: colors.bg50,
-                    ringColor: colors.bg500
-                  } : {}}
-                  title={`Draw ${tool.label}`}
-                >
-                  <tool.icon
-                    className="w-4 h-4"
-                    style={{ color: activeTool === tool.id ? colors.text600 : '#64748b' }}
-                  />
-                  <span className="text-xs text-slate-600">{tool.label}</span>
-                </button>
-                <button
-                  onClick={() => toggleSettings(tool.id)}
-                  className={`p-1.5 rounded transition ${expandedSettings === tool.id
-                    ? 'bg-slate-200'
-                    : 'hover:bg-slate-100'}`}
-                  title={`${tool.label} Settings`}
-                >
-                  {expandedSettings === tool.id
-                    ? <ChevronDown className="w-3 h-3 text-slate-500" />
-                    : <ChevronRight className="w-3 h-3 text-slate-500" />
-                  }
-                </button>
-              </div>
-              {/* Per-tool settings */}
-              {expandedSettings === tool.id && (
-                <div className="mt-1 ml-1">
-                  <ToolSettings
-                    type={tool.id}
-                    settings={settings}
-                    onChange={setSettings}
-                  />
-                </div>
-              )}
-            </div>
+            <button
+              key={tool.id}
+              onClick={() => {
+                startDrawing(tool.id);
+                setExpandedSettings(activeTool === tool.id ? null : tool.id);
+              }}
+              className={`flex flex-col items-center gap-1 px-3 py-2 rounded transition
+                         ${activeTool === tool.id || expandedSettings === tool.id
+                           ? 'ring-2 ring-offset-1'
+                           : 'hover:bg-slate-100 border border-slate-200'}`}
+              style={activeTool === tool.id || expandedSettings === tool.id ? {
+                backgroundColor: colors.bg50,
+                ringColor: colors.bg500
+              } : {}}
+              title={`Draw ${tool.label}`}
+            >
+              <tool.icon
+                className="w-5 h-5"
+                style={{ color: activeTool === tool.id || expandedSettings === tool.id ? colors.text600 : '#64748b' }}
+              />
+              <span className="text-xs text-slate-600">{tool.label}</span>
+            </button>
           ))}
         </div>
+
+        {/* Settings Panel - Shown below toolbar for selected tool */}
+        {expandedSettings && (
+          <div className="mt-2">
+            <ToolSettings
+              type={expandedSettings}
+              settings={settings}
+              onChange={setSettings}
+            />
+          </div>
+        )}
       </div>
 
       {/* Markup List */}
