@@ -5,12 +5,12 @@
 
 import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { ModuleRegistry, ClientSideRowModelModule } from 'ag-grid-community';
+import { ModuleRegistry, ClientSideRowModelModule, CsvExportModule } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 // Register AG Grid modules (required for v31+)
-ModuleRegistry.registerModules([ClientSideRowModelModule]);
+ModuleRegistry.registerModules([ClientSideRowModelModule, CsvExportModule]);
 
 import {
   Download,
@@ -139,6 +139,7 @@ const TableView = forwardRef(function TableView(props, ref) {
           .filter(k => !k.startsWith('_') && k !== 'OBJECTID')
           .map(field => {
             const colDef = {
+              colId: field, // Explicit colId for AG Grid v31+ column identification
               field,
               headerName: field,
               headerTooltip: field,
@@ -173,6 +174,7 @@ const TableView = forwardRef(function TableView(props, ref) {
     } else {
       dataCols = tableColumns.map(col => {
         const colDef = {
+          colId: col.field, // Explicit colId for AG Grid v31+ column identification
           field: col.field,
           headerName: col.headerName || col.field,
           headerTooltip: col.headerName || col.field,
@@ -284,8 +286,8 @@ const TableView = forwardRef(function TableView(props, ref) {
    */
   const autoSizeColumns = useCallback((api) => {
     if (!api) return;
-    // Get all column IDs except the action column
-    const allColumnIds = api.getColumns()
+    // Get all column IDs except the action column (use getAllGridColumns for AG Grid v31+)
+    const allColumnIds = api.getAllGridColumns()
       ?.filter(col => col.getColId() !== '_actions')
       ?.map(col => col.getColId()) || [];
 
@@ -401,7 +403,8 @@ const TableView = forwardRef(function TableView(props, ref) {
       : [...visibleColumns, field];
 
     setVisibleColumns(newVisible);
-    gridRef.current.api.setColumnsVisible([field], !isVisible);
+    // Use setColumnVisible for AG Grid v31+ (singular method for individual column)
+    gridRef.current.api.setColumnVisible(field, !isVisible);
   }, [visibleColumns]);
 
   /**
@@ -412,7 +415,10 @@ const TableView = forwardRef(function TableView(props, ref) {
 
     const allFields = getColumnDefs().map(c => c.field);
     setVisibleColumns(allFields);
-    gridRef.current.api.setColumnsVisible(allFields, true);
+    // Set each column visible individually for AG Grid v31+
+    allFields.forEach(field => {
+      gridRef.current.api.setColumnVisible(field, true);
+    });
   }, [getColumnDefs]);
 
   /**
@@ -421,21 +427,20 @@ const TableView = forwardRef(function TableView(props, ref) {
   const resetTable = useCallback(() => {
     if (!gridRef.current?.api) return;
 
+    const api = gridRef.current.api;
+
     // Show all columns
     showAllColumns();
 
-    // Reset column order and widths
-    gridRef.current.api.resetColumnState();
-
-    // Clear sort
-    gridRef.current.api.applyColumnState({ defaultState: { sort: null } });
+    // Reset column order, widths, and sort state
+    api.resetColumnState();
 
     // Clear all filters
-    gridRef.current.api.setFilterModel(null);
+    api.setFilterModel(null);
 
-    // Auto-size columns to fit content
+    // Auto-size columns to fit content after state is reset
     setTimeout(() => {
-      autoSizeColumns(gridRef.current.api);
+      autoSizeColumns(api);
     }, 100);
   }, [showAllColumns, autoSizeColumns]);
 
