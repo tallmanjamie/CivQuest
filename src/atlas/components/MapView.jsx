@@ -1162,21 +1162,21 @@ const MapView = forwardRef(function MapView(props, ref) {
               className="p-2 hover:bg-slate-100 border-b border-slate-200"
               title="Zoom In"
             >
-              <ZoomIn className="w-5 h-5 text-slate-600" />
+              <ZoomIn className="w-5 h-5" style={{ color: colors.bg600 }} />
             </button>
             <button
               onClick={zoomOut}
               className="p-2 hover:bg-slate-100 border-b border-slate-200"
               title="Zoom Out"
             >
-              <ZoomOut className="w-5 h-5 text-slate-600" />
+              <ZoomOut className="w-5 h-5" style={{ color: colors.bg600 }} />
             </button>
             <button
               onClick={goHome}
               className="p-2 hover:bg-slate-100"
               title="Home"
             >
-              <Home className="w-5 h-5 text-slate-600" />
+              <Home className="w-5 h-5" style={{ color: colors.bg600 }} />
             </button>
           </div>
         </div>
