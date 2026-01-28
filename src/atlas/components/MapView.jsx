@@ -775,40 +775,76 @@ const MapView = forwardRef(function MapView(props, ref) {
    * Highlight a single feature (including its pushpin if multi-result)
    */
   const highlightFeature = useCallback((feature) => {
-    if (!highlightLayerRef.current || !mapReady) return;
+    if (!highlightLayerRef.current || !mapReady) {
+      console.log('[MapView] highlightFeature - early return:', {
+        hasHighlightLayer: !!highlightLayerRef.current,
+        mapReady
+      });
+      return;
+    }
 
     highlightLayerRef.current.removeAll();
 
-    if (!feature?.geometry) return;
+    if (!feature?.geometry) {
+      console.log('[MapView] highlightFeature - no geometry on feature');
+      return;
+    }
+
+    const geom = feature.geometry;
+    console.log('[MapView] highlightFeature - geometry type detection:', {
+      hasRings: !!geom.rings,
+      hasPaths: !!geom.paths,
+      hasX: geom.x !== undefined,
+      hasLongitude: geom.longitude !== undefined,
+      type: geom.type,
+      keys: Object.keys(geom)
+    });
 
     let geometry;
-    if (feature.geometry.rings) {
+    let geometryType;
+
+    // Detect geometry type - check for rings (polygon), paths (polyline), or point coordinates
+    if (geom.rings && geom.rings.length > 0) {
+      geometryType = 'polygon';
       geometry = new Polygon({
-        rings: feature.geometry.rings,
-        spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+        rings: geom.rings,
+        spatialReference: geom.spatialReference || { wkid: 4326 }
       });
-    } else if (feature.geometry.paths) {
+    } else if (geom.paths && geom.paths.length > 0) {
+      geometryType = 'polyline';
       geometry = new Polyline({
-        paths: feature.geometry.paths,
-        spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+        paths: geom.paths,
+        spatialReference: geom.spatialReference || { wkid: 4326 }
       });
-    } else if (feature.geometry.x !== undefined) {
+    } else if (geom.x !== undefined && geom.y !== undefined) {
+      geometryType = 'point';
       geometry = new Point({
-        x: feature.geometry.x,
-        y: feature.geometry.y,
-        spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+        x: geom.x,
+        y: geom.y,
+        spatialReference: geom.spatialReference || { wkid: 4326 }
+      });
+    } else if (geom.longitude !== undefined && geom.latitude !== undefined) {
+      // Handle lat/lon format
+      geometryType = 'point';
+      geometry = new Point({
+        x: geom.longitude,
+        y: geom.latitude,
+        spatialReference: geom.spatialReference || { wkid: 4326 }
       });
     }
 
-    if (!geometry) return;
+    if (!geometry) {
+      console.log('[MapView] highlightFeature - could not create geometry');
+      return;
+    }
 
     let symbol;
-    if (feature.geometry.rings) {
+    if (geometryType === 'polygon') {
       symbol = new SimpleFillSymbol({
         color: [255, 255, 0, 0.3],
         outline: new SimpleLineSymbol({ color: [255, 200, 0], width: 3 })
       });
-    } else if (feature.geometry.paths) {
+    } else if (geometryType === 'polyline') {
       symbol = new SimpleLineSymbol({ color: [255, 200, 0], width: 4 });
     } else {
       symbol = new SimpleMarkerSymbol({
@@ -820,6 +856,7 @@ const MapView = forwardRef(function MapView(props, ref) {
 
     // Add highlighted feature geometry
     highlightLayerRef.current.add(new Graphic({ geometry, symbol }));
+    console.log('[MapView] highlightFeature - added highlight graphic for', geometryType);
 
     // Also highlight the pushpin marker at feature center (for multi-result views)
     const center = getGeometryCenter(feature.geometry);

@@ -195,10 +195,24 @@ export default function FeatureInfoPanel({
     const template = sourceLayer?.popupTemplate || feature?.popupTemplate;
     if (template?.title) {
       const attrs = feature?.attributes || {};
+      // Build a case-insensitive lookup map for attribute field names
+      const attrKeys = Object.keys(attrs);
+      const attrLookup = {};
+      attrKeys.forEach(key => {
+        attrLookup[key.toLowerCase()] = key;
+      });
+
       // If title is a string with placeholders like "{FIELD_NAME}", resolve them
       if (typeof template.title === 'string') {
         const resolvedTitle = template.title.replace(/\{([^}]+)\}/g, (match, fieldName) => {
-          const value = attrs[fieldName];
+          // First try exact match, then case-insensitive match
+          let value = attrs[fieldName];
+          if (value === undefined || value === null) {
+            const actualKey = attrLookup[fieldName.toLowerCase()];
+            if (actualKey) {
+              value = attrs[actualKey];
+            }
+          }
           return value !== undefined && value !== null ? String(value) : '';
         });
         // Only use if we got a meaningful resolved title
