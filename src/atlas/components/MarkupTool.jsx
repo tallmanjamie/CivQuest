@@ -13,22 +13,7 @@ import {
   Type,
   X,
   Trash2,
-  FolderPlus,
-  Folder,
-  ChevronDown,
-  ChevronRight,
-  Edit3,
-  MapPin,
-  Move,
-  RotateCcw,
-  Check,
-  Copy,
-  Download,
-  Eye,
-  EyeOff,
-  Palette,
-  Settings,
-  Ruler
+  Settings
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -376,14 +361,12 @@ export default function MarkupTool({
     return (
       <button
         onClick={onToggle}
-        className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-lg 
-                   hover:bg-slate-50 transition text-sm font-medium text-slate-700 
-                   min-w-[140px] ${className}`}
+        className={`flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200
+                   hover:bg-slate-50 transition-colors ${className}`}
         title="Markup Tools"
       >
-        <Pencil className="w-4 h-4 text-slate-500" />
-        <span className="flex-1 text-left">Markup</span>
-        <ChevronDown className="w-4 h-4 text-slate-400" />
+        <Pencil className="w-4 h-4" style={{ color: colors.bg600 }} />
+        <span className="text-sm font-medium text-slate-700">Markup</span>
       </button>
     );
   }
