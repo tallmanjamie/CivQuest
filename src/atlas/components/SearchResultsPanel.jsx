@@ -232,14 +232,14 @@ export default function SearchResultsPanel({
    */
   const handleFeatureHover = useCallback((feature, index, isEntering) => {
     setHoveredIndex(isEntering ? index : null);
-    
+
     if (onFeatureHover) {
       onFeatureHover(isEntering ? feature : null);
     }
-    
-    // Highlight feature on map
-    if (highlightFeature && isEntering) {
-      highlightFeature(feature);
+
+    // Highlight feature on map (or clear highlight when leaving)
+    if (highlightFeature) {
+      highlightFeature(isEntering ? feature : null);
     }
   }, [onFeatureHover, highlightFeature]);
 

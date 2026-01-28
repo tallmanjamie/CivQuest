@@ -796,8 +796,13 @@ const MapView = forwardRef(function MapView(props, ref) {
     }
 
     // --- STRATEGY 2: Reconstruct from JSON (Best for Search Results) ---
-    
-    if (!feature?.geometry) {
+
+    // If feature is null/undefined, we've already cleared the highlight layer above
+    if (!feature) {
+      return;
+    }
+
+    if (!feature.geometry) {
       console.warn('[MapView] Highlight failed: No geometry found');
       return;
     }
