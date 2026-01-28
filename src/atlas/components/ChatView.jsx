@@ -702,7 +702,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
     printWindow.document.close();
   }, [activeMap?.tableColumns, getFieldNames]);
 
-  useImperativeHandle(ref, () => ({ handleSearch }), [handleSearch]);
+  useImperativeHandle(ref, () => ({ handleSearch, addMessage }), [handleSearch, addMessage]);
 
   // Get the search tip text from config (empty = hidden)
   const searchTipText = config?.messages?.searchTip || '';
