@@ -398,8 +398,9 @@ export default function MapExportTool({
    * This approach:
    * 1. Temporarily hides the export area graphic
    * 2. Zooms to the export extent
-   * 3. Takes a high-quality screenshot
-   * 4. Returns the captured image as an HTMLImageElement
+   * 3. Calculates exact screen coordinates for the export area
+   * 4. Takes a high-quality screenshot of only that area
+   * 5. Returns the captured image as an HTMLImageElement
    */
   const captureMapScreenshot = useCallback(async (mapWidthPx, mapHeightPx) => {
     if (!exportArea || !mapView) {
@@ -423,8 +424,11 @@ export default function MapExportTool({
     const originalExtent = mapView.extent.clone();
 
     try {
-      // Import Extent module
-      const Extent = (await import('@arcgis/core/geometry/Extent')).default;
+      // Import required modules
+      const [Extent, Point] = await Promise.all([
+        import('@arcgis/core/geometry/Extent').then(m => m.default),
+        import('@arcgis/core/geometry/Point').then(m => m.default)
+      ]);
 
       // Create extent for the export area
       const targetExtent = new Extent({
@@ -465,8 +469,38 @@ export default function MapExportTool({
 
       console.log('🖨️ Taking screenshot...');
 
-      // Take the screenshot with specified dimensions
+      // Calculate the screen coordinates of the export area corners
+      // This accounts for any aspect ratio differences between the view and export area
+      const topLeft = mapView.toScreen(new Point({
+        x: exportArea.xmin,
+        y: exportArea.ymax,
+        spatialReference: mapView.spatialReference
+      }));
+      const bottomRight = mapView.toScreen(new Point({
+        x: exportArea.xmax,
+        y: exportArea.ymin,
+        spatialReference: mapView.spatialReference
+      }));
+
+      // Calculate the screen area that corresponds exactly to the export extent
+      const screenArea = {
+        x: Math.round(topLeft.x),
+        y: Math.round(topLeft.y),
+        width: Math.round(bottomRight.x - topLeft.x),
+        height: Math.round(bottomRight.y - topLeft.y)
+      };
+
+      console.log('🖨️ Export area screen coordinates:', screenArea);
+
+      // Calculate the scale factor needed for the desired output resolution
+      const scaleX = mapWidthPx / screenArea.width;
+      const scaleY = mapHeightPx / screenArea.height;
+      const scaleFactor = Math.max(scaleX, scaleY);
+
+      // Take the screenshot with the area parameter to capture exactly the export extent
+      // We capture just the area we need at higher resolution
       const screenshot = await mapView.takeScreenshot({
+        area: screenArea,
         width: mapWidthPx,
         height: mapHeightPx,
         format: 'png'
@@ -828,15 +862,38 @@ export default function MapExportTool({
 
         {/* Map Scale with Export Area Toggle */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-medium text-slate-700">
-              <Ruler className="w-3 h-3 inline mr-1 -mt-0.5" />
-              Scale
-            </label>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            <Ruler className="w-3 h-3 inline mr-1 -mt-0.5" />
+            Scale
+          </label>
+          <div className="flex items-center gap-2">
+            {/* Scale dropdown - narrower */}
+            <div className="relative flex-shrink-0" style={{ width: '120px' }}>
+              <select
+                value={scaleMode === 'custom' ? 'custom' : (scaleMode ?? '')}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const wasAuto = scaleMode === null;
+                  if (val === 'custom') setScaleMode('custom');
+                  else if (val === '') setScaleMode(null);
+                  else setScaleMode(parseInt(val, 10));
+                  // Auto-enable show area when switching from auto to a specific scale
+                  if (wasAuto && val !== '') {
+                    setShowExportArea(true);
+                  }
+                }}
+                className="w-full px-2 py-1.5 border border-slate-300 rounded-lg appearance-none bg-white pr-6 text-sm"
+              >
+                {PRESET_SCALES.map(p => (
+                  <option key={String(p.value)} value={p.value ?? ''}>{p.label}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
             {/* Show Export Area toggle - only visible when not in auto mode */}
             {scaleMode !== null && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-500">Show Area</span>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className="text-xs text-slate-500 whitespace-nowrap">Show Area</span>
                 <button
                   onClick={() => setShowExportArea(!showExportArea)}
                   className={`relative w-8 h-4 rounded-full transition-colors ${showExportArea ? '' : 'bg-slate-200'}`}
@@ -846,23 +903,6 @@ export default function MapExportTool({
                 </button>
               </div>
             )}
-          </div>
-          <div className="relative">
-            <select
-              value={scaleMode === 'custom' ? 'custom' : (scaleMode ?? '')}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === 'custom') setScaleMode('custom');
-                else if (val === '') setScaleMode(null);
-                else setScaleMode(parseInt(val, 10));
-              }}
-              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg appearance-none bg-white pr-8 text-sm"
-            >
-              {PRESET_SCALES.map(p => (
-                <option key={String(p.value)} value={p.value ?? ''}>{p.label}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
 
           {scaleMode === 'custom' && (
