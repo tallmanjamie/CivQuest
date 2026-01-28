@@ -623,7 +623,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   }, [themeColor, mapReady, getGeometryCenter]);
 
   /**
-   * Highlight a single feature
+   * Highlight a single feature (including its pushpin if multi-result)
    */
   const highlightFeature = useCallback((feature) => {
     if (!highlightLayerRef.current || !mapReady) return;
@@ -669,8 +669,31 @@ const MapView = forwardRef(function MapView(props, ref) {
       });
     }
 
+    // Add highlighted feature geometry
     highlightLayerRef.current.add(new Graphic({ geometry, symbol }));
-  }, [mapReady]);
+
+    // Also highlight the pushpin marker at feature center (for multi-result views)
+    const center = getGeometryCenter(feature.geometry);
+    if (center) {
+      const pushpinPoint = new Point({
+        x: center.x,
+        y: center.y,
+        spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+      });
+
+      const pushpinHighlightSymbol = new SimpleMarkerSymbol({
+        style: 'circle',
+        color: [255, 200, 0],
+        size: 18,
+        outline: { color: [255, 255, 255], width: 3 }
+      });
+
+      highlightLayerRef.current.add(new Graphic({
+        geometry: pushpinPoint,
+        symbol: pushpinHighlightSymbol
+      }));
+    }
+  }, [mapReady, getGeometryCenter]);
 
   /**
    * Zoom to a specific feature
@@ -729,17 +752,30 @@ const MapView = forwardRef(function MapView(props, ref) {
     if (graphicsLayerRef.current) graphicsLayerRef.current.removeAll();
     if (highlightLayerRef.current) highlightLayerRef.current.removeAll();
     if (pushpinLayerRef.current) pushpinLayerRef.current.removeAll();
-    
+
     setSelectedFeature(null);
     setShowFeaturePanel(false);
     setShowSearchResults(false);
     setRelatedFeatures([]);
-    
+
     // Clear search results in context
     if (updateSearchResults) {
       updateSearchResults({ features: [] });
     }
   }, [updateSearchResults]);
+
+  /**
+   * Zoom to all results
+   */
+  const zoomToAllResults = useCallback(() => {
+    if (!viewRef.current || !graphicsLayerRef.current || !mapReady) return;
+
+    const graphics = graphicsLayerRef.current.graphics;
+    if (graphics.length === 0) return;
+
+    // Zoom to all graphics in the results layer
+    viewRef.current.goTo(graphics, { padding: 50, duration: 500 });
+  }, [mapReady]);
 
   /**
    * Zoom controls
@@ -795,11 +831,12 @@ const MapView = forwardRef(function MapView(props, ref) {
     renderResults,
     highlightFeature,
     zoomToFeature,
+    zoomToAllResults,
     clearResults,
     get view() { return viewRef.current; },
     get map() { return mapRef.current; },
     get markupLayer() { return markupLayerRef.current; }
-  }), [renderResults, highlightFeature, zoomToFeature, clearResults]);
+  }), [renderResults, highlightFeature, zoomToFeature, zoomToAllResults, clearResults]);
 
   // Update results when searchResults change
   useEffect(() => {
@@ -940,6 +977,8 @@ const MapView = forwardRef(function MapView(props, ref) {
                   onToggle={() => setShowSearchResults(false)}
                   onFeatureSelect={handleFeatureSelect}
                   onClearResults={clearResults}
+                  onZoomToAll={zoomToAllResults}
+                  searchFields={activeMap?.searchFields || []}
                 />
               )}
               {showMarkupTool && (
@@ -1005,6 +1044,8 @@ const MapView = forwardRef(function MapView(props, ref) {
                 }}
                 onFeatureSelect={handleFeatureSelect}
                 onClearResults={clearResults}
+                onZoomToAll={zoomToAllResults}
+                searchFields={activeMap?.searchFields || []}
               />
 
               {/* 2. Markup Tool */}
