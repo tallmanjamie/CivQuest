@@ -1,6 +1,6 @@
 // src/atlas/components/TableView.jsx
 // CivQuest Atlas - Table View Component
-// AG Grid data table with sorting, filtering, and export
+// AG Grid data table with sorting, filtering, side panel details, and export
 // Search input has been moved to unified SearchToolbar in AtlasApp
 
 import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle, useMemo } from 'react';
@@ -11,25 +11,28 @@ import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 // Register AG Grid modules (required for v31+)
 ModuleRegistry.registerModules([ClientSideRowModelModule]);
+
 import {
   Download,
   Columns,
   RefreshCw,
   X,
   Loader2,
-  ChevronDown,
   Map,
   Eye,
-  Filter,
-  SortAsc,
-  ArrowUpDown
+  MapPin,
+  BarChart3
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
 
+// Configuration
+const DEFAULT_PAGE_SIZE = 100;
+const ROW_HEIGHT = 42;
+
 /**
  * TableView Component
- * AG Grid data table for search results
+ * AG Grid data table for search results with side panel details
  */
 const TableView = forwardRef(function TableView(props, ref) {
   const {
@@ -46,14 +49,15 @@ const TableView = forwardRef(function TableView(props, ref) {
 
   // Refs
   const gridRef = useRef(null);
-  // Use ref to always access latest searchResults in event handlers (avoid stale closures)
   const searchResultsRef = useRef(searchResults);
 
   // State
   const [isGridReady, setIsGridReady] = useState(false);
-  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [showColumnDialog, setShowColumnDialog] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState([]);
   const [rowCount, setRowCount] = useState(0);
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
 
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
@@ -65,21 +69,51 @@ const TableView = forwardRef(function TableView(props, ref) {
   }, [searchResults]);
 
   /**
+   * Format date values for display
+   */
+  const formatDate = useCallback((value) => {
+    if (!value) return '';
+    try {
+      const date = new Date(value);
+      if (isNaN(date.getTime())) return value;
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return value;
+    }
+  }, []);
+
+  /**
+   * Format number values for display
+   */
+  const formatNumber = useCallback((value) => {
+    if (value === null || value === undefined || value === '') return '';
+    const num = parseFloat(value);
+    if (isNaN(num)) return value;
+    return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }, []);
+
+  /**
    * Action button cell renderer component
    */
   const ActionCellRenderer = useCallback((params) => {
     return (
       <button
-        className="p-1 hover:bg-slate-100 rounded"
-        onClick={() => {
+        className="table-row-action"
+        onClick={(e) => {
+          e.stopPropagation();
           const feature = searchResultsRef.current?.features?.[params.data._index];
           if (feature) {
             zoomToFeature(feature);
             setMode('map');
           }
         }}
+        title="View on map"
       >
-        <Eye className="w-4 h-4 text-slate-500" />
+        <MapPin className="w-4 h-4" />
       </button>
     );
   }, [zoomToFeature, setMode]);
@@ -96,37 +130,88 @@ const TableView = forwardRef(function TableView(props, ref) {
       if (searchResults?.features?.[0]?.attributes) {
         dataCols = Object.keys(searchResults.features[0].attributes)
           .filter(k => !k.startsWith('_') && k !== 'OBJECTID')
-          .map(field => ({
-            field,
-            headerName: field,
-            sortable: true,
-            filter: true,
-            resizable: true,
-            minWidth: 100
-          }));
+          .map(field => {
+            const colDef = {
+              field,
+              headerName: field,
+              headerTooltip: field,
+              tooltipField: field,
+              sortable: true,
+              filter: true,
+              resizable: true,
+              minWidth: 80,
+              cellClass: 'table-cell-truncate'
+            };
+
+            // Auto-detect date fields
+            if (field.toUpperCase().includes('DATE')) {
+              colDef.valueFormatter = (params) => formatDate(params.value);
+              colDef.filter = 'agDateColumnFilter';
+            }
+
+            // Auto-detect numeric fields
+            if (field === 'SALEAMOUNT' || field === 'LIVINGAREA' ||
+                field === 'LEGALACRES' || field === 'YEARBUILT' ||
+                field === 'STORIES' || field === 'FRONTAGE' ||
+                field === 'ASSESSEDVALUE' || field === 'TAXAMOUNT') {
+              colDef.valueFormatter = (params) => formatNumber(params.value);
+              colDef.filter = 'agNumberColumnFilter';
+              colDef.type = 'numericColumn';
+              colDef.cellStyle = { textAlign: 'right' };
+            }
+
+            return colDef;
+          });
       }
     } else {
-      dataCols = tableColumns.map(col => ({
-        field: col.field,
-        headerName: col.headerName || col.field,
-        width: col.width,
-        minWidth: col.minWidth || 80,
-        sortable: col.sortable !== false,
-        filter: col.filter !== false,
-        resizable: col.resizable !== false,
-        valueFormatter: col.valueFormatter ?
-          (params) => {
+      dataCols = tableColumns.map(col => {
+        const colDef = {
+          field: col.field,
+          headerName: col.headerName || col.field,
+          headerTooltip: col.headerName || col.field,
+          tooltipField: col.field,
+          width: col.width,
+          minWidth: col.minWidth || 80,
+          sortable: col.sortable !== false,
+          filter: col.filter !== false,
+          resizable: col.resizable !== false,
+          cellClass: 'table-cell-truncate'
+        };
+
+        // Date formatting
+        if (col.field.toUpperCase().includes('DATE')) {
+          colDef.valueFormatter = (params) => formatDate(params.value);
+          colDef.filter = 'agDateColumnFilter';
+        }
+
+        // Number formatting
+        if (col.field === 'SALEAMOUNT' || col.field === 'LIVINGAREA' ||
+            col.field === 'LEGALACRES' || col.field === 'YEARBUILT' ||
+            col.field === 'STORIES' || col.field === 'FRONTAGE' ||
+            col.field === 'ASSESSEDVALUE' || col.field === 'TAXAMOUNT') {
+          colDef.valueFormatter = (params) => formatNumber(params.value);
+          colDef.filter = 'agNumberColumnFilter';
+          colDef.type = 'numericColumn';
+          colDef.cellStyle = { textAlign: 'right' };
+        }
+
+        // Custom formatter
+        if (col.valueFormatter) {
+          colDef.valueFormatter = (params) => {
             try {
               return new Function('params', `return ${col.valueFormatter}`)(params);
             } catch {
               return params.value;
             }
-          } : undefined
-      }));
+          };
+        }
+
+        return colDef;
+      });
     }
 
     return dataCols;
-  }, [activeMap?.tableColumns, searchResults?.features]);
+  }, [activeMap?.tableColumns, searchResults?.features, formatDate, formatNumber]);
 
   /**
    * Full column definitions including action column
@@ -138,10 +223,13 @@ const TableView = forwardRef(function TableView(props, ref) {
         headerName: '',
         field: '_actions',
         width: 50,
+        minWidth: 50,
+        maxWidth: 50,
         sortable: false,
         filter: false,
         resizable: false,
         pinned: 'left',
+        suppressHeaderMenuButton: true,
         cellRenderer: ActionCellRenderer
       },
       ...dataCols
@@ -156,7 +244,8 @@ const TableView = forwardRef(function TableView(props, ref) {
     return searchResults.features.map((f, idx) => ({
       ...f.attributes,
       _index: idx,
-      _geometry: f.geometry
+      _geometry: f.geometry,
+      _feature: f
     }));
   }, [searchResults]);
 
@@ -167,7 +256,20 @@ const TableView = forwardRef(function TableView(props, ref) {
     sortable: true,
     filter: true,
     resizable: true,
-    minWidth: 80
+    minWidth: 80,
+    wrapText: false,
+    autoHeight: false,
+    cellStyle: {
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis'
+    },
+    filterParams: {
+      buttons: ['reset', 'apply'],
+      closeOnApply: true
+    },
+    menuTabs: ['filterMenuTab'],
+    suppressHeaderMenuButton: false
   }), []);
 
   /**
@@ -179,16 +281,20 @@ const TableView = forwardRef(function TableView(props, ref) {
     const dataCols = getColumnDefs();
     setVisibleColumns(dataCols.map(c => c.field));
     // Auto-size columns
-    params.api.sizeColumnsToFit();
+    setTimeout(() => {
+      params.api.sizeColumnsToFit();
+    }, 100);
   }, [getColumnDefs]);
 
   /**
-   * Row click handler
+   * Row click handler - opens side panel
    */
   const onRowClicked = useCallback((params) => {
     const feature = searchResultsRef.current?.features?.[params.data._index];
     if (feature) {
       highlightFeature(feature);
+      setSelectedRecord(params.data);
+      setSidePanelOpen(true);
     }
   }, [highlightFeature]);
 
@@ -211,11 +317,17 @@ const TableView = forwardRef(function TableView(props, ref) {
   }, []);
 
   /**
+   * First data rendered callback
+   */
+  const onFirstDataRendered = useCallback((params) => {
+    params.api.sizeColumnsToFit();
+  }, []);
+
+  /**
    * Resize columns when mode changes to table
    */
   useEffect(() => {
     if (mode === 'table' && gridRef.current?.api) {
-      // Small delay to ensure the container is visible and has dimensions
       const timer = setTimeout(() => {
         console.log('[TableView] Mode changed to table, resizing grid');
         gridRef.current.api.sizeColumnsToFit();
@@ -233,6 +345,14 @@ const TableView = forwardRef(function TableView(props, ref) {
       setVisibleColumns(dataCols.map(c => c.field));
     }
   }, [getColumnDefs]);
+
+  /**
+   * Close side panel when results change
+   */
+  useEffect(() => {
+    setSidePanelOpen(false);
+    setSelectedRecord(null);
+  }, [searchResults]);
 
   /**
    * Export to CSV
@@ -262,11 +382,86 @@ const TableView = forwardRef(function TableView(props, ref) {
   }, [visibleColumns]);
 
   /**
+   * Show all columns
+   */
+  const showAllColumns = useCallback(() => {
+    if (!gridRef.current?.api) return;
+
+    const allFields = getColumnDefs().map(c => c.field);
+    setVisibleColumns(allFields);
+    gridRef.current.api.setColumnsVisible(allFields, true);
+  }, [getColumnDefs]);
+
+  /**
+   * Reset table state
+   */
+  const resetTable = useCallback(() => {
+    if (!gridRef.current?.api) return;
+
+    // Show all columns
+    showAllColumns();
+
+    // Reset column order and widths
+    gridRef.current.api.resetColumnState();
+
+    // Clear sort
+    gridRef.current.api.applyColumnState({ defaultState: { sort: null } });
+
+    // Resize columns
+    setTimeout(() => {
+      gridRef.current.api.sizeColumnsToFit();
+    }, 100);
+  }, [showAllColumns]);
+
+  /**
    * Clear table
    */
   const clearTable = useCallback(() => {
     updateSearchResults({ features: [] });
+    setSidePanelOpen(false);
+    setSelectedRecord(null);
   }, [updateSearchResults]);
+
+  /**
+   * Close side panel
+   */
+  const closeSidePanel = useCallback(() => {
+    setSidePanelOpen(false);
+    setSelectedRecord(null);
+    if (gridRef.current?.api) {
+      gridRef.current.api.deselectAll();
+    }
+  }, []);
+
+  /**
+   * View selected record on map
+   */
+  const viewOnMap = useCallback(() => {
+    if (selectedRecord?._feature) {
+      zoomToFeature(selectedRecord._feature);
+      setMode('map');
+    }
+  }, [selectedRecord, zoomToFeature, setMode]);
+
+  /**
+   * Format value for side panel display
+   */
+  const formatValueForDisplay = useCallback((field, value) => {
+    if (value === null || value === undefined || value === '') return '';
+
+    if (field.toUpperCase().includes('DATE')) {
+      return formatDate(value);
+    }
+
+    if (field === 'SALEAMOUNT' || field === 'LIVINGAREA' ||
+        field === 'LEGALACRES' || field === 'YEARBUILT' ||
+        field === 'STORIES' || field === 'FRONTAGE' ||
+        field === 'ASSESSEDVALUE' || field === 'TAXAMOUNT') {
+      return formatNumber(value);
+    }
+
+    return String(value);
+  }, [formatDate, formatNumber]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -278,109 +473,62 @@ const TableView = forwardRef(function TableView(props, ref) {
   const allColumns = getColumnDefs();
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2 p-2 border-b border-slate-200 bg-slate-50">
-        {/* Left: Result count */}
-        <div className="flex items-center gap-2">
-          {hasResults ? (
-            <span
-              className="px-2 py-1 rounded-full text-xs font-medium"
-              style={{ backgroundColor: colors.bg100, color: colors.text700 }}
-            >
-              {rowCount} record{rowCount !== 1 ? 's' : ''}
+    <div className="table-view-wrapper">
+      {/* Inject Styles */}
+      <style>{tableViewStyles}</style>
+
+      {/* Tools Bar */}
+      <div className="table-tools-bar">
+        <div className="table-tools-left">
+          <div className="table-status">
+            <BarChart3 className="w-4 h-4" style={{ color: colors.text600 }} />
+            <span className="table-status-text">
+              {hasResults
+                ? `${rowCount.toLocaleString()} ${rowCount === 1 ? 'record' : 'records'}`
+                : 'No results to display'}
             </span>
-          ) : (
-            <span className="text-sm text-slate-500">No results</span>
-          )}
+          </div>
 
           {isSearching && (
-            <div className="flex items-center gap-1 text-slate-500">
+            <div className="table-search-status">
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-xs">Searching...</span>
+              <span>Searching...</span>
             </div>
           )}
         </div>
 
-        {/* Right: Actions */}
-        <div className="flex items-center gap-1">
-          {/* Column Picker */}
-          <div className="relative">
-            <button
-              onClick={() => setShowColumnPicker(!showColumnPicker)}
-              disabled={!hasResults}
-              className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Show/hide columns"
-            >
-              <Columns className="w-4 h-4" />
-              <span className="hidden sm:inline">Columns</span>
-              <ChevronDown className="w-3 h-3" />
-            </button>
-
-            {showColumnPicker && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowColumnPicker(false)} />
-                <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 max-h-80 overflow-y-auto">
-                  <div className="px-3 py-2 border-b border-slate-100">
-                    <span className="text-xs font-semibold text-slate-500 uppercase">Toggle Columns</span>
-                  </div>
-                  {allColumns.map((col) => (
-                    <button
-                      key={col.field}
-                      onClick={() => toggleColumn(col.field)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                    >
-                      <div
-                        className="w-4 h-4 rounded border flex items-center justify-center"
-                        style={visibleColumns.includes(col.field)
-                          ? { backgroundColor: colors.bg600, borderColor: colors.border500, color: 'white' }
-                          : { borderColor: '#cbd5e1' }
-                        }
-                      >
-                        {visibleColumns.includes(col.field) && (
-                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </div>
-                      <span className="text-slate-700">{col.headerName || col.field}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Export */}
+        <div className="table-tools-right">
           <button
+            className="table-tool-btn"
+            onClick={() => setShowColumnDialog(true)}
+            disabled={!hasResults}
+            title="Show/Hide columns"
+          >
+            <Columns className="w-4 h-4" />
+          </button>
+
+          <button
+            className="table-tool-btn"
+            onClick={resetTable}
+            disabled={!hasResults}
+            title="Reset table layout"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+
+          <button
+            className="table-tool-btn"
             onClick={exportCSV}
             disabled={!hasResults}
-            className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             title="Export to CSV"
           >
             <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Export</span>
           </button>
 
-          {/* View on Map */}
           <button
-            onClick={() => setMode('map')}
-            disabled={!hasResults}
-            className="flex items-center gap-1 px-2 py-1.5 text-sm rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ color: colors.text600 }}
-            onMouseEnter={(e) => { if (hasResults) e.target.style.backgroundColor = colors.bg50; }}
-            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; }}
-            title="View on map"
-          >
-            <Map className="w-4 h-4" />
-            <span className="hidden sm:inline">Map</span>
-          </button>
-
-          {/* Clear */}
-          <button
+            className="table-tool-btn"
             onClick={clearTable}
             disabled={!hasResults}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             title="Clear table"
           >
             <X className="w-4 h-4" />
@@ -389,74 +537,860 @@ const TableView = forwardRef(function TableView(props, ref) {
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Grid Container */}
-        <div className="flex-1 relative">
-          {/* Empty State */}
-          {!hasResults && !isSearching && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center max-w-md">
-                <div className="w-16 h-16 mx-auto mb-4 text-slate-300">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                    <line x1="3" y1="9" x2="21" y2="9" />
-                    <line x1="9" y1="21" x2="9" y2="9" />
-                  </svg>
+      <div className="table-content-area">
+        {/* Empty State */}
+        {!hasResults && !isSearching && (
+          <div className="table-empty-state">
+            <div className="table-empty-content">
+              <div className="table-empty-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-16 h-16">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <line x1="3" y1="9" x2="21" y2="9" />
+                  <line x1="9" y1="21" x2="9" y2="9" />
+                </svg>
+              </div>
+              <h3 className="table-empty-title">No Data to Display</h3>
+              <p className="table-empty-text">
+                Search for properties using the search bar to populate the table with results.
+              </p>
+              {config?.messages?.exampleQuestions?.[0] && (
+                <div className="table-empty-hint">
+                  <span className="hint-icon">💡</span>
+                  <span>Try: "{config.messages.exampleQuestions[0]}"</span>
                 </div>
-                <h3 className="text-lg font-semibold text-slate-700 mb-2">No Data to Display</h3>
-                <p className="text-slate-500 text-sm mb-4">
-                  Search for properties using the search bar to populate the table with results.
-                </p>
-                {config?.messages?.exampleQuestions?.[0] && (
-                  <div className="inline-flex items-center gap-2 text-sm text-slate-400 bg-slate-100 px-3 py-2 rounded-lg">
-                    <span>💡</span>
-                    <span>Try: "{config.messages.exampleQuestions[0]}"</span>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
-          )}
-
-          {/* Loading State */}
-          {isSearching && !hasResults && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" style={{ color: colors.text600 }} />
-                <p className="text-sm text-slate-600">Searching...</p>
-              </div>
-            </div>
-          )}
-
-          {/* AG Grid */}
-          <div className={`ag-theme-alpine w-full h-full ${!hasResults ? 'invisible' : ''}`}>
-            <AgGridReact
-              ref={gridRef}
-              rowData={rowData}
-              columnDefs={columnDefs}
-              defaultColDef={defaultColDef}
-              animateRows={true}
-              rowSelection="single"
-              suppressCellFocus={true}
-              onGridReady={onGridReady}
-              onRowClicked={onRowClicked}
-              onRowDoubleClicked={onRowDoubleClicked}
-              onModelUpdated={onModelUpdated}
-            />
           </div>
+        )}
+
+        {/* Loading State */}
+        {isSearching && !hasResults && (
+          <div className="table-empty-state">
+            <div className="table-empty-content">
+              <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4" style={{ color: colors.text600 }} />
+              <p className="text-slate-600">Searching...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Grid Container */}
+        <div
+          className={`table-grid-container ag-theme-alpine ${!hasResults ? 'hidden' : ''} ${sidePanelOpen ? 'with-panel' : ''}`}
+        >
+          <AgGridReact
+            ref={gridRef}
+            rowData={rowData}
+            columnDefs={columnDefs}
+            defaultColDef={defaultColDef}
+            animateRows={true}
+            rowSelection="single"
+            suppressCellFocus={true}
+            enableCellTextSelection={true}
+            rowHeight={ROW_HEIGHT}
+            headerHeight={44}
+            pagination={true}
+            paginationPageSize={DEFAULT_PAGE_SIZE}
+            paginationPageSizeSelector={[25, 50, 100, 250, 500]}
+            tooltipShowDelay={500}
+            onGridReady={onGridReady}
+            onRowClicked={onRowClicked}
+            onRowDoubleClicked={onRowDoubleClicked}
+            onModelUpdated={onModelUpdated}
+            onFirstDataRendered={onFirstDataRendered}
+            overlayLoadingTemplate='<div class="table-loading"><div class="table-loading-spinner"></div><span>Loading data...</span></div>'
+            overlayNoRowsTemplate='<div class="table-no-rows">No matching records found</div>'
+          />
+        </div>
+
+        {/* Side Panel */}
+        <div className={`table-side-panel ${sidePanelOpen ? 'open' : ''}`}>
+          <div className="side-panel-header">
+            <h3 className="side-panel-title">Record Details</h3>
+            <button
+              className="side-panel-close"
+              onClick={closeSidePanel}
+              title="Close panel"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="side-panel-content">
+            {selectedRecord ? (
+              <div className="side-panel-fields">
+                {allColumns.map((col) => {
+                  const value = selectedRecord[col.field];
+                  const displayValue = formatValueForDisplay(col.field, value);
+
+                  if (displayValue === '' || displayValue === null || displayValue === undefined) {
+                    return null;
+                  }
+
+                  return (
+                    <div key={col.field} className="side-panel-field">
+                      <div className="field-label">{col.headerName || col.field}</div>
+                      <div className="field-value">{displayValue}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="side-panel-placeholder">Select a record to view details</p>
+            )}
+          </div>
+
+          {selectedRecord && (
+            <div className="side-panel-footer">
+              <button
+                className="side-panel-action-btn"
+                onClick={viewOnMap}
+                style={{ backgroundColor: colors.bg600 }}
+              >
+                <MapPin className="w-4 h-4" />
+                View on Map
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Footer */}
-      {hasResults && (
-        <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 text-xs text-slate-500">
-          <div className="flex items-center justify-between">
-            <span>Double-click a row to view on map</span>
-            <span>{rowCount} of {searchResults?.features?.length || 0} records shown</span>
+      {/* Column Visibility Dialog */}
+      {showColumnDialog && (
+        <div
+          className="table-dialog-overlay visible"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowColumnDialog(false);
+          }}
+        >
+          <div className="table-dialog">
+            <div className="table-dialog-header">
+              <h3>Show/Hide Columns</h3>
+              <button
+                className="table-dialog-close"
+                onClick={() => setShowColumnDialog(false)}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="table-dialog-content">
+              {allColumns.map((col) => (
+                <label key={col.field} className="column-visibility-item">
+                  <input
+                    type="checkbox"
+                    checked={visibleColumns.includes(col.field)}
+                    onChange={() => toggleColumn(col.field)}
+                  />
+                  <span className="column-checkbox-custom" />
+                  <span className="column-name">{col.headerName || col.field}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="table-dialog-footer">
+              <button
+                className="table-dialog-btn secondary"
+                onClick={showAllColumns}
+              >
+                Show All
+              </button>
+              <button
+                className="table-dialog-btn primary"
+                onClick={() => setShowColumnDialog(false)}
+                style={{ backgroundColor: colors.bg600 }}
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 });
+
+/**
+ * Table View Styles
+ */
+const tableViewStyles = `
+  /* Table View Wrapper */
+  .table-view-wrapper {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: #f8fafc;
+    overflow: hidden;
+  }
+
+  /* Content Area */
+  .table-content-area {
+    flex: 1;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Tools Bar */
+  .table-tools-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    flex-shrink: 0;
+    gap: 12px;
+  }
+
+  .table-tools-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .table-tools-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .table-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #475569;
+    font-weight: 500;
+  }
+
+  .table-search-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #0369a1;
+    font-weight: 500;
+    padding: 4px 10px;
+    background: #f0f9ff;
+    border-radius: 6px;
+    border: 1px solid #bae6fd;
+  }
+
+  .table-tool-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .table-tool-btn:hover:not(:disabled) {
+    background: #e2e8f0;
+    color: #0369a1;
+    border-color: #cbd5e1;
+  }
+
+  .table-tool-btn:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+
+  .table-tool-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Empty State */
+  .table-empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+
+  .table-empty-content {
+    text-align: center;
+    max-width: 400px;
+  }
+
+  .table-empty-icon {
+    margin-bottom: 20px;
+    color: #cbd5e1;
+  }
+
+  .table-empty-icon svg {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto;
+  }
+
+  .table-empty-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 8px;
+  }
+
+  .table-empty-text {
+    font-size: 14px;
+    color: #64748b;
+    line-height: 1.5;
+    margin-bottom: 20px;
+  }
+
+  .table-empty-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #0369a1;
+  }
+
+  /* Grid Container */
+  .table-grid-container {
+    flex: 1;
+    width: 100%;
+    overflow: hidden;
+    transition: width 0.3s ease;
+  }
+
+  .table-grid-container.hidden {
+    display: none;
+  }
+
+  .table-grid-container.with-panel {
+    width: calc(100% - 380px);
+  }
+
+  /* Side Panel */
+  .table-side-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 380px;
+    height: 100%;
+    background: white;
+    border-left: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    z-index: 100;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08);
+  }
+
+  .table-side-panel.open {
+    transform: translateX(0);
+  }
+
+  .side-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e2e8f0;
+    background: linear-gradient(to bottom, #f8fafc, white);
+  }
+
+  .side-panel-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0;
+  }
+
+  .side-panel-close {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .side-panel-close:hover {
+    background: #f1f5f9;
+    color: #334155;
+  }
+
+  .side-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+  }
+
+  .side-panel-placeholder {
+    text-align: center;
+    color: #94a3b8;
+    padding: 40px 20px;
+  }
+
+  .side-panel-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .side-panel-field {
+    display: flex;
+    flex-direction: column;
+    padding: 12px 14px;
+    background: #f8fafc;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    transition: background 0.15s ease;
+  }
+
+  .side-panel-field:hover {
+    background: #f1f5f9;
+  }
+
+  .field-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+
+  .field-value {
+    font-size: 14px;
+    color: #1e293b;
+    word-break: break-word;
+    line-height: 1.5;
+  }
+
+  .side-panel-footer {
+    padding: 16px 20px;
+    border-top: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+
+  .side-panel-action-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #0369a1;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .side-panel-action-btn:hover {
+    filter: brightness(0.9);
+  }
+
+  .side-panel-action-btn:active {
+    transform: scale(0.98);
+  }
+
+  /* Column Visibility Dialog */
+  .table-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(4px);
+  }
+
+  .table-dialog-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .table-dialog {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+  }
+
+  .table-dialog-overlay.visible .table-dialog {
+    transform: scale(1);
+  }
+
+  .table-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .table-dialog-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0;
+  }
+
+  .table-dialog-close {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .table-dialog-close:hover {
+    background: #f1f5f9;
+    color: #334155;
+  }
+
+  .table-dialog-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 20px;
+    max-height: 400px;
+  }
+
+  .column-visibility-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .column-visibility-item:hover {
+    background: #f1f5f9;
+  }
+
+  .column-visibility-item input {
+    display: none;
+  }
+
+  .column-checkbox-custom {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #cbd5e1;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .column-visibility-item input:checked + .column-checkbox-custom {
+    background: #0369a1;
+    border-color: #0369a1;
+  }
+
+  .column-visibility-item input:checked + .column-checkbox-custom::after {
+    content: '';
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin-top: -2px;
+  }
+
+  .column-name {
+    font-size: 14px;
+    color: #334155;
+  }
+
+  .table-dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 20px;
+    border-top: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 0 0 12px 12px;
+  }
+
+  .table-dialog-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .table-dialog-btn.secondary {
+    background: white;
+    border: 1px solid #e2e8f0;
+    color: #475569;
+  }
+
+  .table-dialog-btn.secondary:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+  }
+
+  .table-dialog-btn.primary {
+    background: #0369a1;
+    border: none;
+    color: white;
+  }
+
+  .table-dialog-btn.primary:hover {
+    filter: brightness(0.9);
+  }
+
+  /* Cell truncation */
+  .table-cell-truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Row Action Button */
+  .table-row-action {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .table-row-action:hover {
+    background: #e0f2fe;
+    color: #0369a1;
+  }
+
+  /* Loading State */
+  .table-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 40px;
+    color: #64748b;
+  }
+
+  .table-loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid #e2e8f0;
+    border-top-color: #0369a1;
+    border-radius: 50%;
+    animation: table-spin 0.8s linear infinite;
+  }
+
+  @keyframes table-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .table-no-rows {
+    padding: 40px;
+    text-align: center;
+    color: #64748b;
+    font-size: 14px;
+  }
+
+  /* AG Grid Theme Overrides */
+  .table-grid-container.ag-theme-alpine {
+    --ag-header-height: 44px;
+    --ag-header-foreground-color: #334155;
+    --ag-header-background-color: #f8fafc;
+    --ag-header-cell-hover-background-color: #f1f5f9;
+    --ag-row-hover-color: #f0f9ff;
+    --ag-selected-row-background-color: #e0f2fe;
+    --ag-font-family: inherit;
+    --ag-font-size: 13px;
+    --ag-row-border-color: #f1f5f9;
+    --ag-border-color: #e2e8f0;
+    --ag-secondary-border-color: #f1f5f9;
+    --ag-alpine-active-color: #0369a1;
+    --ag-input-focus-border-color: #0369a1;
+  }
+
+  .table-grid-container .ag-header-cell {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .table-grid-container .ag-header-cell-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .table-grid-container .ag-header-cell-menu-button {
+    opacity: 0.5;
+    transition: opacity 0.15s ease;
+  }
+
+  .table-grid-container .ag-header-cell:hover .ag-header-cell-menu-button {
+    opacity: 1;
+  }
+
+  .table-grid-container .ag-header-cell-menu-button:hover {
+    color: #0369a1;
+  }
+
+  .table-grid-container .ag-cell {
+    display: flex;
+    align-items: center;
+    padding-left: 12px;
+    padding-right: 12px;
+    line-height: 1.4;
+    overflow: hidden;
+  }
+
+  .table-grid-container .ag-cell-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .table-grid-container .ag-row {
+    border-bottom: 1px solid #f1f5f9;
+    cursor: pointer;
+  }
+
+  .table-grid-container .ag-row:hover {
+    background-color: #f0f9ff;
+  }
+
+  .table-grid-container .ag-row-selected {
+    background-color: #e0f2fe !important;
+  }
+
+  .table-grid-container .ag-paging-panel {
+    border-top: 1px solid #e2e8f0;
+    background: white;
+    padding: 8px 16px;
+    height: 48px;
+  }
+
+  /* Filter popup styling */
+  .table-grid-container .ag-filter {
+    padding: 12px;
+  }
+
+  .table-grid-container .ag-filter-apply-panel {
+    padding: 8px 0 0 0;
+  }
+
+  /* Tooltip styling */
+  .table-grid-container .ag-tooltip {
+    background-color: #1e293b;
+    color: white;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    max-width: 300px;
+    word-wrap: break-word;
+    white-space: normal;
+  }
+
+  /* Mobile Responsive */
+  @media (max-width: 768px) {
+    .table-tools-bar {
+      padding: 8px 12px;
+    }
+
+    .table-status {
+      font-size: 13px;
+    }
+
+    .table-tool-btn {
+      width: 30px;
+      height: 30px;
+    }
+
+    .table-empty-content {
+      padding: 0 16px;
+    }
+
+    .table-empty-icon svg {
+      width: 60px;
+      height: 60px;
+    }
+
+    .table-empty-title {
+      font-size: 18px;
+    }
+
+    .table-empty-hint {
+      font-size: 12px;
+      padding: 10px 12px;
+    }
+
+    .table-grid-container.ag-theme-alpine {
+      --ag-font-size: 12px;
+    }
+
+    .table-grid-container .ag-header-cell {
+      font-size: 10px;
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+
+    .table-grid-container .ag-cell {
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+
+    /* Side panel full width on mobile */
+    .table-side-panel {
+      width: 100%;
+    }
+
+    .table-grid-container.with-panel {
+      display: none;
+    }
+  }
+`;
 
 export default TableView;
