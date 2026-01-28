@@ -16,7 +16,6 @@ import {
   Loader2,
   AlertCircle,
   Lightbulb,
-  X,
   Map,
   Table2,
   ExternalLink,
@@ -233,16 +232,12 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     setMode,
     enabledModes,
     mapViewRef,
-    tableViewRef,
-    showHistory,
-    setShowHistory,
-    showAdvanced,
-    setShowAdvanced
+    // Use shared search history from context
+    saveToHistory
   } = useAtlas();
 
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [searchHistory, setSearchHistory] = useState([]);
   const [loadingText, setLoadingText] = useState('Processing...');
 
   const chatContainerRef = useRef(null);
@@ -275,26 +270,6 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     
     return { parcelField, addressField };
   }, [activeMap?.searchFields, config?.data?.searchFields]);
-
-  useEffect(() => {
-    const key = `atlas_history_${config?.id || 'default'}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        setSearchHistory(JSON.parse(saved));
-      } catch (e) {}
-    }
-  }, [config?.id]);
-
-  const saveToHistory = useCallback((query) => {
-    const key = `atlas_history_${config?.id || 'default'}`;
-    const newHistory = [
-      { query, timestamp: Date.now() },
-      ...searchHistory.filter(h => h.query !== query).slice(0, 19)
-    ];
-    setSearchHistory(newHistory);
-    localStorage.setItem(key, JSON.stringify(newHistory));
-  }, [config?.id, searchHistory]);
 
   const scrollToBottom = useCallback(() => {
     if (chatContainerRef.current) {
@@ -918,16 +893,6 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
             <span>{searchTipText}</span>
           </div>
         </div>
-      )}
-
-      {/* History Panel */}
-      {showHistory && (
-        <HistoryPanel
-          history={searchHistory}
-          onSelect={(query) => { handleSearch(query); setShowHistory(false); }}
-          onClear={clearHistory}
-          onClose={() => setShowHistory(false)}
-        />
       )}
     </div>
   );

@@ -4,8 +4,8 @@
 // Search input has been moved to unified SearchToolbar in AtlasApp
 
 import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { 
-  Download, 
+import {
+  Download,
   Columns,
   RefreshCw,
   X,
@@ -18,6 +18,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
+import { getThemeColors } from '../utils/themeColors';
 
 /**
  * TableView Component
@@ -32,12 +33,16 @@ const TableView = forwardRef(function TableView(props, ref) {
     isSearching,
     zoomToFeature,
     highlightFeature,
-    setMode
+    setMode,
+    mode
   } = useAtlas();
 
   // Refs
   const gridRef = useRef(null);
   const gridApiRef = useRef(null);
+  // Use ref to always access latest searchResults in event handlers (avoid stale closures)
+  const searchResultsRef = useRef(searchResults);
+  const [agGridLoaded, setAgGridLoaded] = useState(!!window.agGrid);
 
   // State
   const [isGridReady, setIsGridReady] = useState(false);
@@ -46,7 +51,13 @@ const TableView = forwardRef(function TableView(props, ref) {
   const [rowCount, setRowCount] = useState(0);
 
   const themeColor = config?.ui?.themeColor || 'sky';
+  const colors = getThemeColors(themeColor);
   const hasResults = searchResults?.features?.length > 0;
+
+  // Keep searchResultsRef in sync
+  useEffect(() => {
+    searchResultsRef.current = searchResults;
+  }, [searchResults]);
 
   /**
    * Get column definitions from config
@@ -109,11 +120,13 @@ const TableView = forwardRef(function TableView(props, ref) {
   const initializeGrid = useCallback(() => {
     if (!gridRef.current || !window.agGrid) {
       console.warn('[TableView] AG Grid not available');
-      return;
+      return false;
     }
 
+    console.log('[TableView] Initializing grid with', searchResultsRef.current?.features?.length || 0, 'features');
+
     const columnDefs = getColumnDefs();
-    
+
     // Add action column at the beginning
     const allColumns = [
       {
@@ -129,7 +142,8 @@ const TableView = forwardRef(function TableView(props, ref) {
           btn.className = 'p-1 hover:bg-slate-100 rounded';
           btn.innerHTML = '<svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
           btn.onclick = () => {
-            const feature = searchResults?.features?.[params.data._index];
+            // Use ref to get latest searchResults (avoid stale closure)
+            const feature = searchResultsRef.current?.features?.[params.data._index];
             if (feature) {
               zoomToFeature(feature);
               setMode('map');
@@ -157,18 +171,21 @@ const TableView = forwardRef(function TableView(props, ref) {
         gridApiRef.current = params.api;
         setIsGridReady(true);
         setVisibleColumns(columnDefs.map(c => c.field));
-        
+
         // Auto-size columns
         params.api.sizeColumnsToFit();
+        console.log('[TableView] Grid ready');
       },
       onRowClicked: (params) => {
-        const feature = searchResults?.features?.[params.data._index];
+        // Use ref to get latest searchResults (avoid stale closure)
+        const feature = searchResultsRef.current?.features?.[params.data._index];
         if (feature) {
           highlightFeature(feature);
         }
       },
       onRowDoubleClicked: (params) => {
-        const feature = searchResults?.features?.[params.data._index];
+        // Use ref to get latest searchResults (avoid stale closure)
+        const feature = searchResultsRef.current?.features?.[params.data._index];
         if (feature) {
           zoomToFeature(feature);
           setMode('map');
@@ -181,38 +198,118 @@ const TableView = forwardRef(function TableView(props, ref) {
 
     // Destroy existing grid if any
     if (gridApiRef.current) {
-      gridApiRef.current.destroy();
+      try {
+        gridApiRef.current.destroy();
+      } catch (e) {
+        console.warn('[TableView] Error destroying grid:', e);
+      }
+      gridApiRef.current = null;
+      setIsGridReady(false);
     }
 
     // Create new grid
-    new window.agGrid.Grid(gridRef.current, gridOptions);
-  }, [getColumnDefs, getRowData, searchResults, zoomToFeature, highlightFeature, setMode]);
+    try {
+      new window.agGrid.Grid(gridRef.current, gridOptions);
+      return true;
+    } catch (e) {
+      console.error('[TableView] Error creating grid:', e);
+      return false;
+    }
+  }, [getColumnDefs, getRowData, zoomToFeature, highlightFeature, setMode]);
 
   /**
    * Update grid data when results change
    */
   useEffect(() => {
+    if (!agGridLoaded) return;
+
     if (gridApiRef.current && searchResults?.features) {
+      console.log('[TableView] Updating grid data with', searchResults.features.length, 'features');
+
+      // Check if columns need to be regenerated (different fields in new data)
+      const currentColDefs = getColumnDefs();
+      if (currentColDefs.length > 0) {
+        // Update columns and data
+        const allColumns = [
+          {
+            headerName: '',
+            field: '_actions',
+            width: 50,
+            sortable: false,
+            filter: false,
+            resizable: false,
+            pinned: 'left',
+            cellRenderer: (params) => {
+              const btn = document.createElement('button');
+              btn.className = 'p-1 hover:bg-slate-100 rounded';
+              btn.innerHTML = '<svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+              btn.onclick = () => {
+                const feature = searchResultsRef.current?.features?.[params.data._index];
+                if (feature) {
+                  zoomToFeature(feature);
+                  setMode('map');
+                }
+              };
+              return btn;
+            }
+          },
+          ...currentColDefs
+        ];
+        gridApiRef.current.setColumnDefs(allColumns);
+        setVisibleColumns(currentColDefs.map(c => c.field));
+      }
+
       gridApiRef.current.setRowData(getRowData());
       gridApiRef.current.sizeColumnsToFit();
-    } else if (searchResults?.features && !gridApiRef.current) {
+    } else if (searchResults?.features && !gridApiRef.current && gridRef.current) {
       // Initialize grid if not yet done
+      console.log('[TableView] No grid API, initializing grid');
       initializeGrid();
+    } else if (!searchResults?.features && gridApiRef.current) {
+      // Clear grid if no results
+      gridApiRef.current.setRowData([]);
+      setRowCount(0);
     }
-  }, [searchResults, getRowData, initializeGrid]);
+  }, [searchResults, getRowData, getColumnDefs, initializeGrid, agGridLoaded, zoomToFeature, setMode]);
 
   /**
-   * Initialize grid on mount
+   * Initialize/reinitialize grid when mode changes to 'table'
+   * This ensures the grid is properly sized and displayed when the view becomes active
+   */
+  useEffect(() => {
+    if (mode === 'table' && agGridLoaded && gridRef.current) {
+      // Small delay to ensure the container is visible and has dimensions
+      const timer = setTimeout(() => {
+        if (gridApiRef.current) {
+          // Grid exists, just resize
+          console.log('[TableView] Mode changed to table, resizing grid');
+          gridApiRef.current.sizeColumnsToFit();
+        } else if (searchResults?.features) {
+          // No grid but we have data, initialize
+          console.log('[TableView] Mode changed to table, initializing grid');
+          initializeGrid();
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [mode, agGridLoaded, searchResults, initializeGrid]);
+
+  /**
+   * Load AG Grid library on mount
    */
   useEffect(() => {
     // Load AG Grid if not already loaded
     if (!window.agGrid) {
+      console.log('[TableView] Loading AG Grid library...');
+
       const script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.1/dist/ag-grid-community.min.js';
       script.onload = () => {
-        if (searchResults?.features) {
-          initializeGrid();
-        }
+        console.log('[TableView] AG Grid library loaded');
+        setAgGridLoaded(true);
+      };
+      script.onerror = () => {
+        console.error('[TableView] Failed to load AG Grid library');
       };
       document.head.appendChild(script);
 
@@ -225,13 +322,17 @@ const TableView = forwardRef(function TableView(props, ref) {
       theme.rel = 'stylesheet';
       theme.href = 'https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.1/styles/ag-theme-alpine.css';
       document.head.appendChild(theme);
-    } else if (searchResults?.features) {
-      initializeGrid();
+    } else {
+      setAgGridLoaded(true);
     }
 
     return () => {
       if (gridApiRef.current) {
-        gridApiRef.current.destroy();
+        try {
+          gridApiRef.current.destroy();
+        } catch (e) {
+          console.warn('[TableView] Error destroying grid on unmount:', e);
+        }
         gridApiRef.current = null;
       }
     };
@@ -290,13 +391,16 @@ const TableView = forwardRef(function TableView(props, ref) {
         {/* Left: Result count */}
         <div className="flex items-center gap-2">
           {hasResults ? (
-            <span className={`px-2 py-1 bg-${themeColor}-100 text-${themeColor}-700 rounded-full text-xs font-medium`}>
+            <span
+              className="px-2 py-1 rounded-full text-xs font-medium"
+              style={{ backgroundColor: colors.bg100, color: colors.text700 }}
+            >
               {rowCount} record{rowCount !== 1 ? 's' : ''}
             </span>
           ) : (
             <span className="text-sm text-slate-500">No results</span>
           )}
-          
+
           {isSearching && (
             <div className="flex items-center gap-1 text-slate-500">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -333,11 +437,13 @@ const TableView = forwardRef(function TableView(props, ref) {
                       onClick={() => toggleColumn(col.field)}
                       className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
                     >
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center ${
-                        visibleColumns.includes(col.field)
-                          ? `bg-${themeColor}-600 border-${themeColor}-600 text-white`
-                          : 'border-slate-300'
-                      }`}>
+                      <div
+                        className="w-4 h-4 rounded border flex items-center justify-center"
+                        style={visibleColumns.includes(col.field)
+                          ? { backgroundColor: colors.bg600, borderColor: colors.border500, color: 'white' }
+                          : { borderColor: '#cbd5e1' }
+                        }
+                      >
                         {visibleColumns.includes(col.field) && (
                           <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                             <polyline points="20 6 9 17 4 12" />
@@ -367,7 +473,10 @@ const TableView = forwardRef(function TableView(props, ref) {
           <button
             onClick={() => setMode('map')}
             disabled={!hasResults}
-            className={`flex items-center gap-1 px-2 py-1.5 text-sm text-${themeColor}-600 hover:bg-${themeColor}-50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed`}
+            className="flex items-center gap-1 px-2 py-1.5 text-sm rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ color: colors.text600 }}
+            onMouseEnter={(e) => { if (hasResults) e.target.style.backgroundColor = colors.bg50; }}
+            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; }}
             title="View on map"
           >
             <Map className="w-4 h-4" />
@@ -419,7 +528,7 @@ const TableView = forwardRef(function TableView(props, ref) {
           {isSearching && !hasResults && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
-                <Loader2 className={`w-8 h-8 text-${themeColor}-600 animate-spin mx-auto mb-2`} />
+                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" style={{ color: colors.text600 }} />
                 <p className="text-sm text-slate-600">Searching...</p>
               </div>
             </div>

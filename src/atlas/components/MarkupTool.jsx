@@ -11,7 +11,8 @@ import {
   MessageSquare,
   Plus,
   Edit3,
-  Check
+  Check,
+  Lock
 } from 'lucide-react';
 
 /**
@@ -909,13 +910,23 @@ export default function MarkupTool({
                   </div>
                   <div className={`flex items-center gap-1 transition-opacity ${isBeingEdited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                     <button onClick={() => zoomTo(m)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="Zoom to"><ZoomIn className="w-3.5 h-3.5" /></button>
-                    <button
-                      onClick={() => isBeingEdited ? completeEdit() : startEdit(m)}
-                      className={`p-1.5 rounded ${isBeingEdited ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'hover:bg-amber-50 text-amber-600'}`}
-                      title={isBeingEdited ? "Done editing" : "Edit markup"}
-                    >
-                      {isBeingEdited ? <Check className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
-                    </button>
+                    {m.attributes?.savedFrom === 'feature-info-panel' ? (
+                      <button
+                        disabled
+                        className="p-1.5 rounded bg-slate-100 text-slate-400 cursor-not-allowed"
+                        title="Saved features cannot be edited"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => isBeingEdited ? completeEdit() : startEdit(m)}
+                        className={`p-1.5 rounded ${isBeingEdited ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'hover:bg-amber-50 text-amber-600'}`}
+                        title={isBeingEdited ? "Done editing" : "Edit markup"}
+                      >
+                        {isBeingEdited ? <Check className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
                     <button onClick={() => deleteMarkup(m)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
