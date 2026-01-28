@@ -254,6 +254,17 @@ export default function MapEditor({
     }));
   };
 
+  const moveTableColumn = (index, direction) => {
+    const columns = [...(mapConfig.tableColumns || [])];
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= columns.length) return;
+    [columns[index], columns[newIndex]] = [columns[newIndex], columns[index]];
+    setMapConfig(prev => ({
+      ...prev,
+      tableColumns: columns
+    }));
+  };
+
   // Autocomplete management
   const addAutocomplete = () => {
     setMapConfig(prev => ({
@@ -997,76 +1008,101 @@ export default function MapEditor({
                 <p className="text-sm text-slate-500 italic">No table columns configured</p>
               ) : (
                 <div className="space-y-2">
-                  <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
-                    <div className="col-span-3">Field</div>
-                    <div className="col-span-3">Header</div>
-                    <div className="col-span-1">Width</div>
-                    <div className="col-span-1 text-center">Sort</div>
-                    <div className="col-span-1 text-center">Filter</div>
-                    <div className="col-span-2 text-center">Chat Results</div>
-                    <div className="col-span-1"></div>
+                  <div className="flex gap-2 text-xs font-medium text-slate-500 px-2">
+                    <div className="w-8"></div>
+                    <div className="flex-1 grid grid-cols-12 gap-2">
+                      <div className="col-span-3">Field</div>
+                      <div className="col-span-3">Header</div>
+                      <div className="col-span-1">Width</div>
+                      <div className="col-span-1 text-center">Sort</div>
+                      <div className="col-span-1 text-center">Filter</div>
+                      <div className="col-span-2 text-center">Chat Results</div>
+                      <div className="col-span-1"></div>
+                    </div>
                   </div>
                   {mapConfig.tableColumns.map((col, idx) => (
-                    <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg">
-                      <div className="col-span-3">
-                        <input
-                          type="text"
-                          value={col.field}
-                          onChange={(e) => updateTableColumn(idx, 'field', e.target.value)}
-                          placeholder="FIELD"
-                          className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <input
-                          type="text"
-                          value={col.headerName}
-                          onChange={(e) => updateTableColumn(idx, 'headerName', e.target.value)}
-                          placeholder="Column Header"
-                          className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
-                        />
-                      </div>
-                      <div className="col-span-1">
-                        <input
-                          type="number"
-                          value={col.width || 150}
-                          onChange={(e) => updateTableColumn(idx, 'width', parseInt(e.target.value))}
-                          className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
-                        />
-                      </div>
-                      <div className="col-span-1 text-center">
-                        <input
-                          type="checkbox"
-                          checked={col.sortable !== false}
-                          onChange={(e) => updateTableColumn(idx, 'sortable', e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                        />
-                      </div>
-                      <div className="col-span-1 text-center">
-                        <input
-                          type="checkbox"
-                          checked={col.filter !== false}
-                          onChange={(e) => updateTableColumn(idx, 'filter', e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                        />
-                      </div>
-                      <div className="col-span-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={col.chatResults === true}
-                          onChange={(e) => updateTableColumn(idx, 'chatResults', e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                          title="Include this column in chat result displays"
-                        />
-                      </div>
-                      <div className="col-span-1 text-right">
+                    <div key={idx} className="flex gap-2 items-center p-2 bg-slate-50 rounded-lg">
+                      <div className="flex flex-col gap-0.5">
                         <button
                           type="button"
-                          onClick={() => removeTableColumn(idx)}
-                          className="p-1 text-slate-400 hover:text-red-500"
+                          onClick={() => moveTableColumn(idx, -1)}
+                          disabled={idx === 0}
+                          className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Move up"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <ArrowUp className="w-3 h-3" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => moveTableColumn(idx, 1)}
+                          disabled={idx === (mapConfig.tableColumns || []).length - 1}
+                          className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Move down"
+                        >
+                          <ArrowDown className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="flex-1 grid grid-cols-12 gap-2 items-center">
+                        <div className="col-span-3">
+                          <input
+                            type="text"
+                            value={col.field}
+                            onChange={(e) => updateTableColumn(idx, 'field', e.target.value)}
+                            placeholder="FIELD"
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <input
+                            type="text"
+                            value={col.headerName}
+                            onChange={(e) => updateTableColumn(idx, 'headerName', e.target.value)}
+                            placeholder="Column Header"
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <input
+                            type="number"
+                            value={col.width || 150}
+                            onChange={(e) => updateTableColumn(idx, 'width', parseInt(e.target.value))}
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                          />
+                        </div>
+                        <div className="col-span-1 text-center">
+                          <input
+                            type="checkbox"
+                            checked={col.sortable !== false}
+                            onChange={(e) => updateTableColumn(idx, 'sortable', e.target.checked)}
+                            className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                          />
+                        </div>
+                        <div className="col-span-1 text-center">
+                          <input
+                            type="checkbox"
+                            checked={col.filter !== false}
+                            onChange={(e) => updateTableColumn(idx, 'filter', e.target.checked)}
+                            className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                          />
+                        </div>
+                        <div className="col-span-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={col.chatResults === true}
+                            onChange={(e) => updateTableColumn(idx, 'chatResults', e.target.checked)}
+                            className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                            title="Include this column in chat result displays"
+                          />
+                        </div>
+                        <div className="col-span-1 text-right">
+                          <button
+                            type="button"
+                            onClick={() => removeTableColumn(idx)}
+                            className="p-1 text-slate-400 hover:text-red-500"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
