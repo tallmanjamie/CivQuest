@@ -9,14 +9,12 @@
 // - Uses themeColors utility for proper dynamic theming
 
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { 
-  HelpCircle, 
-  Clock, 
+import {
+  HelpCircle,
   MapPin,
   Loader2,
   AlertCircle,
   Lightbulb,
-  X,
   Map,
   Table2,
   ExternalLink,
@@ -101,16 +99,12 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     setMode,
     enabledModes,
     mapViewRef,
-    tableViewRef,
-    showHistory,
-    setShowHistory,
-    showAdvanced,
-    setShowAdvanced
+    // Use shared search history from context
+    saveToHistory
   } = useAtlas();
 
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [searchHistory, setSearchHistory] = useState([]);
   const [loadingText, setLoadingText] = useState('Processing...');
 
   const chatContainerRef = useRef(null);
@@ -143,26 +137,6 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     
     return { parcelField, addressField };
   }, [activeMap?.searchFields, config?.data?.searchFields]);
-
-  useEffect(() => {
-    const key = `atlas_history_${config?.id || 'default'}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        setSearchHistory(JSON.parse(saved));
-      } catch (e) {}
-    }
-  }, [config?.id]);
-
-  const saveToHistory = useCallback((query) => {
-    const key = `atlas_history_${config?.id || 'default'}`;
-    const newHistory = [
-      { query, timestamp: Date.now() },
-      ...searchHistory.filter(h => h.query !== query).slice(0, 19)
-    ];
-    setSearchHistory(newHistory);
-    localStorage.setItem(key, JSON.stringify(newHistory));
-  }, [config?.id, searchHistory]);
 
   const scrollToBottom = useCallback(() => {
     if (chatContainerRef.current) {
@@ -604,12 +578,6 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
     handleSearch(question);
   }, [handleSearch]);
 
-  const clearHistory = useCallback(() => {
-    const key = `atlas_history_${config?.id || 'default'}`;
-    setSearchHistory([]);
-    localStorage.removeItem(key);
-  }, [config?.id]);
-
   useImperativeHandle(ref, () => ({ handleSearch }), [handleSearch]);
 
   // Get the search tip text from config (empty = hidden)
@@ -738,16 +706,6 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
           </div>
         </div>
       )}
-
-      {/* History Panel */}
-      {showHistory && (
-        <HistoryPanel
-          history={searchHistory}
-          onSelect={(query) => { handleSearch(query); setShowHistory(false); }}
-          onClear={clearHistory}
-          onClose={() => setShowHistory(false)}
-        />
-      )}
     </div>
   );
 });
@@ -853,59 +811,6 @@ function FeatureDetails({ feature, colors }) {
         </div>
       ))}
     </dl>
-  );
-}
-
-/**
- * History Panel Component
- */
-function HistoryPanel({ history, onSelect, onClear, onClose }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center">
-      <div className="bg-white w-full md:w-96 max-h-[80vh] rounded-t-2xl md:rounded-2xl overflow-hidden shadow-xl">
-        <div className="p-4 border-b border-slate-200 flex justify-between items-center">
-          <h3 className="font-semibold text-slate-800">Search History</h3>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded">
-            <X className="w-5 h-5 text-slate-500" />
-          </button>
-        </div>
-        
-        <div className="overflow-y-auto max-h-[60vh]">
-          {history.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">
-              <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No search history yet</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {history.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onSelect(item.query)}
-                  className="w-full px-4 py-3 text-left hover:bg-slate-50 transition"
-                >
-                  <p className="text-sm text-slate-700 truncate">{item.query}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {new Date(item.timestamp).toLocaleDateString()}
-                  </p>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        
-        {history.length > 0 && (
-          <div className="p-3 border-t border-slate-200">
-            <button
-              onClick={onClear}
-              className="w-full py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
-            >
-              Clear History
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 
