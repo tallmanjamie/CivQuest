@@ -493,8 +493,27 @@ export default function MarkupTool({
 
     sketchVMRef.current = sketchVM;
 
+    // Watch for graphics added directly to the layer (e.g., from "Save to Markup" in FeatureInfoPanel)
+    const layerChangeHandle = layer.graphics.on('change', (event) => {
+      if (event.added && event.added.length > 0) {
+        event.added.forEach(graphic => {
+          // Only add if it's a markup graphic not already in our list
+          if (graphic.attributes?.isMarkup && graphic.attributes?.savedFrom === 'feature-info-panel') {
+            setMarkups(prev => {
+              const exists = prev.some(m => m.attributes?.id === graphic.attributes?.id);
+              if (!exists) {
+                return [...prev, graphic];
+              }
+              return prev;
+            });
+          }
+        });
+      }
+    });
+
     return () => {
       sketchVM.destroy();
+      layerChangeHandle?.remove();
       if (!graphicsLayer && layerRef.current && view.map) {
         view.map.remove(layerRef.current);
       }

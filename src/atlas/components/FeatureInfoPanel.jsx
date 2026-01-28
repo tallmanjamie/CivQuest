@@ -190,12 +190,29 @@ export default function FeatureInfoPanel({
   const getFeatureTitle = useCallback(() => {
     // Priority 1: Check for 'displayName' (set by SearchResults or passed enrichment)
     if (feature?.attributes?.displayName) return feature.attributes.displayName;
-    
-    // Priority 2: Fallback to standard attribute fields
+
+    // Priority 2: Check for popup template title from the source layer
+    const template = sourceLayer?.popupTemplate || feature?.popupTemplate;
+    if (template?.title) {
+      const attrs = feature?.attributes || {};
+      // If title is a string with placeholders like "{FIELD_NAME}", resolve them
+      if (typeof template.title === 'string') {
+        const resolvedTitle = template.title.replace(/\{([^}]+)\}/g, (match, fieldName) => {
+          const value = attrs[fieldName];
+          return value !== undefined && value !== null ? String(value) : '';
+        });
+        // Only use if we got a meaningful resolved title
+        if (resolvedTitle && resolvedTitle.trim() && !resolvedTitle.includes('{')) {
+          return resolvedTitle.trim();
+        }
+      }
+    }
+
+    // Priority 3: Fallback to standard attribute fields
     const attrs = feature?.attributes || {};
-    return attrs.title || attrs.TITLE || attrs.name || attrs.NAME || 
+    return attrs.title || attrs.TITLE || attrs.name || attrs.NAME ||
            attrs.ADDRESS || attrs.address || attrs.PARCELID || 'Feature Details';
-  }, [feature]);
+  }, [feature, sourceLayer]);
 
   const renderTabsList = () => (
     <div className="flex border-b border-slate-200 overflow-x-auto bg-white sticky top-0 z-10 no-scrollbar">
