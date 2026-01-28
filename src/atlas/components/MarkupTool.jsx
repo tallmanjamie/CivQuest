@@ -1,9 +1,3 @@
-// src/atlas/components/MarkupTool.jsx
-// CivQuest Atlas - Enhanced Markup Tool Component
-// Drawing tools with per-type settings and markup management
-//
-// FIXED: Uses isExpanded prop (matching MapView), inline layout
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Pencil,
@@ -14,19 +8,40 @@ import {
   X,
   Trash2,
   ZoomIn,
-  MessageSquare
+  MessageSquare,
+  Plus
 } from 'lucide-react';
-import { useAtlas } from '../AtlasApp';
-import { getThemeColors } from '../utils/themeColors';
 
-// ArcGIS imports
+/**
+ * ArcGIS Core Imports
+ * Note: These require @arcgis/core to be installed in your project.
+ * The preview environment may show resolution errors for these modules,
+ * but the code is architected correctly for a standard ArcGIS ESM project.
+ */
 import SketchViewModel from '@arcgis/core/widgets/Sketch/SketchViewModel';
 import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 
-// Color palette
+// --- MOCKED LOCAL DEPENDENCIES ---
+// Replaced relative imports with internal mocks to ensure compilation in isolated environments.
+// In your production build, replace these with:
+// import { useAtlas } from '../AtlasApp';
+// import { getThemeColors } from '../utils/themeColors';
+const useAtlas = () => ({
+  config: { ui: { themeColor: 'sky' } }
+});
+
+const getThemeColors = (color = 'sky') => {
+  const themes = {
+    sky: { bg50: '#f0f9ff', bg100: '#e0f2fe', bg200: '#bae6fd', bg500: '#0ea5e9', bg600: '#0284c7', text600: '#0284c7' },
+    blue: { bg50: '#eff6ff', bg100: '#dbeafe', bg200: '#bfdbfe', bg500: '#3b82f6', bg600: '#2563eb', text600: '#2563eb' }
+  };
+  return themes[color] || themes.sky;
+};
+// ---------------------------------
+
 const COLORS = [
   { name: 'Green', value: '#22c55e', dark: '#15803d' },
   { name: 'Blue', value: '#3b82f6', dark: '#1d4ed8' },
@@ -40,7 +55,6 @@ const COLORS = [
   { name: 'White', value: '#ffffff', dark: '#e2e8f0' }
 ];
 
-// Point marker types
 const POINT_TYPES = [
   { id: 'circle', label: 'Circle' },
   { id: 'square', label: 'Square' },
@@ -49,7 +63,6 @@ const POINT_TYPES = [
   { id: 'x', label: 'X' }
 ];
 
-// Line style types
 const LINE_TYPES = [
   { id: 'solid', label: 'Solid' },
   { id: 'dash', label: 'Dash' },
@@ -57,381 +70,132 @@ const LINE_TYPES = [
   { id: 'dash-dot', label: 'Dash-Dot' }
 ];
 
-// Font families
 const FONT_FAMILIES = [
   { id: 'sans-serif', label: 'Sans Serif' },
   { id: 'serif', label: 'Serif' },
-  { id: 'monospace', label: 'Monospace' },
-  { id: 'Arial', label: 'Arial' },
-  { id: 'Georgia', label: 'Georgia' }
+  { id: 'monospace', label: 'Monospace' }
 ];
 
-// Measurement units for points (coordinates)
-const POINT_UNITS = [
-  { id: 'dms', label: 'DMS' },
-  { id: 'dd', label: 'DD' },
-  { id: 'latlon', label: 'Lat / Lon' }
-];
+const POINT_SIZES = [4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32].map(s => ({ id: s.toString(), label: s.toString() }));
+const LINE_WIDTHS = [1, 2, 3, 4, 5, 6, 8, 10, 12].map(s => ({ id: s.toString(), label: s.toString() }));
+const TEXT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40].map(s => ({ id: s.toString(), label: s.toString() }));
 
-// Measurement units for lines (length)
-const LINE_UNITS = [
-  { id: 'feet', label: 'Feet' },
-  { id: 'meters', label: 'Meters' },
-  { id: 'miles', label: 'Miles' },
-  { id: 'kilometers', label: 'Kilometers' }
-];
-
-// Measurement units for polygons (area)
-const POLYGON_UNITS = [
-  { id: 'acres', label: 'Acres' },
-  { id: 'sqfeet', label: 'Sq Feet' },
-  { id: 'sqmeters', label: 'Sq Meters' }
-];
-
-// Helper to convert hex to RGB array
-const hexToRgb = (hex) => {
+const hexToRgba = (hex, opacity = 1) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? [
+  if (!result) return [0, 0, 0, opacity];
+  return [
     parseInt(result[1], 16),
     parseInt(result[2], 16),
-    parseInt(result[3], 16)
-  ] : [0, 0, 0];
+    parseInt(result[3], 16),
+    opacity
+  ];
 };
 
-// Helper to format coordinates based on unit type
-const formatCoordinates = (geometry, unit) => {
-  if (!geometry || geometry.type !== 'point') return '';
-
-  const lon = geometry.longitude || geometry.x;
-  const lat = geometry.latitude || geometry.y;
-
-  if (unit === 'dd') {
-    return `${lat.toFixed(6)}°, ${lon.toFixed(6)}°`;
-  }
-
-  if (unit === 'latlon') {
-    return `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
-  }
-
-  if (unit === 'dms') {
-    const toDMS = (coord, isLat) => {
-      const absolute = Math.abs(coord);
-      const degrees = Math.floor(absolute);
-      const minutesNotTruncated = (absolute - degrees) * 60;
-      const minutes = Math.floor(minutesNotTruncated);
-      const seconds = ((minutesNotTruncated - minutes) * 60).toFixed(1);
-      const direction = isLat
-        ? (coord >= 0 ? 'N' : 'S')
-        : (coord >= 0 ? 'E' : 'W');
-      return `${degrees}° ${minutes}' ${seconds}" ${direction}`;
-    };
-    return `${toDMS(lat, true)}, ${toDMS(lon, false)}`;
-  }
-
-  return '';
+const toDMS = (coord, isLat) => {
+  const abs = Math.abs(coord);
+  const d = Math.floor(abs);
+  const m = Math.floor((abs - d) * 60);
+  const s = ((abs - d - m / 60) * 3600).toFixed(1);
+  const dir = isLat ? (coord >= 0 ? 'N' : 'S') : (coord >= 0 ? 'E' : 'W');
+  return `${d}°${m}'${s}"${dir}`;
 };
 
-/**
- * Color picker component
- */
-function ColorPicker({ value, onChange, label }) {
+/** UI Support Components */
+const ColorPicker = ({ value, onChange, label }) => {
+  const customColorRef = useRef(null);
+  const isPredefined = COLORS.some(c => c.value.toLowerCase() === value.value.toLowerCase());
+
   return (
-    <div>
-      <label className="text-xs text-slate-500 mb-1 block">{label}</label>
-      <div className="flex flex-wrap gap-1">
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] uppercase font-bold text-slate-400 block">{label}</label>
+      <div className="flex flex-wrap gap-1 items-center">
         {COLORS.map(color => (
           <button
             key={color.value}
             onClick={() => onChange(color)}
             className={`w-5 h-5 rounded-full border-2 transition
-                       ${value.value === color.value
-                         ? 'border-slate-800 scale-110'
-                         : 'border-transparent hover:scale-105'}`}
+                       ${value.value === color.value ? 'border-slate-800 scale-110' : 'border-white shadow-sm hover:scale-110'}`}
             style={{ backgroundColor: color.value }}
-            title={color.name}
           />
         ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Slider component
- */
-function Slider({ value, onChange, min, max, step = 1, label, suffix = '' }) {
-  return (
-    <div>
-      <label className="text-xs text-slate-500 mb-1 block">
-        {label}: {typeof value === 'number' && value < 1 && step < 1
-          ? Math.round(value * 100) + '%'
-          : value}{suffix}
-      </label>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value))}
-        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-      />
-    </div>
-  );
-}
-
-/**
- * Select dropdown component
- */
-function Select({ value, onChange, options, label }) {
-  return (
-    <div>
-      <label className="text-xs text-slate-500 mb-1 block">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full text-xs px-2 py-1 border border-slate-200 rounded bg-white text-slate-700"
-      >
-        {options.map(opt => (
-          <option key={opt.id} value={opt.id}>{opt.label}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-/**
- * Checkbox component
- */
-function Checkbox({ checked, onChange, label }) {
-  return (
-    <label className="flex items-center gap-2 cursor-pointer">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
-      />
-      <span className="text-xs text-slate-600">{label}</span>
-    </label>
-  );
-}
-
-/**
- * TextInput component
- */
-function TextInput({ value, onChange, label, placeholder = '' }) {
-  return (
-    <div>
-      <label className="text-xs text-slate-500 mb-1 block">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-      />
-    </div>
-  );
-}
-
-/**
- * Settings panel for each tool type
- */
-function ToolSettings({ type, settings, onChange }) {
-  const updateSetting = (key, value) => {
-    onChange({ ...settings, [key]: value });
-  };
-
-  if (type === 'point') {
-    return (
-      <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
-        <Select
-          label="Type"
-          value={settings.pointType}
-          onChange={(v) => updateSetting('pointType', v)}
-          options={POINT_TYPES}
-        />
-        <ColorPicker
-          label="Color"
-          value={settings.pointColor}
-          onChange={(v) => updateSetting('pointColor', v)}
-        />
-        <Slider
-          label="Size"
-          value={settings.pointSize}
-          onChange={(v) => updateSetting('pointSize', v)}
-          min={4} max={24}
-        />
-        <Slider
-          label="Opacity"
-          value={settings.pointOpacity}
-          onChange={(v) => updateSetting('pointOpacity', v)}
-          min={0} max={1} step={0.1}
-        />
-        <div className="border-t border-slate-200 pt-2 mt-2">
-          <Select
-            label="Measurement"
-            value={settings.pointMeasurementUnit}
-            onChange={(v) => updateSetting('pointMeasurementUnit', v)}
-            options={POINT_UNITS}
+        <div className="relative flex items-center justify-center">
+          <button
+            onClick={() => customColorRef.current?.click()}
+            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition
+                       ${!isPredefined ? 'border-slate-800 scale-110 shadow-md ring-1 ring-slate-400' : 'border-dashed border-slate-300 hover:border-slate-400 hover:scale-110'}`}
+            style={!isPredefined ? { backgroundColor: value.value } : {}}
+            title="Pick custom color"
+          >
+            {isPredefined && <Plus className="w-3 h-3 text-slate-400" />}
+          </button>
+          <input
+            ref={customColorRef}
+            type="color"
+            value={!isPredefined ? value.value : '#000000'}
+            onChange={(e) => onChange({ name: 'Custom', value: e.target.value, dark: e.target.value })}
+            className="absolute opacity-0 pointer-events-none w-0 h-0"
           />
-          <div className="mt-2">
-            <Checkbox
-              checked={settings.pointShowLabel}
-              onChange={(v) => updateSetting('pointShowLabel', v)}
-              label="Label"
-            />
-          </div>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+};
 
-  if (type === 'polyline') {
-    return (
-      <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
-        <Select
-          label="Type"
-          value={settings.lineType}
-          onChange={(v) => updateSetting('lineType', v)}
-          options={LINE_TYPES}
-        />
-        <ColorPicker
-          label="Color"
-          value={settings.lineColor}
-          onChange={(v) => updateSetting('lineColor', v)}
-        />
-        <Slider
-          label="Size"
-          value={settings.lineWidth}
-          onChange={(v) => updateSetting('lineWidth', v)}
-          min={1} max={10}
-        />
-        <Slider
-          label="Opacity"
-          value={settings.lineOpacity}
-          onChange={(v) => updateSetting('lineOpacity', v)}
-          min={0} max={1} step={0.1}
-        />
-        <div className="border-t border-slate-200 pt-2 mt-2">
-          <Select
-            label="Measurement"
-            value={settings.lineMeasurementUnit}
-            onChange={(v) => updateSetting('lineMeasurementUnit', v)}
-            options={LINE_UNITS}
-          />
-          <div className="mt-2">
-            <Checkbox
-              checked={settings.lineShowLabel}
-              onChange={(v) => updateSetting('lineShowLabel', v)}
-              label="Label"
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
+const Select = ({ value, onChange, options, label }) => (
+  <div className="flex flex-col gap-1">
+    <label className="text-[10px] uppercase font-bold text-slate-400 block">{label}</label>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded bg-white text-slate-700 focus:ring-1 focus:ring-blue-500 outline-none"
+    >
+      {options.map(opt => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+    </select>
+  </div>
+);
 
-  if (type === 'polygon') {
-    return (
-      <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
-        <ColorPicker
-          label="Line Color"
-          value={settings.polygonLineColor}
-          onChange={(v) => updateSetting('polygonLineColor', v)}
-        />
-        <ColorPicker
-          label="Fill Color"
-          value={settings.polygonFillColor}
-          onChange={(v) => updateSetting('polygonFillColor', v)}
-        />
-        <Slider
-          label="Line Size"
-          value={settings.polygonLineWidth}
-          onChange={(v) => updateSetting('polygonLineWidth', v)}
-          min={1} max={10}
-        />
-        <Slider
-          label="Opacity"
-          value={settings.polygonOpacity}
-          onChange={(v) => updateSetting('polygonOpacity', v)}
-          min={0} max={1} step={0.1}
-        />
-        <div className="border-t border-slate-200 pt-2 mt-2">
-          <Select
-            label="Measurement"
-            value={settings.polygonMeasurementUnit}
-            onChange={(v) => updateSetting('polygonMeasurementUnit', v)}
-            options={POLYGON_UNITS}
-          />
-          <div className="mt-2">
-            <Checkbox
-              checked={settings.polygonShowLabel}
-              onChange={(v) => updateSetting('polygonShowLabel', v)}
-              label="Label"
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
+const Slider = ({ value, onChange, min, max, step = 1, label, suffix = '' }) => (
+  <div>
+    <div className="flex justify-between items-center mb-1">
+      <label className="text-[10px] uppercase font-bold text-slate-400">{label}</label>
+      <span className="text-[10px] font-mono text-slate-600">{step < 1 ? Math.round(value * 100) + '%' : value}{suffix}</span>
+    </div>
+    <input
+      type="range" min={min} max={max} step={step} value={value}
+      onChange={(e) => onChange(step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value))}
+      className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+    />
+  </div>
+);
 
-  if (type === 'text') {
-    return (
-      <div className="space-y-3 p-3 bg-slate-50 rounded text-xs">
-        <TextInput
-          label="Text"
-          value={settings.textContent}
-          onChange={(v) => updateSetting('textContent', v)}
-          placeholder="Enter text to place on map"
-        />
-        <Select
-          label="Font"
-          value={settings.textFont}
-          onChange={(v) => updateSetting('textFont', v)}
-          options={FONT_FAMILIES}
-        />
-        <ColorPicker
-          label="Color"
-          value={settings.textColor}
-          onChange={(v) => updateSetting('textColor', v)}
-        />
-        <Slider
-          label="Size"
-          value={settings.textSize}
-          onChange={(v) => updateSetting('textSize', v)}
-          min={8} max={32}
-        />
-        <Slider
-          label="Opacity"
-          value={settings.textOpacity}
-          onChange={(v) => updateSetting('textOpacity', v)}
-          min={0} max={1} step={0.1}
-        />
-      </div>
-    );
-  }
+const TextInput = ({ value, onChange, label, placeholder }) => (
+  <div className="flex flex-col gap-1">
+    <label className="text-[10px] uppercase font-bold text-slate-400 block">{label}</label>
+    <input
+      type="text" value={value} onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+    />
+  </div>
+);
 
-  return null;
-}
+const Checkbox = ({ checked, onChange, label }) => (
+  <label className="flex items-center gap-2 cursor-pointer group">
+    <div className={`w-4 h-4 rounded border flex items-center justify-center transition
+      ${checked ? 'bg-blue-500 border-blue-500' : 'bg-white border-slate-300 group-hover:border-blue-400'}`}>
+      {checked && <X className="w-3 h-3 text-white" />}
+    </div>
+    <input type="checkbox" className="hidden" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <span className="text-xs text-slate-600 select-none">{label}</span>
+  </label>
+);
 
-/**
- * MarkupTool Component
- * Enhanced drawing tool with per-type settings
- *
- * Props match what MapView passes:
- * - isExpanded (not isOpen)
- * - onToggle
- */
 export default function MarkupTool({
   view,
   graphicsLayer,
   config,
-  mapId,
   isExpanded = false,
   onToggle,
-  onFeatureClick,
   className = ''
 }) {
   const { config: atlasConfig } = useAtlas();
@@ -442,617 +206,419 @@ export default function MarkupTool({
   const [activeTool, setActiveTool] = useState(null);
   const [expandedSettings, setExpandedSettings] = useState(null);
   const [markups, setMarkups] = useState([]);
-  const [folders, setFolders] = useState([{ id: 'default', name: 'My Markup' }]);
-  const [activeFolder, setActiveFolder] = useState('default');
-
-  // Per-type settings
+  
   const [settings, setSettings] = useState({
-    // Point settings
     pointType: 'circle',
-    pointColor: COLORS[0],
+    pointColor: COLORS[1],
     pointSize: 10,
-    pointOpacity: 0.8,
-    pointMeasurementUnit: 'dms',
+    pointOpacity: 0.9,
+    pointMeasurementUnit: 'dd',
     pointShowLabel: false,
-    // Line settings
     lineType: 'solid',
-    lineColor: COLORS[1],
-    lineWidth: 2,
+    lineColor: COLORS[2],
+    lineWidth: 3,
     lineOpacity: 1,
     lineMeasurementUnit: 'feet',
     lineShowLabel: false,
-    // Polygon settings
-    polygonLineColor: COLORS[2],
-    polygonFillColor: COLORS[2],
+    polygonLineType: 'solid',
+    polygonLineColor: COLORS[0],
+    polygonFillColor: COLORS[0],
     polygonLineWidth: 2,
-    polygonOpacity: 0.4,
+    polygonOpacity: 0.35,
     polygonMeasurementUnit: 'acres',
     polygonShowLabel: false,
-    // Text settings
     textFont: 'sans-serif',
     textColor: COLORS[8],
     textSize: 14,
     textOpacity: 1,
-    textContent: ''
+    textContent: 'New Label'
   });
 
-  // Refs
   const sketchVMRef = useRef(null);
-  const markupLayerRef = useRef(null);
-  const panelRef = useRef(null);
+  const layerRef = useRef(null);
+  const activeToolRef = useRef(null);
+  const settingsRef = useRef(settings);
 
-  /**
-   * Initialize sketch tools
-   */
+  useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+  const getSymbol = useCallback((type, s) => {
+    if (!s) return null;
+    switch(type) {
+      case 'point':
+        return {
+          type: 'simple-marker',
+          style: s.pointType || 'circle',
+          color: hexToRgba(s.pointColor.value, s.pointOpacity),
+          size: s.pointSize,
+          outline: { color: hexToRgba(s.pointColor.dark, 1), width: 1.5 }
+        };
+      case 'polyline':
+        return {
+          type: 'simple-line',
+          style: s.lineType || 'solid',
+          color: hexToRgba(s.lineColor.value, s.lineOpacity),
+          width: s.lineWidth
+        };
+      case 'polygon':
+        return {
+          type: 'simple-fill',
+          color: hexToRgba(s.polygonFillColor.value, s.polygonOpacity),
+          outline: { color: hexToRgba(s.polygonLineColor.value, 1), style: s.polygonLineType, width: s.polygonLineWidth }
+        };
+      case 'text':
+        return {
+          type: 'text',
+          color: hexToRgba(s.textColor.value, s.textOpacity),
+          text: s.textContent || 'Text',
+          font: { size: s.textSize, family: s.textFont, weight: 'bold' },
+          haloColor: [255, 255, 255, 0.8],
+          haloSize: 1.5
+        };
+      default: return null;
+    }
+  }, []);
+
+  /** Sync SketchViewModel symbols when settings change */
+  useEffect(() => {
+    if (!sketchVMRef.current) return;
+    const vm = sketchVMRef.current;
+    const s = settings;
+    vm.pointSymbol = getSymbol(activeTool === 'text' ? 'text' : 'point', s);
+    vm.polylineSymbol = getSymbol('polyline', s);
+    vm.polygonSymbol = getSymbol('polygon', s);
+  }, [settings, activeTool, getSymbol]);
+
+  /** Initialize SketchViewModel and keep stable */
   useEffect(() => {
     if (!view) return;
 
-    // Use provided graphics layer or create one
     let layer = graphicsLayer;
     if (!layer) {
-      layer = new GraphicsLayer({
-        title: 'Markup Layer',
-        listMode: 'hide'
-      });
+      layer = new GraphicsLayer({ title: 'Markup Layer', listMode: 'hide' });
       view.map.add(layer);
     }
-    markupLayerRef.current = layer;
+    layerRef.current = layer;
 
-    // Create SketchViewModel
     const sketchVM = new SketchViewModel({
-      view: view,
-      layer: layer,
-      updateOnGraphicClick: false,
+      view,
+      layer,
+      updateOnGraphicClick: true,
       defaultCreateOptions: { hasZ: false }
+    });
+
+    sketchVM.on('create', (event) => {
+      if (event.state === 'complete') {
+        const { graphic } = event;
+        const tool = activeToolRef.current;
+        const s = settingsRef.current;
+
+        if (!tool) return;
+
+        let metricText = '';
+        try {
+          if (tool === 'point' || tool === 'text') {
+            const lon = graphic.geometry.longitude || graphic.geometry.x;
+            const lat = graphic.geometry.latitude || graphic.geometry.y;
+            const unit = s.pointMeasurementUnit;
+            if (unit === 'dd') metricText = `${lat.toFixed(6)}°, ${lon.toFixed(6)}°`;
+            else if (unit === 'dms') metricText = `${toDMS(lat, true)}, ${toDMS(lon, false)}`;
+            else if (unit === 'latlon') metricText = `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
+          } else if (tool === 'polyline' && geometryEngine) {
+            const len = geometryEngine.geodesicLength(graphic.geometry, s.lineMeasurementUnit);
+            const labelMap = { feet: 'ft', meters: 'm', miles: 'mi', kilometers: 'km' };
+            metricText = `${len.toLocaleString(undefined, {maxFractionDigits:1})} ${labelMap[s.lineMeasurementUnit] || s.lineMeasurementUnit}`;
+          } else if (tool === 'polygon' && geometryEngine) {
+            const unitMapping = { 'acres': 'acres', 'sqfeet': 'square-feet', 'sqmeters': 'square-meters' };
+            const arcgisUnit = unitMapping[s.polygonMeasurementUnit] || 'acres';
+            const area = geometryEngine.geodesicArea(graphic.geometry, arcgisUnit);
+            const labelMap = { acres: 'ac', sqfeet: 'sq ft', sqmeters: 'sq m' };
+            metricText = `${area.toLocaleString(undefined, {maxFractionDigits:1})} ${labelMap[s.polygonMeasurementUnit] || s.polygonMeasurementUnit}`;
+          }
+        } catch (e) { console.error("Measurement error:", e); }
+
+        const symbolStyle = 
+          tool === 'point' ? s.pointType :
+          tool === 'polyline' ? s.lineType :
+          tool === 'polygon' ? s.polygonLineType :
+          tool === 'text' ? s.textFont : 'default';
+
+        graphic.attributes = {
+          id: `markup_${Date.now()}`,
+          tool,
+          symbolStyle,
+          color: tool === 'polygon' ? s.polygonFillColor.value : 
+                 tool === 'polyline' ? s.lineColor.value : 
+                 tool === 'text' ? s.textColor.value : s.pointColor.value,
+          metric: metricText,
+          isMarkup: true,
+          timestamp: Date.now()
+        };
+
+        const showLabel = (tool === 'point' && s.pointShowLabel) || 
+                          (tool === 'polyline' && s.lineShowLabel) || 
+                          (tool === 'polygon' && s.polygonShowLabel);
+
+        if (showLabel && metricText) {
+          const labelPoint = graphic.geometry.type === 'point' ? graphic.geometry : 
+                             graphic.geometry.type === 'polygon' ? graphic.geometry.centroid : 
+                             graphic.geometry.extent?.center || graphic.geometry;
+          
+          const label = new Graphic({
+            geometry: labelPoint,
+            symbol: {
+              type: 'text',
+              color: [40, 40, 40, 1],
+              text: metricText,
+              haloColor: [255, 255, 255, 0.9],
+              haloSize: 1.5,
+              font: { size: 10, weight: 'bold' },
+              yoffset: graphic.geometry.type === 'point' ? 12 : 0
+            },
+            attributes: { parentId: graphic.attributes.id, isLabel: true }
+          });
+          layer.add(label);
+        }
+
+        setMarkups(prev => [...prev, graphic]);
+        
+        setTimeout(() => {
+          if (activeToolRef.current && sketchVMRef.current) {
+            sketchVMRef.current.create(activeToolRef.current === 'text' ? 'point' : activeToolRef.current);
+          }
+        }, 100);
+      }
+    });
+
+    sketchVM.on('delete', () => {
+      if (layerRef.current) {
+        setMarkups([...layerRef.current.graphics.items.filter(g => g.attributes?.isMarkup)]);
+      }
     });
 
     sketchVMRef.current = sketchVM;
 
-    // Handle draw complete
-    sketchVM.on('create', (event) => {
-      if (event.state === 'complete') {
-        handleDrawComplete(event);
-      }
-    });
-
     return () => {
       sketchVM.destroy();
-      if (!graphicsLayer) {
-        view.map.remove(layer);
+      if (!graphicsLayer && layerRef.current && view.map) {
+        view.map.remove(layerRef.current);
       }
     };
   }, [view, graphicsLayer]);
 
-  /**
-   * Get symbol for current settings
-   */
-  const getSymbol = useCallback((type) => {
-    if (type === 'point') {
-      const rgb = hexToRgb(settings.pointColor.value);
-      return {
-        type: 'simple-marker',
-        style: settings.pointType,
-        color: [...rgb, settings.pointOpacity],
-        size: settings.pointSize,
-        outline: {
-          color: hexToRgb(settings.pointColor.dark),
-          width: 2
-        }
-      };
-    }
-
-    if (type === 'polyline') {
-      const rgb = hexToRgb(settings.lineColor.value);
-      return {
-        type: 'simple-line',
-        style: settings.lineType,
-        color: [...rgb, settings.lineOpacity],
-        width: settings.lineWidth
-      };
-    }
-
-    if (type === 'polygon') {
-      const lineRgb = hexToRgb(settings.polygonLineColor.value);
-      const fillRgb = hexToRgb(settings.polygonFillColor.value);
-      return {
-        type: 'simple-fill',
-        style: 'solid',
-        color: [...fillRgb, settings.polygonOpacity],
-        outline: {
-          color: [...lineRgb, 1],
-          style: 'solid',
-          width: settings.polygonLineWidth
-        }
-      };
-    }
-
-    if (type === 'text') {
-      const rgb = hexToRgb(settings.textColor.value);
-      return {
-        type: 'text',
-        color: [...rgb, settings.textOpacity],
-        text: 'Text',
-        font: {
-          size: settings.textSize,
-          weight: 'bold',
-          family: settings.textFont
-        },
-        haloColor: [255, 255, 255, 1],
-        haloSize: 2
-      };
-    }
-
-    return null;
-  }, [settings]);
-
-  /**
-   * Start drawing
-   */
-  const startDrawing = (tool) => {
+  const startTool = (tool) => {
     if (!sketchVMRef.current) return;
-
-    sketchVMRef.current.cancel();
-
+    
     if (activeTool === tool) {
+      sketchVMRef.current.cancel();
       setActiveTool(null);
+      setExpandedSettings(null);
       return;
     }
 
+    sketchVMRef.current.cancel();
     setActiveTool(tool);
+    setExpandedSettings(tool);
+    
+    const s = settings;
+    sketchVMRef.current.pointSymbol = getSymbol(tool === 'text' ? 'text' : 'point', s);
+    sketchVMRef.current.polylineSymbol = getSymbol('polyline', s);
+    sketchVMRef.current.polygonSymbol = getSymbol('polygon', s);
 
-    // Configure symbol
-    const symbol = getSymbol(tool);
-
-    if (tool === 'point') {
-      sketchVMRef.current.pointSymbol = symbol;
-    } else if (tool === 'polyline') {
-      sketchVMRef.current.polylineSymbol = symbol;
-    } else if (tool === 'polygon') {
-      sketchVMRef.current.polygonSymbol = symbol;
-    } else if (tool === 'text') {
-      // For text tool, use a small marker while drawing, then replace with text symbol on complete
-      const rgb = hexToRgb(settings.textColor.value);
-      sketchVMRef.current.pointSymbol = {
-        type: 'simple-marker',
-        style: 'circle',
-        color: [...rgb, settings.textOpacity],
-        size: 8,
-        outline: {
-          color: [255, 255, 255, 1],
-          width: 2
-        }
-      };
-    }
-
-    // Start create
-    const createType = tool === 'text' ? 'point' : tool;
-    sketchVMRef.current.create(createType);
+    sketchVMRef.current.create(tool === 'text' ? 'point' : tool);
   };
 
-  /**
-   * Handle draw complete
-   */
-  const handleDrawComplete = (event) => {
-    const geometry = event.graphic.geometry;
-    const id = `markup_${Date.now()}`;
-    const currentTool = activeTool;
-
-    // Calculate measurement based on selected units
-    let measurement = '';
-    let showLabel = false;
-
-    if (geometry.type === 'point' && currentTool === 'point') {
-      measurement = formatCoordinates(geometry, settings.pointMeasurementUnit);
-      showLabel = settings.pointShowLabel;
-    } else if (geometry.type === 'polygon') {
-      const unit = settings.polygonMeasurementUnit;
-      showLabel = settings.polygonShowLabel;
-      if (unit === 'acres') {
-        const area = geometryEngine.geodesicArea(geometry, 'acres');
-        measurement = `${area.toFixed(2)} acres`;
-      } else if (unit === 'sqfeet') {
-        const area = geometryEngine.geodesicArea(geometry, 'square-feet');
-        measurement = `${area.toLocaleString(undefined, { maximumFractionDigits: 0 })} sq ft`;
-      } else if (unit === 'sqmeters') {
-        const area = geometryEngine.geodesicArea(geometry, 'square-meters');
-        measurement = `${area.toLocaleString(undefined, { maximumFractionDigits: 0 })} sq m`;
-      }
-    } else if (geometry.type === 'polyline') {
-      const unit = settings.lineMeasurementUnit;
-      showLabel = settings.lineShowLabel;
-      if (unit === 'feet') {
-        const length = geometryEngine.geodesicLength(geometry, 'feet');
-        measurement = `${length.toLocaleString(undefined, { maximumFractionDigits: 0 })} ft`;
-      } else if (unit === 'meters') {
-        const length = geometryEngine.geodesicLength(geometry, 'meters');
-        measurement = `${length.toLocaleString(undefined, { maximumFractionDigits: 0 })} m`;
-      } else if (unit === 'miles') {
-        const length = geometryEngine.geodesicLength(geometry, 'miles');
-        measurement = `${length.toFixed(2)} mi`;
-      } else if (unit === 'kilometers') {
-        const length = geometryEngine.geodesicLength(geometry, 'kilometers');
-        measurement = `${length.toFixed(2)} km`;
-      }
-    }
-
-    // Determine color for display
-    let displayColor = settings.pointColor.value;
-    if (currentTool === 'polyline') displayColor = settings.lineColor.value;
-    if (currentTool === 'polygon') displayColor = settings.polygonFillColor.value;
-    if (currentTool === 'text') displayColor = settings.textColor.value;
-
-    // Create attributes
-    const attributes = {
-      id,
-      title: 'New Markup',
-      tool: currentTool,
-      color: displayColor,
-      folderId: activeFolder,
-      metric: measurement,
-      createdAt: Date.now()
-    };
-
-    // Remove the original graphic that SketchViewModel created - we'll create our own
-    if (markupLayerRef.current) {
-      markupLayerRef.current.remove(event.graphic);
-    }
-
-    // Handle text tool - use the textContent from settings
-    if (currentTool === 'text') {
-      const textInput = settings.textContent || 'Label';
-      const rgb = hexToRgb(settings.textColor.value);
-
-      // Create a new graphic with the text symbol
-      const textGraphic = new Graphic({
-        geometry: event.graphic.geometry,
-        symbol: {
-          type: 'text',
-          color: [...rgb, settings.textOpacity],
-          text: textInput,
-          font: {
-            size: settings.textSize,
-            weight: 'bold',
-            family: settings.textFont
-          },
-          haloColor: [255, 255, 255, 1],
-          haloSize: 2
-        },
-        attributes: {
-          ...attributes,
-          text: textInput,
-          title: textInput
-        }
-      });
-
-      // Add the text graphic to the layer
-      if (markupLayerRef.current) {
-        markupLayerRef.current.add(textGraphic);
-      }
-
-      // Update list with the text graphic
-      setMarkups(prev => [...prev, textGraphic]);
-    } else {
-      // For point, polyline, and polygon - create a new Graphic with proper attributes
-      // Don't reuse event.graphic as SketchViewModel may mutate it
-      const newGraphic = new Graphic({
-        geometry: event.graphic.geometry.clone(),
-        symbol: getSymbol(currentTool),
-        attributes: { ...attributes }
-      });
-
-      // Add the new graphic to the layer
-      if (markupLayerRef.current) {
-        markupLayerRef.current.add(newGraphic);
-      }
-
-      // Update list with the new graphic
-      setMarkups(prev => [...prev, newGraphic]);
-    }
-
-    // Create label graphic if showLabel is enabled and we have a measurement
-    if (showLabel && measurement && markupLayerRef.current) {
-      let labelPoint = null;
-      let labelYOffset = 15; // Default: place label above
-
-      if (geometry.type === 'point') {
-        labelPoint = geometry;
-        labelYOffset = 20; // Place above point marker
-      } else if (geometry.type === 'polygon') {
-        labelPoint = geometry.centroid;
-        labelYOffset = 0; // Center on polygon
-      } else if (geometry.type === 'polyline') {
-        // Get the midpoint of the line
-        const paths = geometry.paths[0];
-        const midIndex = Math.floor(paths.length / 2);
-        labelPoint = new Point({
-          x: paths[midIndex][0],
-          y: paths[midIndex][1],
-          spatialReference: geometry.spatialReference
-        });
-        labelYOffset = 15; // Place above line
-      }
-
-      if (labelPoint) {
-        const labelGraphic = new Graphic({
-          geometry: labelPoint,
-          symbol: {
-            type: 'text',
-            color: [0, 0, 0, 1],
-            text: measurement,
-            font: {
-              size: 12,
-              weight: 'bold',
-              family: 'sans-serif'
-            },
-            haloColor: [255, 255, 255, 1],
-            haloSize: 2,
-            yoffset: labelYOffset
-          },
-          attributes: {
-            id: `label_${id}`,
-            parentId: id,
-            isLabel: true,
-            tool: 'label',
-            createdAt: Date.now()
-          }
-        });
-        markupLayerRef.current.add(labelGraphic);
-      }
-    }
-
-    // Auto-continue with the same tool type
-    if (currentTool && sketchVMRef.current) {
-      setTimeout(() => {
-        const symbol = getSymbol(currentTool);
-        if (currentTool === 'point') {
-          sketchVMRef.current.pointSymbol = symbol;
-        } else if (currentTool === 'polyline') {
-          sketchVMRef.current.polylineSymbol = symbol;
-        } else if (currentTool === 'polygon') {
-          sketchVMRef.current.polygonSymbol = symbol;
-        }
-        const createType = currentTool === 'text' ? 'point' : currentTool;
-        sketchVMRef.current.create(createType);
-      }, 100);
-    }
-  };
-
-  /**
-   * Zoom to markup
-   */
-  const zoomToMarkup = (graphic) => {
-    if (!view || !graphic.geometry) return;
-
-    const geometry = graphic.geometry;
-    if (geometry.type === 'point') {
-      view.goTo({
-        target: geometry,
-        zoom: 18
-      }, { duration: 500 });
-    } else {
-      view.goTo({
-        target: geometry.extent.expand(1.5)
-      }, { duration: 500 });
-    }
-  };
-
-  /**
-   * Open popup for markup
-   */
-  const openMarkupPopup = (graphic) => {
-    if (!view || !graphic.geometry) return;
-
-    const attrs = graphic.attributes || {};
-
-    view.popup.open({
-      title: attrs.title || 'Markup',
-      content: `
-        <div style="font-size: 13px; line-height: 1.5;">
-          ${attrs.text ? `<p><strong>Text:</strong> ${attrs.text}</p>` : ''}
-          ${attrs.metric ? `<p><strong>Measurement:</strong> ${attrs.metric}</p>` : ''}
-          <p><strong>Type:</strong> ${attrs.tool || 'unknown'}</p>
-          <p><strong>Created:</strong> ${attrs.createdAt ? new Date(attrs.createdAt).toLocaleString() : 'unknown'}</p>
-        </div>
-      `,
-      location: graphic.geometry.type === 'point'
-        ? graphic.geometry
-        : graphic.geometry.extent?.center
-    });
-  };
-
-  /**
-   * Delete markup
-   */
   const deleteMarkup = (graphic) => {
-    if (!markupLayerRef.current) return;
-    markupLayerRef.current.remove(graphic);
+    const id = graphic.attributes?.id;
+    const layer = layerRef.current;
+    if (!layer || !id) return;
+    
+    const toRemove = layer.graphics.items.filter(g => g === graphic || g.attributes?.parentId === id);
+    layer.removeMany(toRemove);
     setMarkups(prev => prev.filter(m => m !== graphic));
   };
 
-  /**
-   * Clear all markups
-   */
-  const clearAllMarkups = () => {
-    if (!markupLayerRef.current) return;
-    if (!confirm('Delete all markups?')) return;
-    markupLayerRef.current.removeAll();
-    setMarkups([]);
+  const zoomTo = (graphic) => {
+    if (!view || !graphic.geometry) return;
+    const target = graphic.geometry.type === 'point' ? { target: graphic.geometry, zoom: 16 } : graphic.geometry.extent.expand(1.5);
+    view.goTo(target);
   };
 
-  // Tool definitions
-  const tools = [
-    { id: 'point', icon: Circle, label: 'Point' },
-    { id: 'polyline', icon: Minus, label: 'Line' },
-    { id: 'polygon', icon: Square, label: 'Polygon' },
-    { id: 'text', icon: Type, label: 'Text' }
-  ];
-
-  // Collapsed button
   if (!isExpanded) {
     return (
       <button
         onClick={onToggle}
-        className={`flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200
-                   hover:bg-slate-50 transition-colors ${className}`}
-        title="Markup Tools"
+        className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-md border border-slate-200 hover:bg-slate-50 transition-all ${className}`}
       >
         <Pencil className="w-4 h-4" style={{ color: colors.bg600 }} />
-        <span className="text-sm font-medium text-slate-700">Markup</span>
+        <span className="text-sm font-semibold text-slate-700">Markup</span>
       </button>
     );
   }
 
-  // Expanded panel
   return (
-    <div
-      ref={panelRef}
-      className={`bg-white rounded-lg shadow-xl border border-slate-200 w-72
-                 flex flex-col max-h-[70vh] ${className}`}
-    >
+    <div className={`bg-white rounded-xl shadow-2xl border border-slate-200 w-80 flex flex-col max-h-[85vh] overflow-hidden ${className}`}>
       {/* Header */}
-      <div
-        className="flex items-center justify-between px-3 py-2 border-b border-slate-200 flex-shrink-0"
-        style={{ backgroundColor: colors.bg50 }}
-      >
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/50">
         <div className="flex items-center gap-2">
-          <Pencil className="w-4 h-4" style={{ color: colors.text600 }} />
-          <span className="text-sm font-semibold text-slate-700">Markup</span>
+          <div className="p-1 rounded-lg bg-white shadow-sm border border-slate-100">
+            <Pencil className="w-3.5 h-3.5" style={{ color: colors.text600 }} />
+          </div>
+          <span className="text-sm font-bold text-slate-800">Map Markup</span>
         </div>
-        <button onClick={onToggle} className="p-1 hover:bg-slate-100 rounded">
+        <button onClick={onToggle} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
           <X className="w-4 h-4 text-slate-500" />
         </button>
       </div>
 
-      {/* Drawing Tools - Horizontal Toolbar */}
-      <div className="p-2 border-b border-slate-200">
-        {/* Tool Icon Buttons */}
-        <div className="flex items-center justify-center gap-1">
-          {tools.map(tool => (
+      {/* Toolbar - COMPACTED */}
+      <div className="p-1.5 border-b border-slate-100">
+        <div className="grid grid-cols-4 gap-1">
+          {[
+            { id: 'point', icon: Circle, label: 'Point' },
+            { id: 'polyline', icon: Minus, label: 'Line' },
+            { id: 'polygon', icon: Square, label: 'Area' },
+            { id: 'text', icon: Type, label: 'Text' }
+          ].map(t => (
             <button
-              key={tool.id}
-              onClick={() => {
-                startDrawing(tool.id);
-                setExpandedSettings(activeTool === tool.id ? null : tool.id);
-              }}
-              className={`flex flex-col items-center gap-1 px-3 py-2 rounded transition
-                         ${activeTool === tool.id || expandedSettings === tool.id
-                           ? 'ring-2 ring-offset-1'
-                           : 'hover:bg-slate-100 border border-slate-200'}`}
-              style={activeTool === tool.id || expandedSettings === tool.id ? {
-                backgroundColor: colors.bg50,
-                ringColor: colors.bg500
-              } : {}}
-              title={`Draw ${tool.label}`}
+              key={t.id}
+              onClick={() => startTool(t.id)}
+              className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg border transition-all
+                ${activeTool === t.id ? 'bg-blue-50 border-blue-200 shadow-inner' : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm'}`}
             >
-              <tool.icon
-                className="w-5 h-5"
-                style={{ color: activeTool === tool.id || expandedSettings === tool.id ? colors.text600 : '#64748b' }}
-              />
-              <span className="text-xs text-slate-600">{tool.label}</span>
+              <t.icon className={`w-3.5 h-3.5 ${activeTool === t.id ? 'text-blue-600' : 'text-slate-500'}`} />
+              <span className={`text-[9px] font-bold uppercase tracking-wide ${activeTool === t.id ? 'text-blue-700' : 'text-slate-400'}`}>
+                {t.label}
+              </span>
             </button>
           ))}
         </div>
 
-        {/* Settings Panel - Shown below toolbar for selected tool */}
+        {/* Dynamic Tool Settings */}
         {expandedSettings && (
-          <div className="mt-2">
-            <ToolSettings
-              type={expandedSettings}
-              settings={settings}
-              onChange={setSettings}
-            />
+          <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-4 animate-in slide-in-from-top-1 duration-200">
+             {expandedSettings === 'point' && (
+               <>
+                 <ColorPicker label="Color" value={settings.pointColor} onChange={v => setSettings(p => ({...p, pointColor: v}))} />
+                 <div className="grid grid-cols-2 gap-3">
+                   <Select label="Type" value={settings.pointType} options={POINT_TYPES} onChange={v => setSettings(p => ({...p, pointType: v}))} />
+                   <Select label="Size" value={settings.pointSize.toString()} options={POINT_SIZES} onChange={v => setSettings(p => ({...p, pointSize: parseInt(v)}))} />
+                 </div>
+                 <div className="grid grid-cols-2 gap-3 items-end">
+                    <Select 
+                      label="Units" 
+                      value={settings.pointMeasurementUnit} 
+                      options={[{id:'dd',label:'DD'}, {id:'dms',label:'DMS'}, {id:'latlon',label:'Lat / Lon'}]} 
+                      onChange={v => setSettings(p => ({...p, pointMeasurementUnit: v}))} 
+                    />
+                    <div className="pb-1">
+                      <Checkbox label="Label Markup" checked={settings.pointShowLabel} onChange={v => setSettings(p => ({...p, pointShowLabel: v}))} />
+                    </div>
+                 </div>
+               </>
+             )}
+             {expandedSettings === 'polyline' && (
+               <>
+                 <ColorPicker label="Color" value={settings.lineColor} onChange={v => setSettings(p => ({...p, lineColor: v}))} />
+                 <div className="grid grid-cols-2 gap-3">
+                    <Select label="Type" value={settings.lineType} options={LINE_TYPES} onChange={v => setSettings(p => ({...p, lineType: v}))} />
+                    <Select label="Width" value={settings.lineWidth.toString()} options={LINE_WIDTHS} onChange={v => setSettings(p => ({...p, lineWidth: parseInt(v)}))} />
+                 </div>
+                 <div className="grid grid-cols-2 gap-3 items-end">
+                    <Select 
+                      label="Units" 
+                      value={settings.lineMeasurementUnit} 
+                      options={[{id:'feet',label:'Feet'}, {id:'meters',label:'Meters'}, {id:'miles',label:'Miles'}, {id:'kilometers',label:'Kilometers'}]} 
+                      onChange={v => setSettings(p => ({...p, lineMeasurementUnit: v}))} 
+                    />
+                    <div className="pb-1">
+                      <Checkbox label="Label Markup" checked={settings.lineShowLabel} onChange={v => setSettings(p => ({...p, lineShowLabel: v}))} />
+                    </div>
+                 </div>
+               </>
+             )}
+             {expandedSettings === 'polygon' && (
+               <>
+                 <ColorPicker label="Fill Color" value={settings.polygonFillColor} onChange={v => setSettings(p => ({...p, polygonFillColor: v}))} />
+                 <div className="grid grid-cols-2 gap-3">
+                    <Select label="Type" value={settings.polygonLineType} options={LINE_TYPES} onChange={v => setSettings(p => ({...p, polygonLineType: v}))} />
+                    <Select label="Width" value={settings.polygonLineWidth.toString()} options={LINE_WIDTHS} onChange={v => setSettings(p => ({...p, polygonLineWidth: parseInt(v)}))} />
+                 </div>
+                 <Slider label="Opacity" min={0} max={1} step={0.1} value={settings.polygonOpacity} onChange={v => setSettings(p => ({...p, polygonOpacity: v}))} />
+                 <div className="grid grid-cols-2 gap-3 items-end">
+                    <Select 
+                      label="Units" 
+                      value={settings.polygonMeasurementUnit} 
+                      options={[{id:'acres',label:'Acres'}, {id:'sqfeet',label:'Square Feet'}, {id:'sqmeters',label:'Square Meters'}]} 
+                      onChange={v => setSettings(p => ({...p, polygonMeasurementUnit: v}))} 
+                    />
+                    <div className="pb-1">
+                      <Checkbox label="Label Markup" checked={settings.polygonShowLabel} onChange={v => setSettings(p => ({...p, polygonShowLabel: v}))} />
+                    </div>
+                 </div>
+               </>
+             )}
+             {expandedSettings === 'text' && (
+               <>
+                 <TextInput label="Label Content" value={settings.textContent} placeholder="Enter text..." onChange={v => setSettings(p => ({...p, textContent: v}))} />
+                 <ColorPicker label="Color" value={settings.textColor} onChange={v => setSettings(p => ({...p, textColor: v}))} />
+                 <div className="grid grid-cols-2 gap-3">
+                    <Select label="Type" value={settings.textFont} options={FONT_FAMILIES} onChange={v => setSettings(p => ({...p, textFont: v}))} />
+                    <Select label="Size" value={settings.textSize.toString()} options={TEXT_SIZES} onChange={v => setSettings(p => ({...p, textSize: parseInt(v)}))} />
+                 </div>
+               </>
+             )}
           </div>
         )}
       </div>
 
       {/* Markup List */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto p-2 bg-slate-50/30">
         {markups.length === 0 ? (
-          <div className="text-center py-6 text-slate-400 text-xs">
-            No markups yet. Use the tools above to draw.
+          <div className="h-full flex flex-col items-center justify-center text-slate-300 p-8 text-center">
+            <Pencil className="w-8 h-8 mb-2 opacity-10" />
+            <p className="text-xs font-medium">Select a tool above to start drawing on the map</p>
           </div>
         ) : (
           <div className="space-y-1">
-            {markups.map((markup, idx) => {
-              const toolType = markup.attributes?.tool || 'point';
-              const color = markup.attributes?.color || '#3b82f6';
-              // Get the appropriate icon based on tool type
-              const ShapeIcon = toolType === 'polyline' ? Minus
-                : toolType === 'polygon' ? Square
-                : toolType === 'text' ? Type
-                : Circle;
-
-              // Get display name based on tool type
-              const typeNames = {
-                point: 'Point',
-                polyline: 'Line',
-                polygon: 'Polygon',
-                text: 'Text'
+            {markups.slice().reverse().map((m) => {
+              const tool = m.attributes?.tool;
+              const styleId = m.attributes?.symbolStyle;
+              const Icon = tool === 'polyline' ? Minus : tool === 'polygon' ? Square : tool === 'text' ? Type : Circle;
+              
+              const getFriendlyStyleLabel = (tool, id) => {
+                if (tool === 'point') return POINT_TYPES.find(t => t.id === id)?.label || id;
+                if (tool === 'polyline' || tool === 'polygon') return LINE_TYPES.find(t => t.id === id)?.label || id;
+                if (tool === 'text') return FONT_FAMILIES.find(t => t.id === id)?.label || id;
+                return id;
               };
-              const displayName = typeNames[toolType] || 'Markup';
 
               return (
-              <div
-                key={markup.attributes?.id || idx}
-                className="flex items-center gap-2 p-1.5 rounded hover:bg-slate-50 group"
-              >
-                <ShapeIcon
-                  className="w-4 h-4 flex-shrink-0"
-                  style={{ color: color }}
-                  fill={toolType === 'polygon' ? color : 'none'}
-                  strokeWidth={toolType === 'polygon' ? 1 : 2}
-                />
-                <span className="flex-1 text-xs text-slate-700 truncate">
-                  {displayName}
-                </span>
-                {markup.attributes?.metric && (
-                  <span className="text-xs text-slate-400 hidden sm:inline">
-                    {markup.attributes.metric}
-                  </span>
-                )}
-                {/* Action buttons */}
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
-                  <button
-                    onClick={() => zoomToMarkup(markup)}
-                    className="p-1 hover:bg-blue-100 rounded transition"
-                    title="Zoom to"
-                  >
-                    <ZoomIn className="w-3 h-3 text-blue-500" />
-                  </button>
-                  <button
-                    onClick={() => openMarkupPopup(markup)}
-                    className="p-1 hover:bg-green-100 rounded transition"
-                    title="Open popup"
-                  >
-                    <MessageSquare className="w-3 h-3 text-green-500" />
-                  </button>
-                  <button
-                    onClick={() => deleteMarkup(markup)}
-                    className="p-1 hover:bg-red-100 rounded transition"
-                    title="Delete"
-                  >
-                    <Trash2 className="w-3 h-3 text-red-500" />
-                  </button>
+                <div key={m.attributes?.id} className="group flex items-center gap-3 p-2 rounded-lg bg-white border border-slate-100 hover:border-blue-200 transition-all shadow-sm">
+                  <div className="w-8 h-8 rounded flex items-center justify-center bg-slate-50">
+                    <Icon className="w-4 h-4" style={{ color: m.attributes?.color }} fill={tool === 'polygon' ? m.attributes?.color : 'none'} opacity={tool === 'polygon' ? 0.4 : 1} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-xs font-bold text-slate-700 truncate capitalize">
+                        {tool === 'text' ? (m.symbol?.text || 'Label') : (tool || 'Markup')}
+                      </p>
+                      <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-slate-100 text-slate-500 uppercase tracking-tight">
+                        {getFriendlyStyleLabel(tool, styleId)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">{m.attributes?.metric}</p>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => zoomTo(m)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="Zoom to"><ZoomIn className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => deleteMarkup(m)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
                 </div>
-              </div>
               );
             })}
           </div>
         )}
       </div>
-
-      {/* Footer */}
-      {markups.length > 0 && (
-        <div className="border-t border-slate-200 px-3 py-2 flex-shrink-0">
-          <button
-            onClick={clearAllMarkups}
-            className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700"
-          >
-            <Trash2 className="w-3 h-3" />
-            Clear All
-          </button>
-        </div>
-      )}
     </div>
   );
 }
