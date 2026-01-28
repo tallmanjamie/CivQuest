@@ -5,8 +5,12 @@
 
 import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
+import { ModuleRegistry, ClientSideRowModelModule } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
+
+// Register AG Grid modules (required for v31+)
+ModuleRegistry.registerModules([ClientSideRowModelModule]);
 import {
   Download,
   Columns,
