@@ -23,6 +23,7 @@ import { getThemeColors } from '../utils/themeColors';
 import SketchViewModel from '@arcgis/core/widgets/Sketch/SketchViewModel';
 import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import Graphic from '@arcgis/core/Graphic';
+import Point from '@arcgis/core/geometry/Point';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 
 // Color palette
@@ -608,6 +609,19 @@ export default function MarkupTool({
       sketchVMRef.current.polylineSymbol = symbol;
     } else if (tool === 'polygon') {
       sketchVMRef.current.polygonSymbol = symbol;
+    } else if (tool === 'text') {
+      // For text tool, use a small marker while drawing, then replace with text symbol on complete
+      const rgb = hexToRgb(settings.textColor.value);
+      sketchVMRef.current.pointSymbol = {
+        type: 'simple-marker',
+        style: 'circle',
+        color: [...rgb, settings.textOpacity],
+        size: 8,
+        outline: {
+          color: [255, 255, 255, 1],
+          width: 2
+        }
+      };
     }
 
     // Start create
@@ -715,12 +729,11 @@ export default function MarkupTool({
         // Get the midpoint of the line
         const paths = geometry.paths[0];
         const midIndex = Math.floor(paths.length / 2);
-        labelPoint = {
-          type: 'point',
+        labelPoint = new Point({
           x: paths[midIndex][0],
           y: paths[midIndex][1],
           spatialReference: geometry.spatialReference
-        };
+        });
       }
 
       if (labelPoint) {
@@ -924,14 +937,25 @@ export default function MarkupTool({
           </div>
         ) : (
           <div className="space-y-1">
-            {markups.map((markup, idx) => (
+            {markups.map((markup, idx) => {
+              const toolType = markup.attributes?.tool || 'point';
+              const color = markup.attributes?.color || '#3b82f6';
+              // Get the appropriate icon based on tool type
+              const ShapeIcon = toolType === 'polyline' ? Minus
+                : toolType === 'polygon' ? Square
+                : toolType === 'text' ? Type
+                : Circle;
+
+              return (
               <div
                 key={markup.attributes?.id || idx}
                 className="flex items-center gap-2 p-1.5 rounded hover:bg-slate-50 group"
               >
-                <div
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: markup.attributes?.color || '#3b82f6' }}
+                <ShapeIcon
+                  className="w-4 h-4 flex-shrink-0"
+                  style={{ color: color }}
+                  fill={toolType === 'polygon' ? color : 'none'}
+                  strokeWidth={toolType === 'polygon' ? 1 : 2}
                 />
                 <span className="flex-1 text-xs text-slate-700 truncate">
                   {markup.attributes?.title || 'Markup'}
@@ -966,7 +990,8 @@ export default function MarkupTool({
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
