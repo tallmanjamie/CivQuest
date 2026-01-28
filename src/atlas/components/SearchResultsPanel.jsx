@@ -57,14 +57,12 @@ export default function SearchResultsPanel({
   const [showConfig, setShowConfig] = useState(false);
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
   const [displayField, setDisplayField] = useState(''); // Empty means auto-detect
-  const [showFilter, setShowFilter] = useState(false);
   const [filterText, setFilterText] = useState('');
 
   // Refs
   const panelRef = useRef(null);
   const listRef = useRef(null);
   const configRef = useRef(null);
-  const filterRef = useRef(null);
   const filterInputRef = useRef(null);
 
   // Get features from search results
@@ -84,20 +82,6 @@ export default function SearchResultsPanel({
     }
   }, [showConfig]);
 
-  // Close filter popup when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (filterRef.current && !filterRef.current.contains(e.target)) {
-        setShowFilter(false);
-      }
-    };
-    if (showFilter) {
-      document.addEventListener('mousedown', handleClickOutside);
-      // Focus the input when filter opens
-      setTimeout(() => filterInputRef.current?.focus(), 0);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showFilter]);
 
   /**
    * Get the value for sorting/display from a feature
@@ -257,7 +241,6 @@ export default function SearchResultsPanel({
     setSelectedIndex(null);
     setHoveredIndex(null);
     setFilterText('');
-    setShowFilter(false);
 
     if (onClearResults) {
       onClearResults();
@@ -363,60 +346,6 @@ export default function SearchResultsPanel({
                 <Maximize2 className="w-4 h-4 text-slate-600" />
               </button>
 
-              {/* Filter Button */}
-              <div className="relative" ref={filterRef}>
-                <button
-                  onClick={() => setShowFilter(!showFilter)}
-                  className={`p-1 rounded transition ${showFilter || filterText ? 'bg-slate-200' : 'hover:bg-slate-200'}`}
-                  title="Filter Results"
-                >
-                  <Filter
-                    className="w-4 h-4"
-                    style={{ color: filterText ? colors.text600 : undefined }}
-                    fill={filterText ? colors.bg100 : 'none'}
-                  />
-                </button>
-
-                {/* Filter Popup */}
-                {showFilter && (
-                  <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-xl border border-slate-200 w-64 z-50 p-3">
-                    <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Filter Results</p>
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input
-                        ref={filterInputRef}
-                        type="text"
-                        value={filterText}
-                        onChange={(e) => setFilterText(e.target.value)}
-                        placeholder={displayField
-                          ? `Search in ${availableSearchFields.find(f => f.field === displayField)?.label || displayField}...`
-                          : "Search all fields..."
-                        }
-                        className="w-full pl-8 pr-8 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent"
-                        style={{ '--tw-ring-color': colors.bg500 }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') {
-                            setShowFilter(false);
-                          }
-                        }}
-                      />
-                      {filterText && (
-                        <button
-                          onClick={() => setFilterText('')}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-100 rounded"
-                        >
-                          <X className="w-3.5 h-3.5 text-slate-400" />
-                        </button>
-                      )}
-                    </div>
-                    {filterText && (
-                      <p className="text-xs text-slate-500 mt-2">
-                        Showing {features.length} of {resultCount} results
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
 
               {/* Config Button */}
               <div className="relative" ref={configRef}>
@@ -522,6 +451,43 @@ export default function SearchResultsPanel({
           </button>
         </div>
       </div>
+
+      {/* Inline Filter Input */}
+      {resultCount > 0 && (
+        <div className="px-3 py-2 border-b border-slate-200 flex-shrink-0 bg-white">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Find:</label>
+            <div className="relative flex-1">
+              <input
+                ref={filterInputRef}
+                type="text"
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                placeholder={displayField
+                  ? `Search in ${availableSearchFields.find(f => f.field === displayField)?.label || displayField}...`
+                  : "Type to filter results..."
+                }
+                className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent"
+                style={{ '--tw-ring-color': colors.bg500 }}
+              />
+              {filterText && (
+                <button
+                  onClick={() => setFilterText('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-100 rounded"
+                  title="Clear filter"
+                >
+                  <X className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+              )}
+            </div>
+          </div>
+          {filterText && (
+            <p className="text-xs text-slate-500 mt-1.5 text-right">
+              Showing {features.length} of {resultCount}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Results List */}
       <div ref={listRef} className="flex-1 overflow-y-auto">
