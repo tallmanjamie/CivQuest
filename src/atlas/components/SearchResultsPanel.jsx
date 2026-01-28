@@ -321,7 +321,7 @@ export default function SearchResultsPanel({
             className="px-1.5 py-0.5 text-xs rounded-full text-white"
             style={{ backgroundColor: colors.bg500 }}
           >
-            {filterText ? `${features.length}/${resultCount}` : resultCount}
+            {resultCount}
           </span>
         )}
         {filterText && (
@@ -351,7 +351,7 @@ export default function SearchResultsPanel({
               className="px-1.5 py-0.5 text-xs rounded-full text-white"
               style={{ backgroundColor: colors.bg500 }}
             >
-              {filterText ? `${features.length}/${resultCount}` : resultCount}
+              {resultCount}
             </span>
           )}
         </div>

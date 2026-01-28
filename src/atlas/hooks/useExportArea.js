@@ -205,16 +205,18 @@ export function useExportArea(mapView, template, scale, visible, accentColor = '
     updateGraphic();
   }, [updateGraphic]);
 
-  // Also update when map view changes (pan/zoom) - for auto scale mode
+  // Update when map view changes (pan/zoom) - for both auto and custom scale modes
+  // Auto scale: recalculate scale based on current view
+  // Custom scale: recenter the export area on the new view center
   useEffect(() => {
-    if (!mapView || scale) return; // Only for auto scale (scale is null)
+    if (!mapView || !visible) return;
 
     const handle = mapView.watch('extent', () => {
       updateGraphic();
     });
 
     return () => handle.remove();
-  }, [mapView, scale, updateGraphic]);
+  }, [mapView, visible, updateGraphic]);
 
   // Cleanup on unmount
   useEffect(() => {

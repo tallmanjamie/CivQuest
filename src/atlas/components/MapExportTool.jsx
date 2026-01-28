@@ -202,18 +202,20 @@ function drawScaleBar(ctx, x, y, width, height, scale, units = 'feet') {
  */
 function drawLegend(ctx, x, y, width, height, legendItems, element) {
   const padding = 8;
-  
+  const itemHeight = 18;
+  const subItemIndent = 12;
+
   // Background
   ctx.fillStyle = element.content?.backgroundColor || '#ffffff';
   ctx.fillRect(x, y, width, height);
-  
+
   // Border
   ctx.strokeStyle = '#999999';
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, width, height);
-  
+
   let currentY = y + padding;
-  
+
   // Title
   if (element.content?.showTitle !== false) {
     ctx.fillStyle = '#000000';
@@ -223,38 +225,57 @@ function drawLegend(ctx, x, y, width, height, legendItems, element) {
     ctx.fillText(element.content?.title || 'Legend', x + padding, currentY);
     currentY += 20;
   }
-  
+
   // Legend items
-  ctx.font = '11px Arial';
   legendItems.forEach((item) => {
-    if (currentY + 20 > y + height - padding) return;
-    
+    if (currentY + itemHeight > y + height - padding) return;
+
+    // Calculate x offset for sub-items
+    const itemX = x + padding + (item.isSubItem ? subItemIndent : 0);
+    const symbolSize = item.isSubItem ? 12 : 16;
+    const symbolY = currentY + (item.isSubItem ? 3 : 2);
+
+    // Set font based on item type
+    if (item.isHeader) {
+      ctx.font = 'bold 11px Arial';
+    } else if (item.isSubItem) {
+      ctx.font = '10px Arial';
+    } else {
+      ctx.font = '11px Arial';
+    }
+
     // Draw symbol
-    if (item.symbol) {
-      ctx.fillStyle = item.symbol.color || '#666666';
+    if (item.symbol && item.symbol.color) {
+      ctx.fillStyle = item.symbol.color;
       if (item.symbol.type === 'line') {
-        ctx.strokeStyle = item.symbol.color || '#666666';
+        ctx.strokeStyle = item.symbol.color;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(x + padding, currentY + 8);
-        ctx.lineTo(x + padding + 20, currentY + 8);
+        ctx.moveTo(itemX, currentY + (symbolSize / 2) + 2);
+        ctx.lineTo(itemX + symbolSize + 4, currentY + (symbolSize / 2) + 2);
         ctx.stroke();
       } else {
-        ctx.fillRect(x + padding, currentY + 2, 16, 12);
+        ctx.fillRect(itemX, symbolY, symbolSize, symbolSize - 4);
+        // Add border for better visibility
         ctx.strokeStyle = '#333333';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x + padding, currentY + 2, 16, 12);
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(itemX, symbolY, symbolSize, symbolSize - 4);
       }
-    } else {
-      ctx.fillStyle = '#888888';
-      ctx.fillRect(x + padding, currentY + 2, 16, 12);
+    } else if (!item.isHeader) {
+      // Default gray square for items without symbol
+      ctx.fillStyle = '#cccccc';
+      ctx.fillRect(itemX, symbolY, symbolSize, symbolSize - 4);
+      ctx.strokeStyle = '#999999';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(itemX, symbolY, symbolSize, symbolSize - 4);
     }
-    
+
     // Draw label
-    ctx.fillStyle = '#333333';
-    ctx.fillText(item.label, x + padding + 24, currentY + 4);
-    
-    currentY += 20;
+    ctx.fillStyle = item.isHeader ? '#000000' : '#333333';
+    const labelX = item.isHeader && !item.symbol ? itemX : itemX + symbolSize + 8;
+    ctx.fillText(item.label, labelX, currentY + 3);
+
+    currentY += itemHeight;
   });
 }
 
@@ -361,36 +382,153 @@ export default function MapExportTool({
   }, []);
 
   /**
+   * Convert ArcGIS color to CSS color string
+   */
+  const colorToCss = useCallback((color) => {
+    if (!color) return '#888888';
+
+    // Handle Color object with r, g, b, a properties
+    if (color.r !== undefined) {
+      const alpha = color.a !== undefined ? color.a : 1;
+      return `rgba(${color.r},${color.g},${color.b},${alpha})`;
+    }
+
+    // Handle RGBA array [r, g, b, a]
+    if (Array.isArray(color)) {
+      const [r, g, b, a = 1] = color;
+      return `rgba(${r},${g},${b},${a})`;
+    }
+
+    // Handle hex string
+    if (typeof color === 'string') {
+      return color;
+    }
+
+    return '#888888';
+  }, []);
+
+  /**
+   * Extract symbol info from an ArcGIS symbol
+   */
+  const extractSymbolInfo = useCallback((symbol) => {
+    if (!symbol) return null;
+
+    const symbolType = symbol.type || '';
+
+    // Determine if line or fill based on symbol type
+    const isLine = symbolType.includes('line') ||
+                   symbolType === 'simple-line' ||
+                   symbolType === 'esriSLS';
+
+    // Get the fill/line color
+    let symbolColor = symbol.color;
+
+    // For fill symbols, also check outline color if fill is transparent
+    if (!isLine && symbol.outline?.color) {
+      const fillColor = symbol.color;
+      // If fill is mostly transparent, use outline color instead
+      if (!fillColor ||
+          (Array.isArray(fillColor) && fillColor[3] < 0.1) ||
+          (fillColor?.a !== undefined && fillColor.a < 0.1)) {
+        symbolColor = symbol.outline.color;
+      }
+    }
+
+    return {
+      type: isLine ? 'line' : 'fill',
+      color: colorToCss(symbolColor)
+    };
+  }, [colorToCss]);
+
+  /**
    * Get legend items from the map
    */
   const getLegendItems = useCallback(() => {
     if (!mapView?.map) return [];
 
     const items = [];
-    
+
     mapView.map.allLayers.forEach(layer => {
       if (!layer.visible || layer.listMode === 'hide') return;
       if (layer.type === 'graphics' || layer.id.startsWith('atlas-')) return;
+      if (layer.id === 'export-area-layer') return;
       if (!layer.title) return;
 
-      // Get renderer info if available
-      let symbol = null;
-      if (layer.renderer?.symbol) {
-        const s = layer.renderer.symbol;
-        symbol = {
-          type: s.type?.includes('line') ? 'line' : 'fill',
-          color: s.color ? `rgba(${s.color.r},${s.color.g},${s.color.b},${s.color.a})` : '#666666'
-        };
+      const renderer = layer.renderer;
+
+      if (!renderer) {
+        // No renderer, add layer with default symbol
+        items.push({
+          label: layer.title,
+          symbol: null
+        });
+        return;
       }
 
-      items.push({
-        label: layer.title,
-        symbol
-      });
+      // Handle different renderer types
+      if (renderer.type === 'simple' || renderer.symbol) {
+        // Simple renderer - single symbol for all features
+        items.push({
+          label: layer.title,
+          symbol: extractSymbolInfo(renderer.symbol)
+        });
+      } else if (renderer.type === 'unique-value' && renderer.uniqueValueInfos) {
+        // Unique value renderer - add header for layer, then each unique value
+        items.push({
+          label: layer.title,
+          symbol: extractSymbolInfo(renderer.defaultSymbol),
+          isHeader: true
+        });
+
+        renderer.uniqueValueInfos.slice(0, 5).forEach(info => {
+          items.push({
+            label: info.label || info.value || 'Value',
+            symbol: extractSymbolInfo(info.symbol),
+            isSubItem: true
+          });
+        });
+
+        if (renderer.uniqueValueInfos.length > 5) {
+          items.push({
+            label: `... and ${renderer.uniqueValueInfos.length - 5} more`,
+            symbol: null,
+            isSubItem: true
+          });
+        }
+      } else if (renderer.type === 'class-breaks' && renderer.classBreakInfos) {
+        // Class breaks renderer - add header for layer, then each class
+        items.push({
+          label: layer.title,
+          symbol: extractSymbolInfo(renderer.defaultSymbol),
+          isHeader: true
+        });
+
+        renderer.classBreakInfos.slice(0, 5).forEach(info => {
+          items.push({
+            label: info.label || `${info.minValue} - ${info.maxValue}`,
+            symbol: extractSymbolInfo(info.symbol),
+            isSubItem: true
+          });
+        });
+
+        if (renderer.classBreakInfos.length > 5) {
+          items.push({
+            label: `... and ${renderer.classBreakInfos.length - 5} more`,
+            symbol: null,
+            isSubItem: true
+          });
+        }
+      } else {
+        // Unknown renderer type, just add with default
+        items.push({
+          label: layer.title,
+          symbol: null
+        });
+      }
     });
 
     return items;
-  }, [mapView]);
+  }, [mapView, extractSymbolInfo]);
 
   /**
    * Capture map screenshot using ArcGIS MapView.takeScreenshot()

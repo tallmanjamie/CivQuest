@@ -204,7 +204,7 @@ export default function FeatureInfoPanel({
           key={tab.id}
           onClick={() => !tab.disabled && setActiveTab(tab.id)}
           disabled={tab.disabled}
-          className={`flex-1 py-3 px-4 text-xs font-bold uppercase tracking-wider transition whitespace-nowrap border-b-2 ${
+          className={`flex-1 py-2 px-2.5 text-xs font-bold uppercase tracking-wider transition whitespace-nowrap border-b-2 ${
             activeTab === tab.id ? 'text-slate-900' : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50'
           }`}
           style={activeTab === tab.id ? { borderBottomColor: colors.bg500, color: colors.text700 } : {}}
@@ -217,7 +217,7 @@ export default function FeatureInfoPanel({
 
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
-      <ActionButton icon={Bookmark} label="Save to Markup" onClick={onSaveAsMarkup} />
+      <ActionButton icon={Bookmark} label="Save to Markup" onClick={() => onSaveAsMarkup?.(feature)} />
       <ActionButton icon={Download} label="Export PDF" onClick={onExportPDF} />
       <ActionButton icon={Target} label="Zoom To" onClick={() => onZoomTo?.(feature)} />
     </div>
