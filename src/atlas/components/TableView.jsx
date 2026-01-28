@@ -3,7 +3,10 @@
 // AG Grid data table with sorting, filtering, and export
 // Search input has been moved to unified SearchToolbar in AtlasApp
 
-import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle, useMemo } from 'react';
+import { AgGridReact } from 'ag-grid-react';
+import 'ag-grid-community/styles/ag-grid.css';
+import 'ag-grid-community/styles/ag-theme-alpine.css';
 import {
   Download,
   Columns,
@@ -39,10 +42,8 @@ const TableView = forwardRef(function TableView(props, ref) {
 
   // Refs
   const gridRef = useRef(null);
-  const gridApiRef = useRef(null);
   // Use ref to always access latest searchResults in event handlers (avoid stale closures)
   const searchResultsRef = useRef(searchResults);
-  const [agGridLoaded, setAgGridLoaded] = useState(!!window.agGrid);
 
   // State
   const [isGridReady, setIsGridReady] = useState(false);
@@ -60,15 +61,36 @@ const TableView = forwardRef(function TableView(props, ref) {
   }, [searchResults]);
 
   /**
+   * Action button cell renderer component
+   */
+  const ActionCellRenderer = useCallback((params) => {
+    return (
+      <button
+        className="p-1 hover:bg-slate-100 rounded"
+        onClick={() => {
+          const feature = searchResultsRef.current?.features?.[params.data._index];
+          if (feature) {
+            zoomToFeature(feature);
+            setMode('map');
+          }
+        }}
+      >
+        <Eye className="w-4 h-4 text-slate-500" />
+      </button>
+    );
+  }, [zoomToFeature, setMode]);
+
+  /**
    * Get column definitions from config
    */
   const getColumnDefs = useCallback(() => {
     const tableColumns = activeMap?.tableColumns || [];
-    
+
+    let dataCols = [];
     if (tableColumns.length === 0) {
       // Auto-generate columns from first feature
       if (searchResults?.features?.[0]?.attributes) {
-        return Object.keys(searchResults.features[0].attributes)
+        dataCols = Object.keys(searchResults.features[0].attributes)
           .filter(k => !k.startsWith('_') && k !== 'OBJECTID')
           .map(field => ({
             field,
@@ -79,33 +101,53 @@ const TableView = forwardRef(function TableView(props, ref) {
             minWidth: 100
           }));
       }
-      return [];
+    } else {
+      dataCols = tableColumns.map(col => ({
+        field: col.field,
+        headerName: col.headerName || col.field,
+        width: col.width,
+        minWidth: col.minWidth || 80,
+        sortable: col.sortable !== false,
+        filter: col.filter !== false,
+        resizable: col.resizable !== false,
+        valueFormatter: col.valueFormatter ?
+          (params) => {
+            try {
+              return new Function('params', `return ${col.valueFormatter}`)(params);
+            } catch {
+              return params.value;
+            }
+          } : undefined
+      }));
     }
 
-    return tableColumns.map(col => ({
-      field: col.field,
-      headerName: col.headerName || col.field,
-      width: col.width,
-      minWidth: col.minWidth || 80,
-      sortable: col.sortable !== false,
-      filter: col.filter !== false,
-      resizable: col.resizable !== false,
-      cellRenderer: col.cellRenderer,
-      valueFormatter: col.valueFormatter ? 
-        (params) => {
-          try {
-            return new Function('params', `return ${col.valueFormatter}`)(params);
-          } catch {
-            return params.value;
-          }
-        } : undefined
-    }));
+    return dataCols;
   }, [activeMap?.tableColumns, searchResults?.features]);
 
   /**
-   * Get row data from search results
+   * Full column definitions including action column
    */
-  const getRowData = useCallback(() => {
+  const columnDefs = useMemo(() => {
+    const dataCols = getColumnDefs();
+    return [
+      {
+        headerName: '',
+        field: '_actions',
+        width: 50,
+        sortable: false,
+        filter: false,
+        resizable: false,
+        pinned: 'left',
+        cellRenderer: ActionCellRenderer
+      },
+      ...dataCols
+    ];
+  }, [getColumnDefs, ActionCellRenderer]);
+
+  /**
+   * Row data from search results
+   */
+  const rowData = useMemo(() => {
     if (!searchResults?.features) return [];
     return searchResults.features.map((f, idx) => ({
       ...f.attributes,
@@ -115,236 +157,86 @@ const TableView = forwardRef(function TableView(props, ref) {
   }, [searchResults]);
 
   /**
-   * Initialize AG Grid
+   * Default column definition
    */
-  const initializeGrid = useCallback(() => {
-    if (!gridRef.current || !window.agGrid) {
-      console.warn('[TableView] AG Grid not available');
-      return false;
-    }
-
-    console.log('[TableView] Initializing grid with', searchResultsRef.current?.features?.length || 0, 'features');
-
-    const columnDefs = getColumnDefs();
-
-    // Add action column at the beginning
-    const allColumns = [
-      {
-        headerName: '',
-        field: '_actions',
-        width: 50,
-        sortable: false,
-        filter: false,
-        resizable: false,
-        pinned: 'left',
-        cellRenderer: (params) => {
-          const btn = document.createElement('button');
-          btn.className = 'p-1 hover:bg-slate-100 rounded';
-          btn.innerHTML = '<svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-          btn.onclick = () => {
-            // Use ref to get latest searchResults (avoid stale closure)
-            const feature = searchResultsRef.current?.features?.[params.data._index];
-            if (feature) {
-              zoomToFeature(feature);
-              setMode('map');
-            }
-          };
-          return btn;
-        }
-      },
-      ...columnDefs
-    ];
-
-    const gridOptions = {
-      columnDefs: allColumns,
-      rowData: getRowData(),
-      defaultColDef: {
-        sortable: true,
-        filter: true,
-        resizable: true,
-        minWidth: 80
-      },
-      animateRows: true,
-      rowSelection: 'single',
-      suppressCellFocus: true,
-      onGridReady: (params) => {
-        gridApiRef.current = params.api;
-        setIsGridReady(true);
-        setVisibleColumns(columnDefs.map(c => c.field));
-
-        // Auto-size columns
-        params.api.sizeColumnsToFit();
-        console.log('[TableView] Grid ready');
-      },
-      onRowClicked: (params) => {
-        // Use ref to get latest searchResults (avoid stale closure)
-        const feature = searchResultsRef.current?.features?.[params.data._index];
-        if (feature) {
-          highlightFeature(feature);
-        }
-      },
-      onRowDoubleClicked: (params) => {
-        // Use ref to get latest searchResults (avoid stale closure)
-        const feature = searchResultsRef.current?.features?.[params.data._index];
-        if (feature) {
-          zoomToFeature(feature);
-          setMode('map');
-        }
-      },
-      onModelUpdated: (params) => {
-        setRowCount(params.api.getDisplayedRowCount());
-      }
-    };
-
-    // Destroy existing grid if any
-    if (gridApiRef.current) {
-      try {
-        gridApiRef.current.destroy();
-      } catch (e) {
-        console.warn('[TableView] Error destroying grid:', e);
-      }
-      gridApiRef.current = null;
-      setIsGridReady(false);
-    }
-
-    // Create new grid
-    try {
-      new window.agGrid.Grid(gridRef.current, gridOptions);
-      return true;
-    } catch (e) {
-      console.error('[TableView] Error creating grid:', e);
-      return false;
-    }
-  }, [getColumnDefs, getRowData, zoomToFeature, highlightFeature, setMode]);
+  const defaultColDef = useMemo(() => ({
+    sortable: true,
+    filter: true,
+    resizable: true,
+    minWidth: 80
+  }), []);
 
   /**
-   * Update grid data when results change
+   * Grid ready callback
    */
-  useEffect(() => {
-    if (!agGridLoaded) return;
-
-    if (gridApiRef.current && searchResults?.features) {
-      console.log('[TableView] Updating grid data with', searchResults.features.length, 'features');
-
-      // Check if columns need to be regenerated (different fields in new data)
-      const currentColDefs = getColumnDefs();
-      if (currentColDefs.length > 0) {
-        // Update columns and data
-        const allColumns = [
-          {
-            headerName: '',
-            field: '_actions',
-            width: 50,
-            sortable: false,
-            filter: false,
-            resizable: false,
-            pinned: 'left',
-            cellRenderer: (params) => {
-              const btn = document.createElement('button');
-              btn.className = 'p-1 hover:bg-slate-100 rounded';
-              btn.innerHTML = '<svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-              btn.onclick = () => {
-                const feature = searchResultsRef.current?.features?.[params.data._index];
-                if (feature) {
-                  zoomToFeature(feature);
-                  setMode('map');
-                }
-              };
-              return btn;
-            }
-          },
-          ...currentColDefs
-        ];
-        gridApiRef.current.setColumnDefs(allColumns);
-        setVisibleColumns(currentColDefs.map(c => c.field));
-      }
-
-      gridApiRef.current.setRowData(getRowData());
-      gridApiRef.current.sizeColumnsToFit();
-    } else if (searchResults?.features && !gridApiRef.current && gridRef.current) {
-      // Initialize grid if not yet done
-      console.log('[TableView] No grid API, initializing grid');
-      initializeGrid();
-    } else if (!searchResults?.features && gridApiRef.current) {
-      // Clear grid if no results
-      gridApiRef.current.setRowData([]);
-      setRowCount(0);
-    }
-  }, [searchResults, getRowData, getColumnDefs, initializeGrid, agGridLoaded, zoomToFeature, setMode]);
+  const onGridReady = useCallback((params) => {
+    console.log('[TableView] Grid ready');
+    setIsGridReady(true);
+    const dataCols = getColumnDefs();
+    setVisibleColumns(dataCols.map(c => c.field));
+    // Auto-size columns
+    params.api.sizeColumnsToFit();
+  }, [getColumnDefs]);
 
   /**
-   * Initialize/reinitialize grid when mode changes to 'table'
-   * This ensures the grid is properly sized and displayed when the view becomes active
+   * Row click handler
+   */
+  const onRowClicked = useCallback((params) => {
+    const feature = searchResultsRef.current?.features?.[params.data._index];
+    if (feature) {
+      highlightFeature(feature);
+    }
+  }, [highlightFeature]);
+
+  /**
+   * Row double-click handler
+   */
+  const onRowDoubleClicked = useCallback((params) => {
+    const feature = searchResultsRef.current?.features?.[params.data._index];
+    if (feature) {
+      zoomToFeature(feature);
+      setMode('map');
+    }
+  }, [zoomToFeature, setMode]);
+
+  /**
+   * Model updated callback - tracks displayed row count
+   */
+  const onModelUpdated = useCallback((params) => {
+    setRowCount(params.api.getDisplayedRowCount());
+  }, []);
+
+  /**
+   * Resize columns when mode changes to table
    */
   useEffect(() => {
-    if (mode === 'table' && agGridLoaded && gridRef.current) {
+    if (mode === 'table' && gridRef.current?.api) {
       // Small delay to ensure the container is visible and has dimensions
       const timer = setTimeout(() => {
-        if (gridApiRef.current) {
-          // Grid exists, just resize
-          console.log('[TableView] Mode changed to table, resizing grid');
-          gridApiRef.current.sizeColumnsToFit();
-        } else if (searchResults?.features) {
-          // No grid but we have data, initialize
-          console.log('[TableView] Mode changed to table, initializing grid');
-          initializeGrid();
-        }
+        console.log('[TableView] Mode changed to table, resizing grid');
+        gridRef.current.api.sizeColumnsToFit();
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [mode, agGridLoaded, searchResults, initializeGrid]);
+  }, [mode]);
 
   /**
-   * Load AG Grid library on mount
+   * Update visible columns when data changes
    */
   useEffect(() => {
-    // Load AG Grid if not already loaded
-    if (!window.agGrid) {
-      console.log('[TableView] Loading AG Grid library...');
-
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.1/dist/ag-grid-community.min.js';
-      script.onload = () => {
-        console.log('[TableView] AG Grid library loaded');
-        setAgGridLoaded(true);
-      };
-      script.onerror = () => {
-        console.error('[TableView] Failed to load AG Grid library');
-      };
-      document.head.appendChild(script);
-
-      const style = document.createElement('link');
-      style.rel = 'stylesheet';
-      style.href = 'https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.1/styles/ag-grid.css';
-      document.head.appendChild(style);
-
-      const theme = document.createElement('link');
-      theme.rel = 'stylesheet';
-      theme.href = 'https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.1/styles/ag-theme-alpine.css';
-      document.head.appendChild(theme);
-    } else {
-      setAgGridLoaded(true);
+    const dataCols = getColumnDefs();
+    if (dataCols.length > 0) {
+      setVisibleColumns(dataCols.map(c => c.field));
     }
-
-    return () => {
-      if (gridApiRef.current) {
-        try {
-          gridApiRef.current.destroy();
-        } catch (e) {
-          console.warn('[TableView] Error destroying grid on unmount:', e);
-        }
-        gridApiRef.current = null;
-      }
-    };
-  }, []);
+  }, [getColumnDefs]);
 
   /**
    * Export to CSV
    */
   const exportCSV = useCallback(() => {
-    if (!gridApiRef.current) return;
-    
-    gridApiRef.current.exportDataAsCsv({
+    if (!gridRef.current?.api) return;
+
+    gridRef.current.api.exportDataAsCsv({
       fileName: `atlas-export-${new Date().toISOString().split('T')[0]}.csv`,
       columnKeys: visibleColumns
     });
@@ -354,15 +246,15 @@ const TableView = forwardRef(function TableView(props, ref) {
    * Toggle column visibility
    */
   const toggleColumn = useCallback((field) => {
-    if (!gridApiRef.current) return;
-    
+    if (!gridRef.current?.api) return;
+
     const isVisible = visibleColumns.includes(field);
     const newVisible = isVisible
       ? visibleColumns.filter(f => f !== field)
       : [...visibleColumns, field];
-    
+
     setVisibleColumns(newVisible);
-    gridApiRef.current.setColumnsVisible([field], !isVisible);
+    gridRef.current.api.setColumnsVisible([field], !isVisible);
   }, [visibleColumns]);
 
   /**
@@ -370,9 +262,6 @@ const TableView = forwardRef(function TableView(props, ref) {
    */
   const clearTable = useCallback(() => {
     updateSearchResults({ features: [] });
-    if (gridApiRef.current) {
-      gridApiRef.current.setRowData([]);
-    }
   }, [updateSearchResults]);
 
   // Expose methods to parent via ref
@@ -535,10 +424,21 @@ const TableView = forwardRef(function TableView(props, ref) {
           )}
 
           {/* AG Grid */}
-          <div
-            ref={gridRef}
-            className={`ag-theme-alpine w-full h-full ${!hasResults ? 'invisible' : ''}`}
-          />
+          <div className={`ag-theme-alpine w-full h-full ${!hasResults ? 'invisible' : ''}`}>
+            <AgGridReact
+              ref={gridRef}
+              rowData={rowData}
+              columnDefs={columnDefs}
+              defaultColDef={defaultColDef}
+              animateRows={true}
+              rowSelection="single"
+              suppressCellFocus={true}
+              onGridReady={onGridReady}
+              onRowClicked={onRowClicked}
+              onRowDoubleClicked={onRowDoubleClicked}
+              onModelUpdated={onModelUpdated}
+            />
+          </div>
         </div>
       </div>
 
