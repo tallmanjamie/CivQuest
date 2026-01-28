@@ -206,7 +206,7 @@ export default function MapEditor({
       ...prev,
       searchFields: [
         ...(prev.searchFields || []),
-        { field: '', label: '', type: 'text', chatResults: false }
+        { field: '', label: '', type: 'text' }
       ]
     }));
   };
@@ -233,7 +233,7 @@ export default function MapEditor({
       ...prev,
       tableColumns: [
         ...(prev.tableColumns || []),
-        { field: '', headerName: '', width: 150, sortable: true, filter: true }
+        { field: '', headerName: '', width: 150, sortable: true, filter: true, chatResults: false }
       ]
     }));
   };
@@ -910,22 +910,21 @@ export default function MapEditor({
                   </button>
                 </div>
                 <p className="text-xs text-slate-500 mb-3">
-                  Configure fields available for advanced search. Enable "Chat Results" to include the field in chat response displays.
+                  Configure fields available for advanced search.
                 </p>
                 {(mapConfig.searchFields || []).length === 0 ? (
                   <p className="text-sm text-slate-500 italic">No search fields configured</p>
                 ) : (
                   <div className="space-y-2">
                     <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
-                      <div className="col-span-3">Field</div>
-                      <div className="col-span-3">Label</div>
+                      <div className="col-span-4">Field</div>
+                      <div className="col-span-4">Label</div>
                       <div className="col-span-3">Type</div>
-                      <div className="col-span-2 text-center">Chat Results</div>
                       <div className="col-span-1"></div>
                     </div>
                     {mapConfig.searchFields.map((sf, idx) => (
                       <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg">
-                        <div className="col-span-3">
+                        <div className="col-span-4">
                           <input
                             type="text"
                             value={sf.field}
@@ -934,7 +933,7 @@ export default function MapEditor({
                             className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
                           />
                         </div>
-                        <div className="col-span-3">
+                        <div className="col-span-4">
                           <input
                             type="text"
                             value={sf.label}
@@ -955,15 +954,6 @@ export default function MapEditor({
                             <option value="single-select">Single Select</option>
                             <option value="multi-select">Multi Select</option>
                           </select>
-                        </div>
-                        <div className="col-span-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={sf.chatResults === true}
-                            onChange={(e) => updateSearchField(idx, 'chatResults', e.target.checked)}
-                            className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                            title="Include this field in chat result displays"
-                          />
                         </div>
                         <div className="col-span-1 text-right">
                           <button
@@ -999,6 +989,10 @@ export default function MapEditor({
                 </button>
               </div>
               
+              <p className="text-xs text-slate-500 mb-3">
+                Configure columns displayed in the table view. Enable "Chat Results" to include the column in chat response displays.
+              </p>
+
               {(mapConfig.tableColumns || []).length === 0 ? (
                 <p className="text-sm text-slate-500 italic">No table columns configured</p>
               ) : (
@@ -1009,7 +1003,8 @@ export default function MapEditor({
                     <div className="col-span-1">Width</div>
                     <div className="col-span-1 text-center">Sort</div>
                     <div className="col-span-1 text-center">Filter</div>
-                    <div className="col-span-2"></div>
+                    <div className="col-span-2 text-center">Chat Results</div>
+                    <div className="col-span-1"></div>
                   </div>
                   {mapConfig.tableColumns.map((col, idx) => (
                     <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg">
@@ -1055,7 +1050,16 @@ export default function MapEditor({
                           className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                         />
                       </div>
-                      <div className="col-span-2 text-right">
+                      <div className="col-span-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={col.chatResults === true}
+                          onChange={(e) => updateTableColumn(idx, 'chatResults', e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                          title="Include this column in chat result displays"
+                        />
+                      </div>
+                      <div className="col-span-1 text-right">
                         <button
                           type="button"
                           onClick={() => removeTableColumn(idx)}
