@@ -239,10 +239,10 @@ export default function AtlasAdminSection({
         );
 
       case 'export-templates':
-        // Export template management
+        // Combined export template management (Map Export + Feature Export)
         // For super_admin: show org selector then template editor
         // For org_admin: check if Atlas is initialized first
-        
+
         if (role === 'super_admin') {
           return (
             <SuperAdminExportTemplates
@@ -253,7 +253,7 @@ export default function AtlasAdminSection({
             />
           );
         }
-        
+
         if (!hasAtlasConfig) {
           return (
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
@@ -270,115 +270,19 @@ export default function AtlasAdminSection({
         }
 
         return (
-          <div className="space-y-6">
-            {/* Print Service Configuration */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Globe className="w-5 h-5 text-slate-500" />
-                <h3 className="text-lg font-semibold text-slate-800">Print Service Configuration</h3>
-              </div>
-              
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Print Service URL
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="flex-1 relative">
-                      <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input
-                        type="url"
-                        value={printServiceUrl}
-                        onChange={(e) => setPrintServiceUrl(e.target.value)}
-                        placeholder={DEFAULT_PRINT_SERVICE_URL}
-                        className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs"
-                      />
-                    </div>
-                    <button
-                      onClick={() => setPrintServiceUrl(DEFAULT_PRINT_SERVICE_URL)}
-                      className="px-3 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-300"
-                      title="Reset to default"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={handleSavePrintServiceUrl}
-                      disabled={savingPrintService}
-                      className="px-4 py-2 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
-                      style={{ backgroundColor: accentColor }}
-                    >
-                      {savingPrintService ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Save className="w-4 h-4" />
-                      )}
-                      Save
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2">
-                    ArcGIS Print Service endpoint used to generate map exports. This should be a valid Export Web Map Task URL.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Export Templates */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-              <ExportTemplateConfiguration
-                templates={workingConfig?.exportTemplates || []}
-                orgData={orgData}
-                onUpdate={handleUpdateExportTemplates}
-                addToast={addToast}
-                confirm={confirm}
-                accentColor={accentColor}
-              />
-            </div>
-          </div>
-        );
-
-      case 'feature-export-templates':
-        // Feature export template management
-        // For super_admin: show org selector then template editor
-        // For org_admin: check if Atlas is initialized first
-
-        if (role === 'super_admin') {
-          return (
-            <SuperAdminFeatureExportTemplates
-              db={db}
-              addToast={addToast}
-              confirm={confirm}
-              accentColor={accentColor}
-            />
-          );
-        }
-
-        if (!hasAtlasConfig) {
-          return (
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
-              <AlertCircle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-slate-700 mb-2">Atlas Not Initialized</h3>
-              <p className="text-slate-500 mb-4">
-                You need to initialize Atlas before you can manage feature export templates.
-              </p>
-              <p className="text-sm text-slate-400">
-                Go to the <strong>Maps</strong> tab to initialize Atlas for your organization.
-              </p>
-            </div>
-          );
-        }
-
-        return (
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-            <FeatureExportTemplateConfiguration
-              templates={workingConfig?.featureExportTemplates || []}
-              mapExportTemplates={workingConfig?.exportTemplates || []}
-              orgData={orgData}
-              onUpdate={handleUpdateFeatureExportTemplates}
-              addToast={addToast}
-              confirm={confirm}
-              accentColor={accentColor}
-            />
-          </div>
+          <OrgAdminExportTemplates
+            workingConfig={workingConfig}
+            orgData={orgData}
+            printServiceUrl={printServiceUrl}
+            setPrintServiceUrl={setPrintServiceUrl}
+            savingPrintService={savingPrintService}
+            handleSavePrintServiceUrl={handleSavePrintServiceUrl}
+            handleUpdateExportTemplates={handleUpdateExportTemplates}
+            handleUpdateFeatureExportTemplates={handleUpdateFeatureExportTemplates}
+            addToast={addToast}
+            confirm={confirm}
+            accentColor={accentColor}
+          />
         );
 
       case 'users':
@@ -575,523 +479,27 @@ const STARTER_TEMPLATES = [
 
 /**
  * SuperAdminExportTemplates Component
- * 
- * Super Admin view for managing export templates across all organizations
+ *
+ * Super Admin view for managing both Map Export and Feature Export templates across all organizations
+ * Uses a tabbed interface within each organization's expanded section
  */
 function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E7C' }) {
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedOrgs, setExpandedOrgs] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
-  const [editingTemplate, setEditingTemplate] = useState(null);
-  const [showStarterPicker, setShowStarterPicker] = useState(null);
-  const [editingPrintService, setEditingPrintService] = useState({}); // { orgId: urlValue }
+  const [editingTemplate, setEditingTemplate] = useState(null); // { orgId, orgData, isNew, data, type: 'map' | 'feature' }
+  const [showStarterPicker, setShowStarterPicker] = useState(null); // { orgId, type: 'map' | 'feature' }
+  const [editingPrintService, setEditingPrintService] = useState({});
   const [savingPrintService, setSavingPrintService] = useState({});
+  const [activeExportTabs, setActiveExportTabs] = useState({}); // { orgId: 'map' | 'feature' }
 
-  // Fetch all organizations
-  useEffect(() => {
-    const q = collection(db, PATHS.organizations);
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const orgs = snapshot.docs.map(docSnap => ({ 
-        id: docSnap.id, 
-        ...docSnap.data() 
-      }));
-      setOrganizations(orgs);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [db]);
-
-  const getWorkingConfig = (org) => org.atlasConfigDraft || org.atlasConfig;
-  const hasAtlas = (org) => !!org.atlasConfig || !!org.atlasConfigDraft;
-  const getTemplates = (org) => getWorkingConfig(org)?.exportTemplates || [];
-  const getPrintServiceUrl = (org) => getWorkingConfig(org)?.printServiceUrl || DEFAULT_PRINT_SERVICE_URL;
-
-  const toggleOrg = (orgId) => {
-    setExpandedOrgs(prev => ({ ...prev, [orgId]: !prev[orgId] }));
-  };
-
-  // Initialize print service URL when org is expanded
-  const handleOrgExpand = (orgId) => {
-    const org = organizations.find(o => o.id === orgId);
-    if (org && !editingPrintService[orgId]) {
-      setEditingPrintService(prev => ({
-        ...prev,
-        [orgId]: getPrintServiceUrl(org)
-      }));
-    }
-    toggleOrg(orgId);
-  };
-
-  // Save print service URL
-  const savePrintServiceUrl = async (orgId) => {
-    try {
-      setSavingPrintService(prev => ({ ...prev, [orgId]: true }));
-      const org = organizations.find(o => o.id === orgId);
-      if (!org) return;
-
-      const configField = org.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
-      const currentConfig = org[configField] || {};
-      
-      const updatedConfig = { 
-        ...currentConfig, 
-        printServiceUrl: editingPrintService[orgId] || DEFAULT_PRINT_SERVICE_URL 
-      };
-      const orgRef = doc(db, PATHS.organizations, orgId);
-      await updateDoc(orgRef, { [configField]: updatedConfig });
-
-      addToast?.('Print service URL saved', 'success');
-    } catch (error) {
-      console.error('Error saving print service URL:', error);
-      addToast?.('Failed to save print service URL', 'error');
-    } finally {
-      setSavingPrintService(prev => ({ ...prev, [orgId]: false }));
-    }
-  };
-
-  // Reset print service URL to default
-  const resetPrintServiceUrl = (orgId) => {
-    setEditingPrintService(prev => ({
-      ...prev,
-      [orgId]: DEFAULT_PRINT_SERVICE_URL
-    }));
-  };
-
-  const saveTemplates = async (orgId, templates) => {
-    try {
-      const org = organizations.find(o => o.id === orgId);
-      if (!org) return;
-
-      const configField = org.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
-      const currentConfig = org[configField] || {};
-      
-      const updatedConfig = { ...currentConfig, exportTemplates: templates };
-      const orgRef = doc(db, PATHS.organizations, orgId);
-      await updateDoc(orgRef, { [configField]: updatedConfig });
-
-      addToast?.('Export templates saved', 'success');
-    } catch (error) {
-      console.error('Error saving export templates:', error);
-      addToast?.('Failed to save export templates', 'error');
-    }
-  };
-
-  const handleCreateBlank = (orgId) => {
-    const org = organizations.find(o => o.id === orgId);
-    setEditingTemplate({ orgId, orgData: org, isNew: true, data: null });
-  };
-
-  const handleCreateFromStarter = (orgId, starter) => {
-    const org = organizations.find(o => o.id === orgId);
-    const newTemplate = {
-      ...starter,
-      id: `template-${Date.now()}`,
-      name: `${starter.name}`,
-      createdAt: new Date().toISOString()
-    };
-    setEditingTemplate({ orgId, orgData: org, isNew: true, data: newTemplate });
-    setShowStarterPicker(null);
-  };
-
-  const handleEditTemplate = (orgId, template) => {
-    const org = organizations.find(o => o.id === orgId);
-    setEditingTemplate({ orgId, orgData: org, isNew: false, data: template });
-  };
-
-  const handleDuplicateTemplate = (orgId, template) => {
-    const org = organizations.find(o => o.id === orgId);
-    const templates = getTemplates(org);
-    const newTemplate = {
-      ...template,
-      id: `template-${Date.now()}`,
-      name: `${template.name} (Copy)`,
-      createdAt: new Date().toISOString()
-    };
-    saveTemplates(orgId, [...templates, newTemplate]);
-  };
-
-  const handleDeleteTemplate = (orgId, templateId, templateName) => {
-    confirm?.({
-      title: 'Delete Template',
-      message: `Are you sure you want to delete "${templateName}"? This action cannot be undone.`,
-      destructive: true,
-      confirmLabel: 'Delete',
-      onConfirm: () => {
-        const org = organizations.find(o => o.id === orgId);
-        const templates = getTemplates(org);
-        saveTemplates(orgId, templates.filter(t => t.id !== templateId));
-      }
-    });
-  };
-
-  const handleToggleEnabled = (orgId, templateId) => {
-    const org = organizations.find(o => o.id === orgId);
-    const templates = getTemplates(org);
-    saveTemplates(orgId, templates.map(t => 
-      t.id === templateId ? { ...t, enabled: t.enabled === false ? true : false } : t
-    ));
-  };
-
-  const handleSaveTemplate = (templateData) => {
-    const { orgId, isNew } = editingTemplate;
-    const org = organizations.find(o => o.id === orgId);
-    const templates = getTemplates(org);
-
-    if (isNew) {
-      saveTemplates(orgId, [...templates, { ...templateData, createdAt: new Date().toISOString(), enabled: true }]);
-    } else {
-      saveTemplates(orgId, templates.map(t => 
-        t.id === templateData.id ? { ...templateData, updatedAt: new Date().toISOString() } : t
-      ));
-    }
-    setEditingTemplate(null);
-  };
-
-  const filteredOrgs = organizations.filter(org =>
-    org.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    org.id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getPageSizeDisplay = (template) => {
-    if (template.pageSize === 'custom') {
-      return `Custom (${template.customWidth}×${template.customHeight}")`;
-    }
-    return PAGE_SIZES[template.pageSize] || template.pageSize;
-  };
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor }} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800">Export Templates</h2>
-          <p className="text-slate-500 text-sm">Manage map export templates for all organizations.</p>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-        <input
-          type="text"
-          placeholder="Search organizations..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-        />
-      </div>
-
-      {/* Organizations List */}
-      {filteredOrgs.length === 0 ? (
-        <div className="text-center py-12 text-slate-500">
-          <Building2 className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-          <p>No organizations found.</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filteredOrgs.map(org => {
-            const templates = getTemplates(org);
-            const isExpanded = expandedOrgs[org.id];
-            const atlasEnabled = hasAtlas(org);
-
-            return (
-              <div key={org.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                {/* Organization Header */}
-                <button
-                  onClick={() => handleOrgExpand(org.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
-                >
-                  <div className="text-slate-400">
-                    {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                  </div>
-                  
-                  <div 
-                    className="w-10 h-10 rounded-lg flex items-center justify-center text-white"
-                    style={{ backgroundColor: atlasEnabled ? accentColor : '#94a3b8' }}
-                  >
-                    <Building2 className="w-5 h-5" />
-                  </div>
-                  
-                  <div className="flex-1 text-left">
-                    <h3 className="font-medium text-slate-800">{org.name}</h3>
-                    <p className="text-sm text-slate-500">
-                      {atlasEnabled ? (
-                        <span>{templates.length} template{templates.length !== 1 ? 's' : ''}</span>
-                      ) : (
-                        <span className="text-amber-600">Atlas not initialized</span>
-                      )}
-                    </p>
-                  </div>
-
-                  {atlasEnabled && templates.length > 0 && (
-                    <div className="flex -space-x-1">
-                      {templates.slice(0, 3).map((t) => (
-                        <div 
-                          key={t.id}
-                          className="w-6 h-6 rounded bg-slate-200 border-2 border-white flex items-center justify-center"
-                          title={t.name}
-                        >
-                          <Printer className="w-3 h-3 text-slate-500" />
-                        </div>
-                      ))}
-                      {templates.length > 3 && (
-                        <div className="w-6 h-6 rounded bg-slate-300 border-2 border-white flex items-center justify-center text-xs text-slate-600">
-                          +{templates.length - 3}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </button>
-
-                {/* Expanded Content */}
-                {isExpanded && (
-                  <div className="border-t border-slate-200 bg-slate-50 p-4">
-                    {!atlasEnabled ? (
-                      <div className="text-center py-6">
-                        <AlertCircle className="w-10 h-10 mx-auto text-amber-400 mb-2" />
-                        <p className="text-slate-600 font-medium">Atlas Not Initialized</p>
-                        <p className="text-sm text-slate-500 mt-1">
-                          Initialize Atlas for this organization before managing export templates.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {/* Print Service Configuration */}
-                        <div className="bg-white rounded-lg border border-slate-200 p-4">
-                          <div className="flex items-center gap-2 mb-3">
-                            <Globe className="w-4 h-4 text-slate-500" />
-                            <h4 className="text-sm font-medium text-slate-700">Print Service URL</h4>
-                          </div>
-                          <div className="flex gap-2">
-                            <div className="flex-1 relative">
-                              <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                              <input
-                                type="url"
-                                value={editingPrintService[org.id] ?? getPrintServiceUrl(org)}
-                                onChange={(e) => setEditingPrintService(prev => ({
-                                  ...prev,
-                                  [org.id]: e.target.value
-                                }))}
-                                placeholder={DEFAULT_PRINT_SERVICE_URL}
-                                className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs"
-                              />
-                            </div>
-                            <button
-                              onClick={() => resetPrintServiceUrl(org.id)}
-                              className="px-3 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-300"
-                              title="Reset to default"
-                            >
-                              <RotateCcw className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => savePrintServiceUrl(org.id)}
-                              disabled={savingPrintService[org.id]}
-                              className="px-3 py-2 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
-                              style={{ backgroundColor: accentColor }}
-                              title="Save print service URL"
-                            >
-                              {savingPrintService[org.id] ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Save className="w-4 h-4" />
-                              )}
-                            </button>
-                          </div>
-                          <p className="text-xs text-slate-500 mt-2">
-                            ArcGIS Print Service endpoint used to generate map exports for this organization.
-                          </p>
-                        </div>
-
-                        {/* Add Template Buttons */}
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setShowStarterPicker(org.id)}
-                            className="px-3 py-2 text-sm border border-slate-300 rounded-lg text-slate-700 hover:bg-white flex items-center gap-2"
-                          >
-                            <LayoutTemplate className="w-4 h-4" />
-                            From Template
-                          </button>
-                          <button
-                            onClick={() => handleCreateBlank(org.id)}
-                            className="px-3 py-2 text-sm text-white rounded-lg flex items-center gap-2"
-                            style={{ backgroundColor: accentColor }}
-                          >
-                            <Plus className="w-4 h-4" />
-                            New Blank
-                          </button>
-                        </div>
-
-                        {/* Templates List */}
-                        {templates.length === 0 ? (
-                          <div className="text-center py-6 bg-white rounded-lg border border-dashed border-slate-300">
-                            <FileImage className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-                            <p className="text-slate-500">No export templates yet</p>
-                            <p className="text-sm text-slate-400">Create a template to enable map exports</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {templates.map(template => (
-                              <div
-                                key={template.id}
-                                className={`flex items-center gap-3 p-3 bg-white rounded-lg border ${template.enabled === false ? 'border-slate-200 opacity-60' : 'border-slate-200'}`}
-                              >
-                                <div 
-                                  className="w-10 h-10 rounded flex items-center justify-center"
-                                  style={{ 
-                                    backgroundColor: template.enabled !== false ? `${accentColor}15` : '#f1f5f9',
-                                    color: template.enabled !== false ? accentColor : '#94a3b8'
-                                  }}
-                                >
-                                  <Printer className="w-5 h-5" />
-                                </div>
-                                
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="font-medium text-slate-800 truncate">{template.name}</h4>
-                                  <p className="text-xs text-slate-500">
-                                    {getPageSizeDisplay(template)} • {template.elements?.length || 0} elements
-                                  </p>
-                                </div>
-
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => handleToggleEnabled(org.id, template.id)}
-                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
-                                    title={template.enabled !== false ? 'Disable' : 'Enable'}
-                                  >
-                                    {template.enabled !== false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                                  </button>
-                                  <button
-                                    onClick={() => handleEditTemplate(org.id, template)}
-                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
-                                    title="Edit"
-                                  >
-                                    <Edit2 className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDuplicateTemplate(org.id, template)}
-                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
-                                    title="Duplicate"
-                                  >
-                                    <Copy className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteTemplate(org.id, template.id, template.name)}
-                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Starter Template Picker Modal */}
-      {showStarterPicker && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800">Choose a Starter Template</h3>
-                <p className="text-sm text-slate-500">Select a template to customize</p>
-              </div>
-              <button onClick={() => setShowStarterPicker(null)} className="p-2 hover:bg-slate-100 rounded-lg">
-                <X className="w-5 h-5 text-slate-500" />
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              <div className="grid gap-4">
-                {STARTER_TEMPLATES.map(starter => (
-                  <button
-                    key={starter.id}
-                    onClick={() => handleCreateFromStarter(showStarterPicker, starter)}
-                    className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                  >
-                    <div 
-                      className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
-                      style={{ backgroundColor: accentColor }}
-                    >
-                      <LayoutTemplate className="w-6 h-6" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-slate-800">{starter.name}</h4>
-                      <p className="text-sm text-slate-500 mt-0.5">{starter.description}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                        <span>{starter.pageSize.includes('landscape') ? 'Landscape' : 'Portrait'}</span>
-                        <span>•</span>
-                        <span>{starter.elements.length} elements</span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0 mt-1" />
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button
-                onClick={() => setShowStarterPicker(null)}
-                className="w-full px-4 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-white"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Template Editor Modal */}
-      {editingTemplate && (
-        <ExportTemplateEditor
-          data={editingTemplate.data}
-          orgData={editingTemplate.orgData}
-          onClose={() => setEditingTemplate(null)}
-          onSave={handleSaveTemplate}
-          accentColor={accentColor}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * SuperAdminFeatureExportTemplates Component
- *
- * Super Admin view for managing feature export templates across all organizations
- */
-function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor = '#004E7C' }) {
-  const [organizations, setOrganizations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [expandedOrgs, setExpandedOrgs] = useState({});
-  const [searchTerm, setSearchTerm] = useState('');
-  const [editingTemplate, setEditingTemplate] = useState(null);
-  const [showStarterPicker, setShowStarterPicker] = useState(null);
-
-  // Default starter templates for feature export
+  // Feature export starter templates
   const FEATURE_STARTER_TEMPLATES = [
     {
       id: 'starter-basic',
       name: 'Basic Feature Report',
-      description: 'Simple layout with title, attributes, and optional map',
+      description: 'Simple layout with title, attributes, and footer',
       pageSize: 'letter-portrait',
       elements: [
         { id: 'title-1', type: 'title', x: 0, y: 0, width: 100, height: 8, locked: false, visible: true, content: { text: 'Feature Report', fontSize: 24, fontWeight: 'bold', align: 'center', backgroundColor: '#1e293b', color: '#ffffff' } },
@@ -1132,14 +540,86 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
 
   const getWorkingConfig = (org) => org.atlasConfigDraft || org.atlasConfig;
   const hasAtlas = (org) => !!org.atlasConfig || !!org.atlasConfigDraft;
-  const getTemplates = (org) => getWorkingConfig(org)?.featureExportTemplates || [];
-  const getMapExportTemplates = (org) => getWorkingConfig(org)?.exportTemplates || [];
+  const getMapTemplates = (org) => getWorkingConfig(org)?.exportTemplates || [];
+  const getFeatureTemplates = (org) => getWorkingConfig(org)?.featureExportTemplates || [];
+  const getPrintServiceUrl = (org) => getWorkingConfig(org)?.printServiceUrl || DEFAULT_PRINT_SERVICE_URL;
 
   const toggleOrg = (orgId) => {
     setExpandedOrgs(prev => ({ ...prev, [orgId]: !prev[orgId] }));
   };
 
-  const saveTemplates = async (orgId, templates) => {
+  const getActiveExportTab = (orgId) => activeExportTabs[orgId] || 'map';
+  const setActiveExportTab = (orgId, tab) => {
+    setActiveExportTabs(prev => ({ ...prev, [orgId]: tab }));
+  };
+
+  // Initialize print service URL when org is expanded
+  const handleOrgExpand = (orgId) => {
+    const org = organizations.find(o => o.id === orgId);
+    if (org && !editingPrintService[orgId]) {
+      setEditingPrintService(prev => ({
+        ...prev,
+        [orgId]: getPrintServiceUrl(org)
+      }));
+    }
+    toggleOrg(orgId);
+  };
+
+  // Save print service URL
+  const savePrintServiceUrl = async (orgId) => {
+    try {
+      setSavingPrintService(prev => ({ ...prev, [orgId]: true }));
+      const org = organizations.find(o => o.id === orgId);
+      if (!org) return;
+
+      const configField = org.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
+      const currentConfig = org[configField] || {};
+
+      const updatedConfig = {
+        ...currentConfig,
+        printServiceUrl: editingPrintService[orgId] || DEFAULT_PRINT_SERVICE_URL
+      };
+      const orgRef = doc(db, PATHS.organizations, orgId);
+      await updateDoc(orgRef, { [configField]: updatedConfig });
+
+      addToast?.('Print service URL saved', 'success');
+    } catch (error) {
+      console.error('Error saving print service URL:', error);
+      addToast?.('Failed to save print service URL', 'error');
+    } finally {
+      setSavingPrintService(prev => ({ ...prev, [orgId]: false }));
+    }
+  };
+
+  const resetPrintServiceUrl = (orgId) => {
+    setEditingPrintService(prev => ({
+      ...prev,
+      [orgId]: DEFAULT_PRINT_SERVICE_URL
+    }));
+  };
+
+  // Save map export templates
+  const saveMapTemplates = async (orgId, templates) => {
+    try {
+      const org = organizations.find(o => o.id === orgId);
+      if (!org) return;
+
+      const configField = org.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
+      const currentConfig = org[configField] || {};
+
+      const updatedConfig = { ...currentConfig, exportTemplates: templates };
+      const orgRef = doc(db, PATHS.organizations, orgId);
+      await updateDoc(orgRef, { [configField]: updatedConfig });
+
+      addToast?.('Map export templates saved', 'success');
+    } catch (error) {
+      console.error('Error saving map export templates:', error);
+      addToast?.('Failed to save map export templates', 'error');
+    }
+  };
+
+  // Save feature export templates
+  const saveFeatureTemplates = async (orgId, templates) => {
     try {
       const org = organizations.find(o => o.id === orgId);
       if (!org) return;
@@ -1158,73 +638,99 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
     }
   };
 
-  const handleCreateBlank = (orgId) => {
+  const handleCreateBlank = (orgId, type) => {
     const org = organizations.find(o => o.id === orgId);
-    setEditingTemplate({ orgId, orgData: org, isNew: true, data: null });
+    setEditingTemplate({ orgId, orgData: org, isNew: true, data: null, type });
   };
 
-  const handleCreateFromStarter = (orgId, starter) => {
+  const handleCreateFromStarter = (orgId, starter, type) => {
     const org = organizations.find(o => o.id === orgId);
+    const idPrefix = type === 'feature' ? 'feature-template' : 'template';
     const newTemplate = {
       ...starter,
-      id: `feature-template-${Date.now()}`,
+      id: `${idPrefix}-${Date.now()}`,
       name: `${starter.name}`,
       createdAt: new Date().toISOString()
     };
-    setEditingTemplate({ orgId, orgData: org, isNew: true, data: newTemplate });
+    setEditingTemplate({ orgId, orgData: org, isNew: true, data: newTemplate, type });
     setShowStarterPicker(null);
   };
 
-  const handleEditTemplate = (orgId, template) => {
+  const handleEditTemplate = (orgId, template, type) => {
     const org = organizations.find(o => o.id === orgId);
-    setEditingTemplate({ orgId, orgData: org, isNew: false, data: template });
+    setEditingTemplate({ orgId, orgData: org, isNew: false, data: template, type });
   };
 
-  const handleDuplicateTemplate = (orgId, template) => {
+  const handleDuplicateTemplate = (orgId, template, type) => {
     const org = organizations.find(o => o.id === orgId);
-    const templates = getTemplates(org);
+    const templates = type === 'feature' ? getFeatureTemplates(org) : getMapTemplates(org);
+    const idPrefix = type === 'feature' ? 'feature-template' : 'template';
     const newTemplate = {
       ...template,
-      id: `feature-template-${Date.now()}`,
+      id: `${idPrefix}-${Date.now()}`,
       name: `${template.name} (Copy)`,
       createdAt: new Date().toISOString()
     };
-    saveTemplates(orgId, [...templates, newTemplate]);
+    if (type === 'feature') {
+      saveFeatureTemplates(orgId, [...templates, newTemplate]);
+    } else {
+      saveMapTemplates(orgId, [...templates, newTemplate]);
+    }
   };
 
-  const handleDeleteTemplate = (orgId, templateId, templateName) => {
+  const handleDeleteTemplate = (orgId, templateId, templateName, type) => {
     confirm?.({
-      title: 'Delete Feature Export Template',
+      title: `Delete ${type === 'feature' ? 'Feature Export' : 'Map Export'} Template`,
       message: `Are you sure you want to delete "${templateName}"? This action cannot be undone.`,
       destructive: true,
       confirmLabel: 'Delete',
       onConfirm: () => {
         const org = organizations.find(o => o.id === orgId);
-        const templates = getTemplates(org);
-        saveTemplates(orgId, templates.filter(t => t.id !== templateId));
+        const templates = type === 'feature' ? getFeatureTemplates(org) : getMapTemplates(org);
+        const filtered = templates.filter(t => t.id !== templateId);
+        if (type === 'feature') {
+          saveFeatureTemplates(orgId, filtered);
+        } else {
+          saveMapTemplates(orgId, filtered);
+        }
       }
     });
   };
 
-  const handleToggleEnabled = (orgId, templateId) => {
+  const handleToggleEnabled = (orgId, templateId, type) => {
     const org = organizations.find(o => o.id === orgId);
-    const templates = getTemplates(org);
-    saveTemplates(orgId, templates.map(t =>
+    const templates = type === 'feature' ? getFeatureTemplates(org) : getMapTemplates(org);
+    const updated = templates.map(t =>
       t.id === templateId ? { ...t, enabled: t.enabled === false ? true : false } : t
-    ));
+    );
+    if (type === 'feature') {
+      saveFeatureTemplates(orgId, updated);
+    } else {
+      saveMapTemplates(orgId, updated);
+    }
   };
 
   const handleSaveTemplate = (templateData) => {
-    const { orgId, isNew } = editingTemplate;
+    const { orgId, isNew, type } = editingTemplate;
     const org = organizations.find(o => o.id === orgId);
-    const templates = getTemplates(org);
+    const templates = type === 'feature' ? getFeatureTemplates(org) : getMapTemplates(org);
 
     if (isNew) {
-      saveTemplates(orgId, [...templates, { ...templateData, createdAt: new Date().toISOString(), enabled: true }]);
+      const updated = [...templates, { ...templateData, createdAt: new Date().toISOString(), enabled: true }];
+      if (type === 'feature') {
+        saveFeatureTemplates(orgId, updated);
+      } else {
+        saveMapTemplates(orgId, updated);
+      }
     } else {
-      saveTemplates(orgId, templates.map(t =>
+      const updated = templates.map(t =>
         t.id === templateData.id ? { ...templateData, updatedAt: new Date().toISOString() } : t
-      ));
+      );
+      if (type === 'feature') {
+        saveFeatureTemplates(orgId, updated);
+      } else {
+        saveMapTemplates(orgId, updated);
+      }
     }
     setEditingTemplate(null);
   };
@@ -1254,8 +760,8 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Feature Export Templates</h2>
-          <p className="text-slate-500 text-sm">Manage feature export templates for all organizations.</p>
+          <h2 className="text-xl font-bold text-slate-800">Export Templates</h2>
+          <p className="text-slate-500 text-sm">Manage map and feature export templates for all organizations.</p>
         </div>
       </div>
 
@@ -1280,15 +786,18 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
       ) : (
         <div className="space-y-3">
           {filteredOrgs.map(org => {
-            const templates = getTemplates(org);
+            const mapTemplates = getMapTemplates(org);
+            const featureTemplates = getFeatureTemplates(org);
+            const totalTemplates = mapTemplates.length + featureTemplates.length;
             const isExpanded = expandedOrgs[org.id];
             const atlasEnabled = hasAtlas(org);
+            const activeTab = getActiveExportTab(org.id);
 
             return (
               <div key={org.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
                 {/* Organization Header */}
                 <button
-                  onClick={() => toggleOrg(org.id)}
+                  onClick={() => handleOrgExpand(org.id)}
                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
                 >
                   <div className="text-slate-400">
@@ -1306,27 +815,36 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
                     <h3 className="font-medium text-slate-800">{org.name}</h3>
                     <p className="text-sm text-slate-500">
                       {atlasEnabled ? (
-                        <span>{templates.length} feature template{templates.length !== 1 ? 's' : ''}</span>
+                        <span>{totalTemplates} template{totalTemplates !== 1 ? 's' : ''} ({mapTemplates.length} map, {featureTemplates.length} feature)</span>
                       ) : (
                         <span className="text-amber-600">Atlas not initialized</span>
                       )}
                     </p>
                   </div>
 
-                  {atlasEnabled && templates.length > 0 && (
+                  {atlasEnabled && totalTemplates > 0 && (
                     <div className="flex -space-x-1">
-                      {templates.slice(0, 3).map((t) => (
+                      {mapTemplates.slice(0, 2).map((t) => (
                         <div
                           key={t.id}
                           className="w-6 h-6 rounded bg-slate-200 border-2 border-white flex items-center justify-center"
                           title={t.name}
                         >
-                          <FileOutput className="w-3 h-3 text-slate-500" />
+                          <Printer className="w-3 h-3 text-slate-500" />
                         </div>
                       ))}
-                      {templates.length > 3 && (
+                      {featureTemplates.slice(0, 2).map((t) => (
+                        <div
+                          key={t.id}
+                          className="w-6 h-6 rounded bg-blue-100 border-2 border-white flex items-center justify-center"
+                          title={t.name}
+                        >
+                          <FileOutput className="w-3 h-3 text-blue-500" />
+                        </div>
+                      ))}
+                      {totalTemplates > 4 && (
                         <div className="w-6 h-6 rounded bg-slate-300 border-2 border-white flex items-center justify-center text-xs text-slate-600">
-                          +{templates.length - 3}
+                          +{totalTemplates - 4}
                         </div>
                       )}
                     </div>
@@ -1335,105 +853,269 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
 
                 {/* Expanded Content */}
                 {isExpanded && (
-                  <div className="border-t border-slate-200 bg-slate-50 p-4">
+                  <div className="border-t border-slate-200 bg-slate-50">
                     {!atlasEnabled ? (
-                      <div className="text-center py-6">
+                      <div className="text-center py-6 px-4">
                         <AlertCircle className="w-10 h-10 mx-auto text-amber-400 mb-2" />
                         <p className="text-slate-600 font-medium">Atlas Not Initialized</p>
                         <p className="text-sm text-slate-500 mt-1">
-                          Initialize Atlas for this organization before managing feature export templates.
+                          Initialize Atlas for this organization before managing export templates.
                         </p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
-                        {/* Add Template Buttons */}
-                        <div className="flex gap-2">
+                      <>
+                        {/* Tab Navigation */}
+                        <div className="flex border-b border-slate-200 bg-white">
                           <button
-                            onClick={() => setShowStarterPicker(org.id)}
-                            className="px-3 py-2 text-sm border border-slate-300 rounded-lg text-slate-700 hover:bg-white flex items-center gap-2"
+                            onClick={() => setActiveExportTab(org.id, 'map')}
+                            className={`flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+                              activeTab === 'map'
+                                ? 'border-current'
+                                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                            }`}
+                            style={activeTab === 'map' ? { borderColor: accentColor, color: accentColor } : {}}
                           >
-                            <LayoutTemplate className="w-4 h-4" />
-                            From Template
+                            <Printer className="w-4 h-4" />
+                            Map Export ({mapTemplates.length})
                           </button>
                           <button
-                            onClick={() => handleCreateBlank(org.id)}
-                            className="px-3 py-2 text-sm text-white rounded-lg flex items-center gap-2"
-                            style={{ backgroundColor: accentColor }}
+                            onClick={() => setActiveExportTab(org.id, 'feature')}
+                            className={`flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+                              activeTab === 'feature'
+                                ? 'border-current'
+                                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                            }`}
+                            style={activeTab === 'feature' ? { borderColor: accentColor, color: accentColor } : {}}
                           >
-                            <Plus className="w-4 h-4" />
-                            New Blank
+                            <FileOutput className="w-4 h-4" />
+                            Feature Export ({featureTemplates.length})
                           </button>
                         </div>
 
-                        {/* Templates List */}
-                        {templates.length === 0 ? (
-                          <div className="text-center py-6 bg-white rounded-lg border border-dashed border-slate-300">
-                            <FileOutput className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-                            <p className="text-slate-500">No feature export templates yet</p>
-                            <p className="text-sm text-slate-400">Create a template to enable feature exports</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {templates.map(template => (
-                              <div
-                                key={template.id}
-                                className={`flex items-center gap-3 p-3 bg-white rounded-lg border ${template.enabled === false ? 'border-slate-200 opacity-60' : 'border-slate-200'}`}
-                              >
-                                <div
-                                  className="w-10 h-10 rounded flex items-center justify-center"
-                                  style={{
-                                    backgroundColor: template.enabled !== false ? `${accentColor}15` : '#f1f5f9',
-                                    color: template.enabled !== false ? accentColor : '#94a3b8'
-                                  }}
-                                >
-                                  <FileOutput className="w-5 h-5" />
+                        {/* Tab Content */}
+                        <div className="p-4">
+                          {activeTab === 'map' && (
+                            <div className="space-y-4">
+                              {/* Print Service Configuration */}
+                              <div className="bg-white rounded-lg border border-slate-200 p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Globe className="w-4 h-4 text-slate-500" />
+                                  <h4 className="text-sm font-medium text-slate-700">Print Service URL</h4>
                                 </div>
-
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="font-medium text-slate-800 truncate">{template.name}</h4>
-                                  <p className="text-xs text-slate-500">
-                                    {getPageSizeDisplay(template)} • {template.elements?.length || 0} elements
-                                    {template.mapExportTemplateId && (
-                                      <span className="ml-1 text-blue-600">+ Map</span>
+                                <div className="flex gap-2">
+                                  <div className="flex-1 relative">
+                                    <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <input
+                                      type="url"
+                                      value={editingPrintService[org.id] ?? getPrintServiceUrl(org)}
+                                      onChange={(e) => setEditingPrintService(prev => ({
+                                        ...prev,
+                                        [org.id]: e.target.value
+                                      }))}
+                                      placeholder={DEFAULT_PRINT_SERVICE_URL}
+                                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs"
+                                    />
+                                  </div>
+                                  <button
+                                    onClick={() => resetPrintServiceUrl(org.id)}
+                                    className="px-3 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-300"
+                                    title="Reset to default"
+                                  >
+                                    <RotateCcw className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => savePrintServiceUrl(org.id)}
+                                    disabled={savingPrintService[org.id]}
+                                    className="px-3 py-2 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+                                    style={{ backgroundColor: accentColor }}
+                                    title="Save print service URL"
+                                  >
+                                    {savingPrintService[org.id] ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Save className="w-4 h-4" />
                                     )}
-                                  </p>
-                                </div>
-
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => handleToggleEnabled(org.id, template.id)}
-                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
-                                    title={template.enabled !== false ? 'Disable' : 'Enable'}
-                                  >
-                                    {template.enabled !== false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                                  </button>
-                                  <button
-                                    onClick={() => handleEditTemplate(org.id, template)}
-                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
-                                    title="Edit"
-                                  >
-                                    <Edit2 className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDuplicateTemplate(org.id, template)}
-                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
-                                    title="Duplicate"
-                                  >
-                                    <Copy className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteTemplate(org.id, template.id, template.name)}
-                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+
+                              {/* Add Template Buttons */}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setShowStarterPicker({ orgId: org.id, type: 'map' })}
+                                  className="px-3 py-2 text-sm border border-slate-300 rounded-lg text-slate-700 hover:bg-white flex items-center gap-2"
+                                >
+                                  <LayoutTemplate className="w-4 h-4" />
+                                  From Template
+                                </button>
+                                <button
+                                  onClick={() => handleCreateBlank(org.id, 'map')}
+                                  className="px-3 py-2 text-sm text-white rounded-lg flex items-center gap-2"
+                                  style={{ backgroundColor: accentColor }}
+                                >
+                                  <Plus className="w-4 h-4" />
+                                  New Blank
+                                </button>
+                              </div>
+
+                              {/* Map Templates List */}
+                              {mapTemplates.length === 0 ? (
+                                <div className="text-center py-6 bg-white rounded-lg border border-dashed border-slate-300">
+                                  <FileImage className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+                                  <p className="text-slate-500">No map export templates yet</p>
+                                  <p className="text-sm text-slate-400">Create a template to enable map exports</p>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {mapTemplates.map(template => (
+                                    <div
+                                      key={template.id}
+                                      className={`flex items-center gap-3 p-3 bg-white rounded-lg border ${template.enabled === false ? 'border-slate-200 opacity-60' : 'border-slate-200'}`}
+                                    >
+                                      <div
+                                        className="w-10 h-10 rounded flex items-center justify-center"
+                                        style={{
+                                          backgroundColor: template.enabled !== false ? `${accentColor}15` : '#f1f5f9',
+                                          color: template.enabled !== false ? accentColor : '#94a3b8'
+                                        }}
+                                      >
+                                        <Printer className="w-5 h-5" />
+                                      </div>
+
+                                      <div className="flex-1 min-w-0">
+                                        <h4 className="font-medium text-slate-800 truncate">{template.name}</h4>
+                                        <p className="text-xs text-slate-500">
+                                          {getPageSizeDisplay(template)} • {template.elements?.length || 0} elements
+                                        </p>
+                                      </div>
+
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          onClick={() => handleToggleEnabled(org.id, template.id, 'map')}
+                                          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                          title={template.enabled !== false ? 'Disable' : 'Enable'}
+                                        >
+                                          {template.enabled !== false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                        </button>
+                                        <button
+                                          onClick={() => handleEditTemplate(org.id, template, 'map')}
+                                          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                          title="Edit"
+                                        >
+                                          <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDuplicateTemplate(org.id, template, 'map')}
+                                          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                          title="Duplicate"
+                                        >
+                                          <Copy className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteTemplate(org.id, template.id, template.name, 'map')}
+                                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                                          title="Delete"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {activeTab === 'feature' && (
+                            <div className="space-y-4">
+                              {/* Add Template Buttons */}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setShowStarterPicker({ orgId: org.id, type: 'feature' })}
+                                  className="px-3 py-2 text-sm border border-slate-300 rounded-lg text-slate-700 hover:bg-white flex items-center gap-2"
+                                >
+                                  <LayoutTemplate className="w-4 h-4" />
+                                  From Template
+                                </button>
+                                <button
+                                  onClick={() => handleCreateBlank(org.id, 'feature')}
+                                  className="px-3 py-2 text-sm text-white rounded-lg flex items-center gap-2"
+                                  style={{ backgroundColor: accentColor }}
+                                >
+                                  <Plus className="w-4 h-4" />
+                                  New Blank
+                                </button>
+                              </div>
+
+                              {/* Feature Templates List */}
+                              {featureTemplates.length === 0 ? (
+                                <div className="text-center py-6 bg-white rounded-lg border border-dashed border-slate-300">
+                                  <FileOutput className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+                                  <p className="text-slate-500">No feature export templates yet</p>
+                                  <p className="text-sm text-slate-400">Create a template to enable feature exports</p>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {featureTemplates.map(template => (
+                                    <div
+                                      key={template.id}
+                                      className={`flex items-center gap-3 p-3 bg-white rounded-lg border ${template.enabled === false ? 'border-slate-200 opacity-60' : 'border-slate-200'}`}
+                                    >
+                                      <div
+                                        className="w-10 h-10 rounded flex items-center justify-center"
+                                        style={{
+                                          backgroundColor: template.enabled !== false ? `${accentColor}15` : '#f1f5f9',
+                                          color: template.enabled !== false ? accentColor : '#94a3b8'
+                                        }}
+                                      >
+                                        <FileOutput className="w-5 h-5" />
+                                      </div>
+
+                                      <div className="flex-1 min-w-0">
+                                        <h4 className="font-medium text-slate-800 truncate">{template.name}</h4>
+                                        <p className="text-xs text-slate-500">
+                                          {getPageSizeDisplay(template)} • {template.elements?.length || 0} elements
+                                        </p>
+                                      </div>
+
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          onClick={() => handleToggleEnabled(org.id, template.id, 'feature')}
+                                          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                          title={template.enabled !== false ? 'Disable' : 'Enable'}
+                                        >
+                                          {template.enabled !== false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                        </button>
+                                        <button
+                                          onClick={() => handleEditTemplate(org.id, template, 'feature')}
+                                          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                          title="Edit"
+                                        >
+                                          <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDuplicateTemplate(org.id, template, 'feature')}
+                                          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                          title="Duplicate"
+                                        >
+                                          <Copy className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteTemplate(org.id, template.id, template.name, 'feature')}
+                                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                                          title="Delete"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
                 )}
@@ -1450,7 +1132,9 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
                 <h3 className="text-lg font-semibold text-slate-800">Choose a Starter Template</h3>
-                <p className="text-sm text-slate-500">Select a feature export template to customize</p>
+                <p className="text-sm text-slate-500">
+                  Select a {showStarterPicker.type === 'feature' ? 'feature export' : 'map export'} template to customize
+                </p>
               </div>
               <button onClick={() => setShowStarterPicker(null)} className="p-2 hover:bg-slate-100 rounded-lg">
                 <X className="w-5 h-5 text-slate-500" />
@@ -1459,17 +1143,21 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
 
             <div className="p-6 overflow-y-auto max-h-[60vh]">
               <div className="grid gap-4">
-                {FEATURE_STARTER_TEMPLATES.map(starter => (
+                {(showStarterPicker.type === 'feature' ? FEATURE_STARTER_TEMPLATES : STARTER_TEMPLATES).map(starter => (
                   <button
                     key={starter.id}
-                    onClick={() => handleCreateFromStarter(showStarterPicker, starter)}
+                    onClick={() => handleCreateFromStarter(showStarterPicker.orgId, starter, showStarterPicker.type)}
                     className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
                   >
                     <div
                       className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
                       style={{ backgroundColor: accentColor }}
                     >
-                      <FileOutput className="w-6 h-6" />
+                      {showStarterPicker.type === 'feature' ? (
+                        <FileOutput className="w-6 h-6" />
+                      ) : (
+                        <LayoutTemplate className="w-6 h-6" />
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="font-medium text-slate-800">{starter.name}</h4>
@@ -1499,16 +1187,160 @@ function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor =
       )}
 
       {/* Template Editor Modal */}
-      {editingTemplate && (
-        <FeatureExportTemplateEditor
+      {editingTemplate && editingTemplate.type === 'map' && (
+        <ExportTemplateEditor
           data={editingTemplate.data}
           orgData={editingTemplate.orgData}
-          mapExportTemplates={getMapExportTemplates(editingTemplate.orgData)}
           onClose={() => setEditingTemplate(null)}
           onSave={handleSaveTemplate}
           accentColor={accentColor}
         />
       )}
+
+      {editingTemplate && editingTemplate.type === 'feature' && (
+        <FeatureExportTemplateEditor
+          data={editingTemplate.data}
+          orgData={editingTemplate.orgData}
+          mapExportTemplates={getMapTemplates(editingTemplate.orgData)}
+          onClose={() => setEditingTemplate(null)}
+          onSave={handleSaveTemplate}
+          accentColor={accentColor}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * OrgAdminExportTemplates Component
+ *
+ * Tabbed interface for org admin to manage both Map Export and Feature Export templates
+ */
+function OrgAdminExportTemplates({
+  workingConfig,
+  orgData,
+  printServiceUrl,
+  setPrintServiceUrl,
+  savingPrintService,
+  handleSavePrintServiceUrl,
+  handleUpdateExportTemplates,
+  handleUpdateFeatureExportTemplates,
+  addToast,
+  confirm,
+  accentColor = '#004E7C'
+}) {
+  const [activeExportTab, setActiveExportTab] = useState('map');
+
+  return (
+    <div className="space-y-6">
+      {/* Header with Tabs */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h2 className="text-xl font-bold text-slate-800">Export Templates</h2>
+          <p className="text-slate-500 text-sm">Manage templates for exporting maps and feature data as PDFs.</p>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex border-b border-slate-200">
+          <button
+            onClick={() => setActiveExportTab('map')}
+            className={`flex-1 px-6 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+              activeExportTab === 'map'
+                ? 'border-current text-slate-800'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            }`}
+            style={activeExportTab === 'map' ? { borderColor: accentColor, color: accentColor } : {}}
+          >
+            <Printer className="w-4 h-4" />
+            Map Export
+          </button>
+          <button
+            onClick={() => setActiveExportTab('feature')}
+            className={`flex-1 px-6 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+              activeExportTab === 'feature'
+                ? 'border-current text-slate-800'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            }`}
+            style={activeExportTab === 'feature' ? { borderColor: accentColor, color: accentColor } : {}}
+          >
+            <FileOutput className="w-4 h-4" />
+            Feature Export
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <div className="p-6">
+          {activeExportTab === 'map' && (
+            <div className="space-y-6">
+              {/* Print Service Configuration */}
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Globe className="w-4 h-4 text-slate-500" />
+                  <h4 className="text-sm font-medium text-slate-700">Print Service Configuration</h4>
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="url"
+                      value={printServiceUrl}
+                      onChange={(e) => setPrintServiceUrl(e.target.value)}
+                      placeholder={DEFAULT_PRINT_SERVICE_URL}
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs bg-white"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setPrintServiceUrl(DEFAULT_PRINT_SERVICE_URL)}
+                    className="px-3 py-2 text-slate-500 hover:text-slate-700 hover:bg-white rounded-lg border border-slate-300"
+                    title="Reset to default"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSavePrintServiceUrl}
+                    disabled={savingPrintService}
+                    className="px-4 py-2 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+                    style={{ backgroundColor: accentColor }}
+                  >
+                    {savingPrintService ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Save
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  ArcGIS Print Service endpoint used to generate map exports.
+                </p>
+              </div>
+
+              {/* Map Export Templates */}
+              <ExportTemplateConfiguration
+                templates={workingConfig?.exportTemplates || []}
+                orgData={orgData}
+                onUpdate={handleUpdateExportTemplates}
+                addToast={addToast}
+                confirm={confirm}
+                accentColor={accentColor}
+              />
+            </div>
+          )}
+
+          {activeExportTab === 'feature' && (
+            <FeatureExportTemplateConfiguration
+              templates={workingConfig?.featureExportTemplates || []}
+              mapExportTemplates={workingConfig?.exportTemplates || []}
+              orgData={orgData}
+              onUpdate={handleUpdateFeatureExportTemplates}
+              addToast={addToast}
+              confirm={confirm}
+              accentColor={accentColor}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1523,17 +1355,15 @@ export function getAtlasNavItems(role) {
     return [
       { id: 'users', label: 'Users', icon: Users },
       { id: 'configuration', label: 'Configuration', icon: Settings },
-      { id: 'export-templates', label: 'Map Export', icon: Printer },
-      { id: 'feature-export-templates', label: 'Feature Export', icon: FileOutput },
+      { id: 'export-templates', label: 'Export Templates', icon: Printer },
     ];
   }
 
-  // org_admin - includes Map Export and Feature Export Templates
+  // org_admin - includes combined Export Templates
   return [
     { id: 'users', label: 'Users', icon: Users },
     { id: 'maps', label: 'Maps', icon: Layers },
-    { id: 'export-templates', label: 'Map Export', icon: Printer },
-    { id: 'feature-export-templates', label: 'Feature Export', icon: FileOutput },
+    { id: 'export-templates', label: 'Export Templates', icon: Printer },
     { id: 'preview', label: 'Preview', icon: Eye }
   ];
 }

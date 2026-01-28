@@ -60,8 +60,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Layers,
-  Printer,
-  FileOutput
+  Printer
 } from 'lucide-react';
 
 // Import admin components
@@ -441,14 +440,12 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
     ? [
         { id: 'users', label: 'Users', icon: Users },
         { id: 'configuration', label: 'Configuration', icon: Settings },
-        { id: 'export-templates', label: 'Map Export', icon: Printer },
-        { id: 'feature-export-templates', label: 'Feature Export', icon: FileOutput },
+        { id: 'export-templates', label: 'Export Templates', icon: Printer },
       ]
     : [
         { id: 'users', label: 'Users', icon: Users },
         { id: 'maps', label: 'Maps', icon: Layers },
-        { id: 'export-templates', label: 'Map Export', icon: Printer },
-        { id: 'feature-export-templates', label: 'Feature Export', icon: FileOutput },
+        { id: 'export-templates', label: 'Export Templates', icon: Printer },
         { id: 'preview', label: 'Preview', icon: Eye },
       ];
 
