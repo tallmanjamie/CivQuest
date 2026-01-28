@@ -58,6 +58,7 @@ export default function SearchResultsPanel({
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
   const [displayField, setDisplayField] = useState(''); // Empty means auto-detect
   const [filterText, setFilterText] = useState('');
+  const [showFilter, setShowFilter] = useState(false);
 
   // Refs
   const panelRef = useRef(null);
@@ -347,6 +348,15 @@ export default function SearchResultsPanel({
               </button>
 
 
+              {/* Filter Toggle Button */}
+              <button
+                onClick={() => setShowFilter(!showFilter)}
+                className={`p-1 rounded transition ${showFilter ? 'bg-slate-200' : 'hover:bg-slate-200'}`}
+                title={showFilter ? "Hide Filter" : "Show Filter"}
+              >
+                <Filter className="w-4 h-4" style={{ color: showFilter ? colors.text600 : 'rgb(71 85 105)' }} />
+              </button>
+
               {/* Config Button */}
               <div className="relative" ref={configRef}>
                 <button
@@ -452,8 +462,8 @@ export default function SearchResultsPanel({
         </div>
       </div>
 
-      {/* Inline Filter Input */}
-      {resultCount > 0 && (
+      {/* Inline Filter Input - shown when filter toggle is active */}
+      {resultCount > 0 && showFilter && (
         <div className="px-3 py-2 border-b border-slate-200 flex-shrink-0 bg-white">
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-slate-600 whitespace-nowrap">Find:</label>
