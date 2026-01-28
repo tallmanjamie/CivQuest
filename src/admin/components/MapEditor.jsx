@@ -9,8 +9,8 @@
 // UPDATED: Added Export Templates tab for selecting which export templates are available for this map
 
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
+import {
+  X,
   Save,
   Map,
   Globe,
@@ -34,7 +34,11 @@ import {
   Check,
   Shield,
   Printer,
-  Info
+  Info,
+  LayoutList,
+  FileOutput,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { 
   canHavePublicMaps, 
@@ -123,6 +127,16 @@ export default function MapEditor({
     },
     // Export templates - array of selected template IDs
     exportTemplates: [],
+    // Custom feature info - per-map configuration for feature popup tabs
+    customFeatureInfo: {
+      layerId: '',
+      tabs: [],
+      export: {
+        scaleRatio: 1.0,
+        elements: []
+      },
+      ...data?.customFeatureInfo
+    },
     ...data,
     // Override access if license doesn't allow public
     ...((!canBePublic && data?.access === 'public') ? { access: 'private' } : {})
@@ -293,6 +307,150 @@ export default function MapEditor({
     }));
   };
 
+  // Custom Feature Info management
+  const updateCustomFeatureInfo = (field, value) => {
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: { ...prev.customFeatureInfo, [field]: value }
+    }));
+  };
+
+  // Tab management for custom feature info
+  const addFeatureInfoTab = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: {
+        ...prev.customFeatureInfo,
+        tabs: [...(prev.customFeatureInfo?.tabs || []), { name: '', elements: [] }]
+      }
+    }));
+  };
+
+  const updateFeatureInfoTab = (index, field, value) => {
+    const updated = [...(mapConfig.customFeatureInfo?.tabs || [])];
+    updated[index] = { ...updated[index], [field]: value };
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
+    }));
+  };
+
+  const removeFeatureInfoTab = (index) => {
+    const updated = (mapConfig.customFeatureInfo?.tabs || []).filter((_, i) => i !== index);
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
+    }));
+  };
+
+  const moveFeatureInfoTab = (index, direction) => {
+    const tabs = [...(mapConfig.customFeatureInfo?.tabs || [])];
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= tabs.length) return;
+    [tabs[index], tabs[newIndex]] = [tabs[newIndex], tabs[index]];
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: { ...prev.customFeatureInfo, tabs }
+    }));
+  };
+
+  // Tab element management for custom feature info
+  const addFeatureInfoTabElement = (tabIndex) => {
+    const updated = [...(mapConfig.customFeatureInfo?.tabs || [])];
+    updated[tabIndex] = {
+      ...updated[tabIndex],
+      elements: [...(updated[tabIndex].elements || []), '']
+    };
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
+    }));
+  };
+
+  const updateFeatureInfoTabElement = (tabIndex, elementIndex, value) => {
+    const updated = [...(mapConfig.customFeatureInfo?.tabs || [])];
+    const elements = [...updated[tabIndex].elements];
+    elements[elementIndex] = value;
+    updated[tabIndex] = { ...updated[tabIndex], elements };
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
+    }));
+  };
+
+  const removeFeatureInfoTabElement = (tabIndex, elementIndex) => {
+    const updated = [...(mapConfig.customFeatureInfo?.tabs || [])];
+    updated[tabIndex] = {
+      ...updated[tabIndex],
+      elements: updated[tabIndex].elements.filter((_, i) => i !== elementIndex)
+    };
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
+    }));
+  };
+
+  // Export settings management for custom feature info
+  const updateFeatureInfoExportSetting = (field, value) => {
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: {
+        ...prev.customFeatureInfo,
+        export: { ...prev.customFeatureInfo?.export, [field]: value }
+      }
+    }));
+  };
+
+  const addFeatureInfoExportElement = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: {
+        ...prev.customFeatureInfo,
+        export: {
+          ...prev.customFeatureInfo?.export,
+          elements: [...(prev.customFeatureInfo?.export?.elements || []), '']
+        }
+      }
+    }));
+  };
+
+  const updateFeatureInfoExportElement = (index, value) => {
+    const updated = [...(mapConfig.customFeatureInfo?.export?.elements || [])];
+    updated[index] = value;
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: {
+        ...prev.customFeatureInfo,
+        export: { ...prev.customFeatureInfo?.export, elements: updated }
+      }
+    }));
+  };
+
+  const removeFeatureInfoExportElement = (index) => {
+    const updated = (mapConfig.customFeatureInfo?.export?.elements || []).filter((_, i) => i !== index);
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: {
+        ...prev.customFeatureInfo,
+        export: { ...prev.customFeatureInfo?.export, elements: updated }
+      }
+    }));
+  };
+
+  const moveFeatureInfoExportElement = (index, direction) => {
+    const elements = [...(mapConfig.customFeatureInfo?.export?.elements || [])];
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= elements.length) return;
+    [elements[index], elements[newIndex]] = [elements[newIndex], elements[index]];
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: {
+        ...prev.customFeatureInfo,
+        export: { ...prev.customFeatureInfo?.export, elements }
+      }
+    }));
+  };
+
   // Get page size display
   const getPageSizeDisplay = (template) => {
     if (template.pageSize === 'custom') {
@@ -324,13 +482,14 @@ export default function MapEditor({
     onSave(mapConfig);
   };
 
-  // Tab definitions - now includes Export tab
+  // Tab definitions - now includes Feature Info and Export tabs
   const tabs = [
     { id: 'basic', label: 'Basic', icon: Settings },
     { id: 'data', label: 'Data Source', icon: Link2 },
     { id: 'search', label: 'Search', icon: Search },
     { id: 'table', label: 'Table', icon: Table2 },
     { id: 'geocoder', label: 'Geocoder', icon: MapPin },
+    { id: 'featureInfo', label: 'Feature Info', icon: Layers },
     { id: 'export', label: 'Export', icon: Printer }
   ];
 
@@ -848,6 +1007,241 @@ export default function MapEditor({
                   />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Feature Info Tab */}
+          {activeTab === 'featureInfo' && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-2 text-slate-800">
+                <Layers className="w-5 h-5" />
+                <h3 className="font-semibold">Custom Feature Info</h3>
+              </div>
+
+              <p className="text-sm text-slate-600">
+                Configure custom tabs and elements for the feature info popup when users click on features in this map.
+              </p>
+
+              {/* Layer ID */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Layer ID
+                </label>
+                <input
+                  type="text"
+                  value={mapConfig.customFeatureInfo?.layerId || ''}
+                  onChange={(e) => updateCustomFeatureInfo('layerId', e.target.value)}
+                  placeholder="e.g., 194f67ad7e3-layer-42"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                />
+                <p className="mt-1 text-xs text-slate-400">
+                  The layer ID for features that should display custom tabs
+                </p>
+              </div>
+
+              {/* Tabs Configuration */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                    <LayoutList className="w-4 h-4 text-slate-400" />
+                    Feature Info Tabs
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addFeatureInfoTab}
+                    className="text-sm flex items-center gap-1 hover:underline"
+                    style={{ color: accentColor }}
+                  >
+                    <Plus className="w-4 h-4" /> Add Tab
+                  </button>
+                </div>
+
+                {(mapConfig.customFeatureInfo?.tabs || []).length === 0 ? (
+                  <p className="text-sm text-slate-400 italic py-4 text-center bg-slate-50 rounded-lg">
+                    No tabs configured. Add a tab to organize feature popup elements.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {(mapConfig.customFeatureInfo?.tabs || []).map((tab, tabIdx) => (
+                      <div key={tabIdx} className="border border-slate-200 rounded-lg overflow-hidden">
+                        {/* Tab Header */}
+                        <div className="flex items-center gap-2 p-3 bg-slate-50">
+                          <div className="flex flex-col gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => moveFeatureInfoTab(tabIdx, -1)}
+                              disabled={tabIdx === 0}
+                              className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Move up"
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveFeatureInfoTab(tabIdx, 1)}
+                              disabled={tabIdx === (mapConfig.customFeatureInfo?.tabs || []).length - 1}
+                              className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Move down"
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            value={tab.name}
+                            onChange={(e) => updateFeatureInfoTab(tabIdx, 'name', e.target.value)}
+                            placeholder="Tab Name"
+                            className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-sm font-medium"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeFeatureInfoTab(tabIdx)}
+                            className="p-1.5 text-red-500 hover:bg-red-100 rounded"
+                            title="Remove tab"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Tab Elements */}
+                        <div className="p-3 space-y-2">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            Elements (popup sections to show in this tab)
+                          </label>
+                          {(tab.elements || []).length === 0 ? (
+                            <p className="text-xs text-slate-400 italic">No elements added</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {(tab.elements || []).map((element, elIdx) => (
+                                <div key={elIdx} className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={element}
+                                    onChange={(e) => updateFeatureInfoTabElement(tabIdx, elIdx, e.target.value)}
+                                    placeholder="Element name"
+                                    className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeFeatureInfoTabElement(tabIdx, elIdx)}
+                                    className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => addFeatureInfoTabElement(tabIdx)}
+                            className="text-xs flex items-center gap-1 mt-2"
+                            style={{ color: accentColor }}
+                          >
+                            <Plus className="w-3 h-3" /> Add Element
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Export Configuration */}
+              <div className="pt-4 border-t border-slate-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <FileOutput className="w-5 h-5 text-slate-400" />
+                  <h4 className="text-sm font-medium text-slate-700">PDF Export Settings</h4>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Scale Ratio */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Scale Ratio
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="2"
+                      value={mapConfig.customFeatureInfo?.export?.scaleRatio || 1.0}
+                      onChange={(e) => updateFeatureInfoExportSetting('scaleRatio', parseFloat(e.target.value) || 1.0)}
+                      className="w-32 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                    />
+                    <p className="mt-1 text-xs text-slate-400">
+                      Scale ratio for PDF export (e.g., 0.8 = 80%)
+                    </p>
+                  </div>
+
+                  {/* Export Elements */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-slate-700">
+                        Export Elements (in print order)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={addFeatureInfoExportElement}
+                        className="text-sm flex items-center gap-1 hover:underline"
+                        style={{ color: accentColor }}
+                      >
+                        <Plus className="w-4 h-4" /> Add Element
+                      </button>
+                    </div>
+
+                    {(mapConfig.customFeatureInfo?.export?.elements || []).length === 0 ? (
+                      <p className="text-sm text-slate-400 italic py-3 text-center bg-slate-50 rounded-lg">
+                        No export elements configured
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {(mapConfig.customFeatureInfo?.export?.elements || []).map((element, idx) => (
+                          <div key={idx} className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
+                            <div className="flex flex-col gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => moveFeatureInfoExportElement(idx, -1)}
+                                disabled={idx === 0}
+                                className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Move up"
+                              >
+                                <ArrowUp className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveFeatureInfoExportElement(idx, 1)}
+                                disabled={idx === (mapConfig.customFeatureInfo?.export?.elements || []).length - 1}
+                                className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Move down"
+                              >
+                                <ArrowDown className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <span className="w-6 text-center text-xs text-slate-400 font-medium">
+                              {idx + 1}
+                            </span>
+                            <input
+                              type="text"
+                              value={element}
+                              onChange={(e) => updateFeatureInfoExportElement(idx, e.target.value)}
+                              placeholder="Element name"
+                              className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeFeatureInfoExportElement(idx)}
+                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-100 rounded"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

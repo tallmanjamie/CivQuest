@@ -28,12 +28,7 @@ import {
   Lightbulb,
   Search,
   Eye,
-  EyeOff,
-  Layers,
-  FileOutput,
-  LayoutList,
-  ArrowUp,
-  ArrowDown
+  EyeOff
 } from 'lucide-react';
 
 /**
@@ -135,15 +130,6 @@ export default function AtlasSettingsEditor({
       timeZoneOffset: -5,
       defaultSort: '',
       ...data?.data
-    },
-    customFeatureInfo: {
-      layerId: '',
-      tabs: [],
-      export: {
-        scaleRatio: 1.0,
-        elements: []
-      },
-      ...data?.customFeatureInfo
     }
   }));
 
@@ -152,8 +138,7 @@ export default function AtlasSettingsEditor({
     ui: true,
     messages: true,
     basemaps: false,
-    data: false,
-    customFeatureInfo: false
+    data: false
   });
   
   // Custom hex color input
@@ -242,150 +227,6 @@ export default function AtlasSettingsEditor({
     setConfig(prev => ({ ...prev, basemaps: updated }));
   };
 
-  // Custom Feature Info functions
-  const updateCustomFeatureInfo = (field, value) => {
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: { ...prev.customFeatureInfo, [field]: value }
-    }));
-  };
-
-  // Tab management
-  const addTab = () => {
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: {
-        ...prev.customFeatureInfo,
-        tabs: [...(prev.customFeatureInfo.tabs || []), { name: '', elements: [] }]
-      }
-    }));
-  };
-
-  const updateTab = (index, field, value) => {
-    const updated = [...config.customFeatureInfo.tabs];
-    updated[index] = { ...updated[index], [field]: value };
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
-    }));
-  };
-
-  const removeTab = (index) => {
-    const updated = config.customFeatureInfo.tabs.filter((_, i) => i !== index);
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
-    }));
-  };
-
-  const moveTab = (index, direction) => {
-    const tabs = [...config.customFeatureInfo.tabs];
-    const newIndex = index + direction;
-    if (newIndex < 0 || newIndex >= tabs.length) return;
-    [tabs[index], tabs[newIndex]] = [tabs[newIndex], tabs[index]];
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: { ...prev.customFeatureInfo, tabs }
-    }));
-  };
-
-  // Tab element management
-  const addTabElement = (tabIndex) => {
-    const updated = [...config.customFeatureInfo.tabs];
-    updated[tabIndex] = {
-      ...updated[tabIndex],
-      elements: [...(updated[tabIndex].elements || []), '']
-    };
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
-    }));
-  };
-
-  const updateTabElement = (tabIndex, elementIndex, value) => {
-    const updated = [...config.customFeatureInfo.tabs];
-    const elements = [...updated[tabIndex].elements];
-    elements[elementIndex] = value;
-    updated[tabIndex] = { ...updated[tabIndex], elements };
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
-    }));
-  };
-
-  const removeTabElement = (tabIndex, elementIndex) => {
-    const updated = [...config.customFeatureInfo.tabs];
-    updated[tabIndex] = {
-      ...updated[tabIndex],
-      elements: updated[tabIndex].elements.filter((_, i) => i !== elementIndex)
-    };
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: { ...prev.customFeatureInfo, tabs: updated }
-    }));
-  };
-
-  // Export settings management
-  const updateExportSetting = (field, value) => {
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: {
-        ...prev.customFeatureInfo,
-        export: { ...prev.customFeatureInfo.export, [field]: value }
-      }
-    }));
-  };
-
-  const addExportElement = () => {
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: {
-        ...prev.customFeatureInfo,
-        export: {
-          ...prev.customFeatureInfo.export,
-          elements: [...(prev.customFeatureInfo.export.elements || []), '']
-        }
-      }
-    }));
-  };
-
-  const updateExportElement = (index, value) => {
-    const updated = [...config.customFeatureInfo.export.elements];
-    updated[index] = value;
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: {
-        ...prev.customFeatureInfo,
-        export: { ...prev.customFeatureInfo.export, elements: updated }
-      }
-    }));
-  };
-
-  const removeExportElement = (index) => {
-    const updated = config.customFeatureInfo.export.elements.filter((_, i) => i !== index);
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: {
-        ...prev.customFeatureInfo,
-        export: { ...prev.customFeatureInfo.export, elements: updated }
-      }
-    }));
-  };
-
-  const moveExportElement = (index, direction) => {
-    const elements = [...config.customFeatureInfo.export.elements];
-    const newIndex = index + direction;
-    if (newIndex < 0 || newIndex >= elements.length) return;
-    [elements[index], elements[newIndex]] = [elements[newIndex], elements[index]];
-    setConfig(prev => ({
-      ...prev,
-      customFeatureInfo: {
-        ...prev.customFeatureInfo,
-        export: { ...prev.customFeatureInfo.export, elements }
-      }
-    }));
-  };
-
   // Handle custom hex color
   const handleCustomHexChange = (value) => {
     setCustomHexInput(value);
@@ -410,25 +251,12 @@ export default function AtlasSettingsEditor({
       return;
     }
 
-    // Clean up empty example questions and customFeatureInfo
+    // Clean up empty example questions
     const cleanConfig = {
       ...config,
       messages: {
         ...config.messages,
         exampleQuestions: config.messages.exampleQuestions.filter(q => q.trim())
-      },
-      customFeatureInfo: {
-        ...config.customFeatureInfo,
-        tabs: config.customFeatureInfo.tabs
-          .filter(tab => tab.name.trim())
-          .map(tab => ({
-            ...tab,
-            elements: tab.elements.filter(el => el.trim())
-          })),
-        export: {
-          ...config.customFeatureInfo.export,
-          elements: config.customFeatureInfo.export.elements.filter(el => el.trim())
-        }
       }
     };
 
@@ -953,235 +781,6 @@ export default function AtlasSettingsEditor({
                     placeholder="FIELD_NAME DESC"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                   />
-                </div>
-              </div>
-            </div>
-          </Section>
-
-          {/* Custom Feature Info Section */}
-          <Section
-            title="Custom Feature Info"
-            icon={Layers}
-            expanded={expandedSections.customFeatureInfo}
-            onToggle={() => toggleSection('customFeatureInfo')}
-            accentColor={accentColor}
-          >
-            <div className="space-y-6">
-              {/* Layer ID */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Layer ID
-                </label>
-                <input
-                  type="text"
-                  value={config.customFeatureInfo.layerId}
-                  onChange={(e) => updateCustomFeatureInfo('layerId', e.target.value)}
-                  placeholder="e.g., 194f67ad7e3-layer-42"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
-                />
-                <p className="mt-1 text-xs text-slate-400">
-                  The layer ID for the feature with custom tab display
-                </p>
-              </div>
-
-              {/* Tabs Configuration */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
-                    <LayoutList className="w-4 h-4 text-slate-400" />
-                    Feature Info Tabs
-                  </label>
-                  <button
-                    type="button"
-                    onClick={addTab}
-                    className="text-sm text-sky-600 hover:text-sky-700 flex items-center gap-1"
-                  >
-                    <Plus className="w-4 h-4" /> Add Tab
-                  </button>
-                </div>
-
-                {config.customFeatureInfo.tabs.length === 0 ? (
-                  <p className="text-sm text-slate-400 italic py-4 text-center bg-slate-50 rounded-lg">
-                    No tabs configured. Add a tab to organize feature popup elements.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {config.customFeatureInfo.tabs.map((tab, tabIdx) => (
-                      <div key={tabIdx} className="border border-slate-200 rounded-lg overflow-hidden">
-                        {/* Tab Header */}
-                        <div className="flex items-center gap-2 p-3 bg-slate-50">
-                          <div className="flex flex-col gap-0.5">
-                            <button
-                              type="button"
-                              onClick={() => moveTab(tabIdx, -1)}
-                              disabled={tabIdx === 0}
-                              className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                              title="Move up"
-                            >
-                              <ArrowUp className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => moveTab(tabIdx, 1)}
-                              disabled={tabIdx === config.customFeatureInfo.tabs.length - 1}
-                              className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                              title="Move down"
-                            >
-                              <ArrowDown className="w-3 h-3" />
-                            </button>
-                          </div>
-                          <input
-                            type="text"
-                            value={tab.name}
-                            onChange={(e) => updateTab(tabIdx, 'name', e.target.value)}
-                            placeholder="Tab Name"
-                            className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-sm font-medium"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeTab(tabIdx)}
-                            className="p-1.5 text-red-500 hover:bg-red-100 rounded"
-                            title="Remove tab"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-
-                        {/* Tab Elements */}
-                        <div className="p-3 space-y-2">
-                          <label className="block text-xs font-medium text-slate-500 mb-1">
-                            Elements (popup sections to show in this tab)
-                          </label>
-                          {tab.elements.length === 0 ? (
-                            <p className="text-xs text-slate-400 italic">No elements added</p>
-                          ) : (
-                            <div className="space-y-1.5">
-                              {tab.elements.map((element, elIdx) => (
-                                <div key={elIdx} className="flex items-center gap-2">
-                                  <input
-                                    type="text"
-                                    value={element}
-                                    onChange={(e) => updateTabElement(tabIdx, elIdx, e.target.value)}
-                                    placeholder="Element name"
-                                    className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => removeTabElement(tabIdx, elIdx)}
-                                    className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => addTabElement(tabIdx)}
-                            className="text-xs text-sky-600 hover:text-sky-700 flex items-center gap-1 mt-2"
-                          >
-                            <Plus className="w-3 h-3" /> Add Element
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Export Configuration */}
-              <div className="pt-4 border-t border-slate-200">
-                <div className="flex items-center gap-2 mb-4">
-                  <FileOutput className="w-5 h-5 text-slate-400" />
-                  <h4 className="text-sm font-medium text-slate-700">PDF Export Settings</h4>
-                </div>
-
-                <div className="space-y-4">
-                  {/* Scale Ratio */}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
-                      Scale Ratio
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      max="2"
-                      value={config.customFeatureInfo.export.scaleRatio}
-                      onChange={(e) => updateExportSetting('scaleRatio', parseFloat(e.target.value) || 1.0)}
-                      className="w-32 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
-                    />
-                    <p className="mt-1 text-xs text-slate-400">
-                      Scale ratio for PDF export (e.g., 0.8 = 80%)
-                    </p>
-                  </div>
-
-                  {/* Export Elements */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-slate-700">
-                        Export Elements (in print order)
-                      </label>
-                      <button
-                        type="button"
-                        onClick={addExportElement}
-                        className="text-sm text-sky-600 hover:text-sky-700 flex items-center gap-1"
-                      >
-                        <Plus className="w-4 h-4" /> Add Element
-                      </button>
-                    </div>
-
-                    {config.customFeatureInfo.export.elements.length === 0 ? (
-                      <p className="text-sm text-slate-400 italic py-3 text-center bg-slate-50 rounded-lg">
-                        No export elements configured
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {config.customFeatureInfo.export.elements.map((element, idx) => (
-                          <div key={idx} className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
-                            <div className="flex flex-col gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => moveExportElement(idx, -1)}
-                                disabled={idx === 0}
-                                className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                                title="Move up"
-                              >
-                                <ArrowUp className="w-3 h-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveExportElement(idx, 1)}
-                                disabled={idx === config.customFeatureInfo.export.elements.length - 1}
-                                className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                                title="Move down"
-                              >
-                                <ArrowDown className="w-3 h-3" />
-                              </button>
-                            </div>
-                            <span className="w-6 text-center text-xs text-slate-400 font-medium">
-                              {idx + 1}
-                            </span>
-                            <input
-                              type="text"
-                              value={element}
-                              onChange={(e) => updateExportElement(idx, e.target.value)}
-                              placeholder="Element name"
-                              className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => removeExportElement(idx)}
-                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-100 rounded"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             </div>

@@ -140,6 +140,15 @@ export default function AtlasConfiguration({
     geocoder: {
       enabled: false,
       url: ""
+    },
+    exportTemplates: [],
+    customFeatureInfo: {
+      layerId: "",
+      tabs: [],
+      export: {
+        scaleRatio: 1.0,
+        elements: []
+      }
     }
   };
 
