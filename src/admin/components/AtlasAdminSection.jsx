@@ -1523,16 +1523,16 @@ export function getAtlasNavItems(role) {
     return [
       { id: 'users', label: 'Users', icon: Users },
       { id: 'configuration', label: 'Configuration', icon: Settings },
-      { id: 'export-templates', label: 'Export Templates', icon: Printer },
+      { id: 'export-templates', label: 'Map Export', icon: Printer },
       { id: 'feature-export-templates', label: 'Feature Export', icon: FileOutput },
     ];
   }
 
-  // org_admin - includes Export Templates and Feature Export Templates
+  // org_admin - includes Map Export and Feature Export Templates
   return [
     { id: 'users', label: 'Users', icon: Users },
     { id: 'maps', label: 'Maps', icon: Layers },
-    { id: 'export-templates', label: 'Export Templates', icon: Printer },
+    { id: 'export-templates', label: 'Map Export', icon: Printer },
     { id: 'feature-export-templates', label: 'Feature Export', icon: FileOutput },
     { id: 'preview', label: 'Preview', icon: Eye }
   ];
