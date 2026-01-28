@@ -479,7 +479,7 @@ const MapView = forwardRef(function MapView(props, ref) {
         return;
       }
 
-      // Check for operational layer hits
+      // Check for operational layer hits - only include layers that have popup enabled in webmap
       const layerHits = response.results.filter(r => {
         if (!r.graphic || !r.graphic.layer) return false;
 
@@ -492,15 +492,15 @@ const MapView = forwardRef(function MapView(props, ref) {
           return false;
         }
 
-        // --- RELAXED FILTERING FOR DEBUGGING ---
-        // Instead of strictly requiring originalPopupEnabledRef, we just check if it's not internal.
-        // This ensures we catch the click even if initialization missed the layer config.
-        console.log(`[MapView] Found candidate layer hit: ${layerId}`);
-        return true;
-        
-        // Original Strict Logic:
-        // const originalPopupEnabled = originalPopupEnabledRef.current.get(layerId);
-        // return originalPopupEnabled === true;
+        // Only show popup for layers that have popupEnabled in the webmap configuration
+        const originalPopupEnabled = originalPopupEnabledRef.current.get(layerId);
+        if (originalPopupEnabled === true) {
+          console.log(`[MapView] Layer hit with popup enabled: ${layerId}`);
+          return true;
+        }
+
+        console.log(`[MapView] Skipping layer hit (popup disabled in webmap): ${layerId}`);
+        return false;
       });
 
       if (layerHits.length > 0) {
