@@ -692,15 +692,15 @@ export default function MarkupTool({
       createdAt: Date.now()
     };
 
+    // Remove the original graphic that SketchViewModel created - we'll create our own
+    if (markupLayerRef.current) {
+      markupLayerRef.current.remove(event.graphic);
+    }
+
     // Handle text tool - use the textContent from settings
     if (currentTool === 'text') {
       const textInput = settings.textContent || 'Label';
       const rgb = hexToRgb(settings.textColor.value);
-
-      // Remove the original point marker graphic that SketchViewModel created
-      if (markupLayerRef.current) {
-        markupLayerRef.current.remove(event.graphic);
-      }
 
       // Create a new graphic with the text symbol
       const textGraphic = new Graphic({
@@ -729,12 +729,24 @@ export default function MarkupTool({
         markupLayerRef.current.add(textGraphic);
       }
 
-      // Update list with the text graphic instead
+      // Update list with the text graphic
       setMarkups(prev => [...prev, textGraphic]);
     } else {
-      event.graphic.attributes = attributes;
-      // Update list
-      setMarkups(prev => [...prev, event.graphic]);
+      // For point, polyline, and polygon - create a new Graphic with proper attributes
+      // Don't reuse event.graphic as SketchViewModel may mutate it
+      const newGraphic = new Graphic({
+        geometry: event.graphic.geometry.clone(),
+        symbol: getSymbol(currentTool),
+        attributes: { ...attributes }
+      });
+
+      // Add the new graphic to the layer
+      if (markupLayerRef.current) {
+        markupLayerRef.current.add(newGraphic);
+      }
+
+      // Update list with the new graphic
+      setMarkups(prev => [...prev, newGraphic]);
     }
 
     // Create label graphic if showLabel is enabled and we have a measurement
