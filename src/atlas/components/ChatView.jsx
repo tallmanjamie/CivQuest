@@ -19,7 +19,9 @@ import {
   Table2,
   ExternalLink,
   Copy,
-  Check
+  Check,
+  Download,
+  FileText
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -578,6 +580,128 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
     handleSearch(question);
   }, [handleSearch]);
 
+  /**
+   * Export search results to CSV
+   */
+  const exportCSV = useCallback(() => {
+    const features = searchResults?.features;
+    if (!features || features.length === 0) return;
+
+    const tableColumns = activeMap?.tableColumns || [];
+    let columns;
+    if (tableColumns.length > 0) {
+      columns = tableColumns.map(col => ({
+        field: col.field,
+        headerName: col.headerName || col.field
+      }));
+    } else {
+      // Auto-generate columns from first feature
+      columns = Object.keys(features[0].attributes)
+        .filter(k => !k.startsWith('_') && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
+        .map(field => ({ field, headerName: field }));
+    }
+
+    // Build CSV content
+    const headers = columns.map(col => col.headerName).join(',');
+    const rows = features.map(feature =>
+      columns.map(col => {
+        const value = feature.attributes?.[col.field];
+        if (value == null) return '';
+        // Escape quotes and wrap in quotes if contains comma or quotes
+        const strValue = String(value);
+        if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+          return `"${strValue.replace(/"/g, '""')}"`;
+        }
+        return strValue;
+      }).join(',')
+    ).join('\n');
+
+    const csvContent = `${headers}\n${rows}`;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `search-results-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [searchResults, activeMap?.tableColumns]);
+
+  /**
+   * Export single feature to PDF
+   */
+  const exportPDF = useCallback((feature) => {
+    if (!feature) return;
+
+    const tableColumns = activeMap?.tableColumns || [];
+    let fields;
+    if (tableColumns.length > 0) {
+      fields = tableColumns
+        .filter(col => feature.attributes?.[col.field] != null)
+        .map(col => ({
+          label: col.headerName || col.field,
+          value: feature.attributes[col.field]
+        }));
+    } else {
+      // Auto-generate from attributes
+      fields = Object.entries(feature.attributes || {})
+        .filter(([k, v]) => !k.startsWith('_') && v != null && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
+        .map(([key, value]) => ({
+          label: key.replace(/_/g, ' '),
+          value
+        }));
+    }
+
+    // Get address for title
+    const { addressField } = getFieldNames();
+    const title = feature.attributes?.[addressField] || feature.attributes?.PROPERTYADDRESS || feature.attributes?.ADDRESS || 'Property Details';
+
+    // Create printable HTML and open in new window for PDF export
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${title}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          h1 { color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+          .details { margin-top: 20px; }
+          .field { display: flex; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+          .label { font-weight: 600; color: #64748b; width: 200px; text-transform: uppercase; font-size: 12px; }
+          .value { color: #1e293b; flex: 1; }
+          .footer { margin-top: 40px; color: #94a3b8; font-size: 12px; text-align: center; }
+          @media print {
+            body { padding: 20px; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${title}</h1>
+        <div class="details">
+          ${fields.map(f => `
+            <div class="field">
+              <span class="label">${f.label}</span>
+              <span class="value">${String(f.value)}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="footer">
+          Exported on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}
+        </div>
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+  }, [activeMap?.tableColumns, getFieldNames]);
+
   useImperativeHandle(ref, () => ({ handleSearch }), [handleSearch]);
 
   // Get the search tip text from config (empty = hidden)
@@ -664,13 +788,16 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
 
         {/* Conversation Messages - appear below the welcome section */}
         {messages.map((msg) => (
-          <MessageBubble 
-            key={msg.id} 
-            message={msg} 
+          <MessageBubble
+            key={msg.id}
+            message={msg}
             botAvatar={botAvatar}
             colors={colors}
+            tableColumns={activeMap?.tableColumns}
             onViewMap={() => setMode('map')}
             onViewTable={() => setMode('table')}
+            onExportCSV={exportCSV}
+            onExportPDF={exportPDF}
           />
         ))}
 
@@ -711,13 +838,72 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
 });
 
 /**
+ * Results Table Component - shows preview of multiple results
+ */
+function ResultsTable({ features, tableColumns, colors }) {
+  // Get columns to display (use tableColumns or auto-generate)
+  let columns;
+  if (tableColumns && tableColumns.length > 0) {
+    columns = tableColumns.slice(0, 5).map(col => ({
+      field: col.field,
+      headerName: col.headerName || col.field
+    }));
+  } else if (features?.[0]?.attributes) {
+    columns = Object.keys(features[0].attributes)
+      .filter(k => !k.startsWith('_') && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
+      .slice(0, 5)
+      .map(field => ({ field, headerName: field }));
+  } else {
+    return null;
+  }
+
+  // Show up to 5 rows
+  const displayFeatures = features.slice(0, 5);
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-xs">
+        <thead>
+          <tr className="border-b border-slate-200">
+            {columns.map(col => (
+              <th
+                key={col.field}
+                className="px-2 py-1.5 text-left font-medium text-slate-500 uppercase tracking-wider"
+              >
+                {col.headerName}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {displayFeatures.map((feature, idx) => (
+            <tr key={idx} className="hover:bg-slate-50">
+              {columns.map(col => (
+                <td key={col.field} className="px-2 py-1.5 text-slate-700 truncate max-w-[150px]">
+                  {feature.attributes?.[col.field] != null ? String(feature.attributes[col.field]) : '-'}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {features.length > 5 && (
+        <p className="text-xs text-slate-400 mt-2 text-center">
+          Showing 5 of {features.length} results
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
  * Message Bubble Component
  */
-function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable }) {
+function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onExportCSV, onExportPDF, tableColumns }) {
   if (message.type === 'user') {
     return (
       <div className="flex justify-end">
-        <div 
+        <div
           className="text-white p-4 rounded-2xl rounded-tr-none shadow-sm max-w-[80%]"
           style={{ backgroundColor: colors.bg600 }}
         >
@@ -746,7 +932,7 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable }) {
         {botAvatar ? (
           <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
         ) : (
-          <div 
+          <div
             className="w-full h-full rounded-full flex items-center justify-center"
             style={{ backgroundColor: colors.bg100 }}
           >
@@ -760,32 +946,63 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable }) {
             .replace(/\n/g, '<br>')
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         }} />
-        
+
+        {/* Single result: show details with View in Map and Export PDF buttons */}
         {message.showDetails && message.feature && (
           <div className="mt-3 pt-3 border-t border-slate-100">
-            <FeatureDetails feature={message.feature} colors={colors} />
+            <FeatureDetails feature={message.feature} colors={colors} tableColumns={tableColumns} />
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={onViewMap}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
+              >
+                <Map className="w-4 h-4" />
+                View in Map
+              </button>
+              <button
+                onClick={() => onExportPDF?.(message.feature)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+              >
+                <FileText className="w-4 h-4" />
+                Export PDF
+              </button>
+            </div>
           </div>
         )}
-        
-        {message.showResultActions && (
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={onViewMap}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
-              style={{ backgroundColor: colors.bg50, color: colors.text700 }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
-              onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
-            >
-              <Map className="w-4 h-4" />
-              View on Map
-            </button>
-            <button
-              onClick={onViewTable}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
-            >
-              <Table2 className="w-4 h-4" />
-              View in Table
-            </button>
+
+        {/* Multiple results: show table preview with View on Map, View in Table, and Export CSV buttons */}
+        {message.showResultActions && message.features && (
+          <div className="mt-3 pt-3 border-t border-slate-100">
+            <ResultsTable features={message.features} tableColumns={tableColumns} colors={colors} />
+            <div className="mt-3 flex gap-2 flex-wrap">
+              <button
+                onClick={onViewMap}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
+              >
+                <Map className="w-4 h-4" />
+                View on Map
+              </button>
+              <button
+                onClick={onViewTable}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+              >
+                <Table2 className="w-4 h-4" />
+                View in Table
+              </button>
+              <button
+                onClick={onExportCSV}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+              >
+                <Download className="w-4 h-4" />
+                Export CSV
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -794,19 +1011,38 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable }) {
 }
 
 /**
- * Feature Details Component
+ * Feature Details Component - uses tableColumns configuration
  */
-function FeatureDetails({ feature, colors }) {
+function FeatureDetails({ feature, colors, tableColumns }) {
   const attrs = feature.attributes || {};
-  const displayFields = Object.entries(attrs)
-    .filter(([k, v]) => !k.startsWith('_') && v != null && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
-    .slice(0, 8);
+
+  // Use tableColumns if available, otherwise fall back to auto-generated fields
+  let displayFields;
+  if (tableColumns && tableColumns.length > 0) {
+    displayFields = tableColumns
+      .filter(col => attrs[col.field] != null)
+      .map(col => ({
+        key: col.field,
+        label: col.headerName || col.field,
+        value: attrs[col.field]
+      }));
+  } else {
+    // Fallback to auto-generated from attributes
+    displayFields = Object.entries(attrs)
+      .filter(([k, v]) => !k.startsWith('_') && v != null && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
+      .slice(0, 8)
+      .map(([key, value]) => ({
+        key,
+        label: key.replace(/_/g, ' '),
+        value
+      }));
+  }
 
   return (
     <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-      {displayFields.map(([key, value]) => (
+      {displayFields.map(({ key, label, value }) => (
         <div key={key}>
-          <dt className="text-xs font-medium text-slate-500 uppercase">{key.replace(/_/g, ' ')}</dt>
+          <dt className="text-xs font-medium text-slate-500 uppercase">{label}</dt>
           <dd className="text-slate-800">{String(value)}</dd>
         </div>
       ))}
