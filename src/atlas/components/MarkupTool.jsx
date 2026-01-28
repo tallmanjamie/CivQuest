@@ -24,23 +24,8 @@ import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 
-// --- MOCKED LOCAL DEPENDENCIES ---
-// Replaced relative imports with internal mocks to ensure compilation in isolated environments.
-// In your production build, replace these with:
-// import { useAtlas } from '../AtlasApp';
-// import { getThemeColors } from '../utils/themeColors';
-const useAtlas = () => ({
-  config: { ui: { themeColor: 'sky' } }
-});
-
-const getThemeColors = (color = 'sky') => {
-  const themes = {
-    sky: { bg50: '#f0f9ff', bg100: '#e0f2fe', bg200: '#bae6fd', bg500: '#0ea5e9', bg600: '#0284c7', text600: '#0284c7' },
-    blue: { bg50: '#eff6ff', bg100: '#dbeafe', bg200: '#bfdbfe', bg500: '#3b82f6', bg600: '#2563eb', text600: '#2563eb' }
-  };
-  return themes[color] || themes.sky;
-};
-// ---------------------------------
+import { useAtlas } from '../AtlasApp';
+import { getThemeColors } from '../utils/themeColors';
 
 const COLORS = [
   { name: 'Green', value: '#22c55e', dark: '#15803d' },
