@@ -245,19 +245,33 @@ function drawLegend(ctx, x, y, width, height, legendItems, element) {
     }
 
     // Draw symbol
-    if (item.symbol && item.symbol.color) {
-      ctx.fillStyle = item.symbol.color;
+    if (item.symbol) {
       if (item.symbol.type === 'line') {
-        ctx.strokeStyle = item.symbol.color;
+        // Line symbol - draw as a horizontal line
+        ctx.strokeStyle = item.symbol.color || '#888888';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(itemX, currentY + (symbolSize / 2) + 2);
         ctx.lineTo(itemX + symbolSize + 4, currentY + (symbolSize / 2) + 2);
         ctx.stroke();
-      } else {
+      } else if (item.symbol.hasTransparentFill && item.symbol.outlineColor) {
+        // Polygon with transparent fill - draw outline only (no fill)
+        ctx.strokeStyle = item.symbol.outlineColor;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(itemX, symbolY, symbolSize, symbolSize - 4);
+      } else if (item.symbol.color) {
+        // Filled polygon - draw filled rectangle with border
+        ctx.fillStyle = item.symbol.color;
         ctx.fillRect(itemX, symbolY, symbolSize, symbolSize - 4);
         // Add border for better visibility
         ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(itemX, symbolY, symbolSize, symbolSize - 4);
+      } else {
+        // Fallback - draw gray square
+        ctx.fillStyle = '#cccccc';
+        ctx.fillRect(itemX, symbolY, symbolSize, symbolSize - 4);
+        ctx.strokeStyle = '#999999';
         ctx.lineWidth = 0.5;
         ctx.strokeRect(itemX, symbolY, symbolSize, symbolSize - 4);
       }
@@ -422,21 +436,26 @@ export default function MapExportTool({
 
     // Get the fill/line color
     let symbolColor = symbol.color;
+    let outlineColor = null;
+    let hasTransparentFill = false;
 
-    // For fill symbols, also check outline color if fill is transparent
+    // For fill symbols, check if fill is transparent and capture outline separately
     if (!isLine && symbol.outline?.color) {
       const fillColor = symbol.color;
-      // If fill is mostly transparent, use outline color instead
+      // Check if fill is mostly transparent
       if (!fillColor ||
-          (Array.isArray(fillColor) && fillColor[3] < 0.1) ||
+          (Array.isArray(fillColor) && (fillColor.length < 4 || fillColor[3] < 0.1)) ||
           (fillColor?.a !== undefined && fillColor.a < 0.1)) {
-        symbolColor = symbol.outline.color;
+        hasTransparentFill = true;
+        outlineColor = colorToCss(symbol.outline.color);
       }
     }
 
     return {
       type: isLine ? 'line' : 'fill',
-      color: colorToCss(symbolColor)
+      color: hasTransparentFill ? null : colorToCss(symbolColor),
+      outlineColor: outlineColor,
+      hasTransparentFill: hasTransparentFill
     };
   }, [colorToCss]);
 
@@ -448,11 +467,24 @@ export default function MapExportTool({
 
     const items = [];
 
+    // Get basemap layer IDs to exclude them from the legend
+    const basemapLayerIds = new Set();
+    if (mapView.map.basemap) {
+      mapView.map.basemap.baseLayers?.forEach(layer => {
+        basemapLayerIds.add(layer.id);
+      });
+      mapView.map.basemap.referenceLayers?.forEach(layer => {
+        basemapLayerIds.add(layer.id);
+      });
+    }
+
     mapView.map.allLayers.forEach(layer => {
       if (!layer.visible || layer.listMode === 'hide') return;
       if (layer.type === 'graphics' || layer.id.startsWith('atlas-')) return;
       if (layer.id === 'export-area-layer') return;
       if (!layer.title) return;
+      // Exclude basemap layers from legend
+      if (basemapLayerIds.has(layer.id)) return;
 
       const renderer = layer.renderer;
 
@@ -480,21 +512,14 @@ export default function MapExportTool({
           isHeader: true
         });
 
-        renderer.uniqueValueInfos.slice(0, 5).forEach(info => {
+        // Show all unique values (no limit)
+        renderer.uniqueValueInfos.forEach(info => {
           items.push({
             label: info.label || info.value || 'Value',
             symbol: extractSymbolInfo(info.symbol),
             isSubItem: true
           });
         });
-
-        if (renderer.uniqueValueInfos.length > 5) {
-          items.push({
-            label: `... and ${renderer.uniqueValueInfos.length - 5} more`,
-            symbol: null,
-            isSubItem: true
-          });
-        }
       } else if (renderer.type === 'class-breaks' && renderer.classBreakInfos) {
         // Class breaks renderer - add header for layer, then each class
         items.push({
@@ -503,21 +528,14 @@ export default function MapExportTool({
           isHeader: true
         });
 
-        renderer.classBreakInfos.slice(0, 5).forEach(info => {
+        // Show all class breaks (no limit)
+        renderer.classBreakInfos.forEach(info => {
           items.push({
             label: info.label || `${info.minValue} - ${info.maxValue}`,
             symbol: extractSymbolInfo(info.symbol),
             isSubItem: true
           });
         });
-
-        if (renderer.classBreakInfos.length > 5) {
-          items.push({
-            label: `... and ${renderer.classBreakInfos.length - 5} more`,
-            symbol: null,
-            isSubItem: true
-          });
-        }
       } else {
         // Unknown renderer type, just add with default
         items.push({
