@@ -798,8 +798,39 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
             colors={colors}
             tableColumns={activeMap?.tableColumns}
             searchFields={activeMap?.searchFields || config?.data?.searchFields}
-            onViewMap={() => setMode('map')}
-            onViewTable={() => setMode('table')}
+            onViewMap={(features) => {
+              // Restore search results from this message before switching to map view
+              if (features) {
+                const featureArray = Array.isArray(features) ? features : [features];
+                updateSearchResults({ features: featureArray });
+                // Also render on map immediately
+                if (mapViewRef?.current?.renderResults) {
+                  mapViewRef.current.renderResults(featureArray);
+                }
+                // For single result, zoom and select
+                if (featureArray.length === 1 && mapViewRef?.current) {
+                  if (mapViewRef.current.zoomToFeature) {
+                    mapViewRef.current.zoomToFeature(featureArray[0]);
+                  }
+                  if (mapViewRef.current.selectFeature) {
+                    mapViewRef.current.selectFeature(featureArray[0]);
+                  }
+                }
+              }
+              setMode('map');
+            }}
+            onViewTable={(features) => {
+              // Restore search results from this message before switching to table view
+              if (features) {
+                const featureArray = Array.isArray(features) ? features : [features];
+                updateSearchResults({ features: featureArray });
+                // Also render on map to keep in sync
+                if (mapViewRef?.current?.renderResults) {
+                  mapViewRef.current.renderResults(featureArray);
+                }
+              }
+              setMode('table');
+            }}
             onExportCSV={exportCSV}
             onExportPDF={exportPDF}
           />
@@ -970,7 +1001,7 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onE
             <FeatureDetails feature={message.feature} colors={colors} tableColumns={tableColumns} searchFields={searchFields} />
             <div className="mt-3 flex gap-2">
               <button
-                onClick={onViewMap}
+                onClick={() => onViewMap(message.feature)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
                 style={{ backgroundColor: colors.bg50, color: colors.text700 }}
                 onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
@@ -996,7 +1027,7 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onE
             <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} />
             <div className="mt-3 flex gap-2 flex-wrap">
               <button
-                onClick={onViewMap}
+                onClick={() => onViewMap(message.features)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
                 style={{ backgroundColor: colors.bg50, color: colors.text700 }}
                 onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
@@ -1006,7 +1037,7 @@ function MessageBubble({ message, botAvatar, colors, onViewMap, onViewTable, onE
                 View on Map
               </button>
               <button
-                onClick={onViewTable}
+                onClick={() => onViewTable(message.features)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
               >
                 <Table2 className="w-4 h-4" />
