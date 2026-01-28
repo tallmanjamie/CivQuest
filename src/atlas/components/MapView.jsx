@@ -735,8 +735,10 @@ const MapView = forwardRef(function MapView(props, ref) {
    * Highlight a single feature (including its pushpin if multi-result)
    */
   const highlightFeature = useCallback((feature, originalGraphic = null) => {
-    if (!highlightLayerRef.current || !mapReady) {
-      console.warn('[MapView] Highlight skipped: Layer or Map not ready');
+    // Use refs instead of state to avoid stale closure issues
+    // The click handler captures an old version of this function, so we check refs directly
+    if (!highlightLayerRef.current || !viewRef.current) {
+      console.warn('[MapView] Highlight skipped: Layer or View not ready');
       return;
     }
 
@@ -870,13 +872,14 @@ const MapView = forwardRef(function MapView(props, ref) {
         symbol: pushpinHighlightSymbol
       }));
     }
-  }, [mapReady, getGeometryCenter]);
+  }, [getGeometryCenter]);
 
   /**
    * Zoom to a specific feature
    */
   const zoomToFeature = useCallback((feature) => {
-    if (!viewRef.current || !feature?.geometry || !mapReady) return;
+    // Use ref check instead of mapReady state to avoid stale closure issues
+    if (!viewRef.current || !feature?.geometry) return;
 
     highlightFeature(feature);
 
@@ -920,7 +923,7 @@ const MapView = forwardRef(function MapView(props, ref) {
         { duration: 500 }
       );
     }
-  }, [highlightFeature, mapReady]);
+  }, [highlightFeature]);
 
   /**
    * Clear results
