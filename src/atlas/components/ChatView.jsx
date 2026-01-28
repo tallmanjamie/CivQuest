@@ -110,6 +110,7 @@ const ChatView = forwardRef(function ChatView(props, ref) {
   const [loadingText, setLoadingText] = useState('Processing...');
 
   const chatContainerRef = useRef(null);
+  const messageIdCounterRef = useRef(0);
 
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
@@ -147,8 +148,10 @@ const ChatView = forwardRef(function ChatView(props, ref) {
   }, []);
 
   const addMessage = useCallback((type, content, metadata = {}) => {
+    // Use timestamp + counter to ensure unique IDs even when messages are added in same millisecond
+    const uniqueId = `${Date.now()}-${++messageIdCounterRef.current}`;
     setMessages(prev => [...prev, {
-      id: Date.now(),
+      id: uniqueId,
       type,
       content,
       timestamp: new Date().toISOString(),
