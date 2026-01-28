@@ -198,12 +198,131 @@ function drawScaleBar(ctx, x, y, width, height, scale, units = 'feet') {
 }
 
 /**
- * Draw legend on canvas
+ * Calculate optimal legend layout based on available space and number of items
+ * Returns layout configuration with item sizing and column arrangement
+ */
+function calculateLegendLayout(ctx, width, height, legendItems, showTitle, titleHeight) {
+  const padding = 10;
+  const columnGap = 12;
+  const availableWidth = width - padding * 2;
+  const availableHeight = height - padding * 2 - (showTitle ? titleHeight : 0);
+
+  // Size ranges for legend items
+  const minItemHeight = 16;
+  const maxItemHeight = 28;
+  const minFontSize = 9;
+  const maxFontSize = 14;
+  const minSymbolSize = 12;
+  const maxSymbolSize = 22;
+
+  // Calculate max label width to help determine column count
+  let maxLabelWidth = 0;
+  legendItems.forEach(item => {
+    ctx.font = item.isHeader ? 'bold 12px Arial' : '11px Arial';
+    const labelWidth = ctx.measureText(item.label).width;
+    maxLabelWidth = Math.max(maxLabelWidth, labelWidth);
+  });
+
+  // Estimate minimum column width needed (symbol + gap + label + padding)
+  const minColumnWidth = minSymbolSize + 8 + maxLabelWidth + 10;
+
+  // Determine max columns that could fit
+  const maxPossibleColumns = Math.max(1, Math.floor((availableWidth + columnGap) / (minColumnWidth + columnGap)));
+
+  // Try different column counts to find optimal layout
+  let bestLayout = null;
+
+  for (let numColumns = 1; numColumns <= Math.min(maxPossibleColumns, 4); numColumns++) {
+    const columnWidth = (availableWidth - (numColumns - 1) * columnGap) / numColumns;
+
+    // Calculate how many items fit per column at various sizes
+    for (let itemHeight = maxItemHeight; itemHeight >= minItemHeight; itemHeight -= 2) {
+      const itemsPerColumn = Math.floor(availableHeight / itemHeight);
+      const totalCapacity = itemsPerColumn * numColumns;
+
+      if (totalCapacity >= legendItems.length) {
+        // This layout works - calculate sizing
+        const sizeRatio = (itemHeight - minItemHeight) / (maxItemHeight - minItemHeight);
+        const fontSize = Math.round(minFontSize + sizeRatio * (maxFontSize - minFontSize));
+        const symbolSize = Math.round(minSymbolSize + sizeRatio * (maxSymbolSize - minSymbolSize));
+
+        // Check if labels fit in column width
+        const symbolSpace = symbolSize + 8;
+        const labelSpace = columnWidth - symbolSpace - 5;
+
+        // Verify labels fit (use largest font for measurement)
+        ctx.font = `bold ${fontSize}px Arial`;
+        let labelsFit = true;
+        legendItems.forEach(item => {
+          const labelWidth = ctx.measureText(item.label).width;
+          if (labelWidth > labelSpace && numColumns > 1) {
+            labelsFit = false;
+          }
+        });
+
+        if (labelsFit || numColumns === 1) {
+          // Calculate actual items per column needed for even distribution
+          const itemsNeeded = legendItems.length;
+          const actualItemsPerColumn = Math.ceil(itemsNeeded / numColumns);
+
+          // Recalculate item height to use available space efficiently
+          const optimalItemHeight = Math.min(maxItemHeight, Math.floor(availableHeight / actualItemsPerColumn));
+          const finalSizeRatio = (optimalItemHeight - minItemHeight) / (maxItemHeight - minItemHeight);
+          const finalFontSize = Math.round(minFontSize + finalSizeRatio * (maxFontSize - minFontSize));
+          const finalSymbolSize = Math.round(minSymbolSize + finalSizeRatio * (maxSymbolSize - minSymbolSize));
+
+          bestLayout = {
+            numColumns,
+            columnWidth,
+            itemHeight: optimalItemHeight,
+            fontSize: finalFontSize,
+            symbolSize: finalSymbolSize,
+            itemsPerColumn: actualItemsPerColumn,
+            padding,
+            columnGap,
+            subItemIndent: Math.round(finalSymbolSize * 0.6)
+          };
+
+          // Prefer fewer columns with larger items
+          if (numColumns === 1 || legendItems.length > itemsPerColumn) {
+            return bestLayout;
+          }
+        }
+      }
+    }
+
+    // If we found a working layout with this column count, use it
+    if (bestLayout && bestLayout.numColumns === numColumns) {
+      return bestLayout;
+    }
+  }
+
+  // Fallback layout if nothing fit perfectly
+  if (!bestLayout) {
+    const numColumns = Math.min(maxPossibleColumns, Math.ceil(legendItems.length / Math.floor(availableHeight / minItemHeight)));
+    const columnWidth = (availableWidth - (numColumns - 1) * columnGap) / numColumns;
+    bestLayout = {
+      numColumns: Math.max(1, numColumns),
+      columnWidth,
+      itemHeight: minItemHeight,
+      fontSize: minFontSize,
+      symbolSize: minSymbolSize,
+      itemsPerColumn: Math.ceil(legendItems.length / Math.max(1, numColumns)),
+      padding,
+      columnGap,
+      subItemIndent: 8
+    };
+  }
+
+  return bestLayout;
+}
+
+/**
+ * Draw legend on canvas with dynamic sizing and multi-column support
  */
 function drawLegend(ctx, x, y, width, height, legendItems, element) {
-  const padding = 8;
-  const itemHeight = 18;
-  const subItemIndent = 12;
+  const showTitle = element.content?.showTitle !== false;
+  const titleHeight = 24;
 
   // Background
   ctx.fillStyle = element.content?.backgroundColor || '#ffffff';
@@ -214,34 +333,53 @@ function drawLegend(ctx, x, y, width, height, legendItems, element) {
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, width, height);
 
-  let currentY = y + padding;
+  // Calculate optimal layout
+  const layout = calculateLegendLayout(ctx, width, height, legendItems, showTitle, titleHeight);
+
+  let currentY = y + layout.padding;
 
   // Title
-  if (element.content?.showTitle !== false) {
+  if (showTitle) {
     ctx.fillStyle = '#000000';
-    ctx.font = 'bold 12px Arial';
+    const titleFontSize = Math.max(12, layout.fontSize + 2);
+    ctx.font = `bold ${titleFontSize}px Arial`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(element.content?.title || 'Legend', x + padding, currentY);
-    currentY += 20;
+    ctx.fillText(element.content?.title || 'Legend', x + layout.padding, currentY);
+    currentY += titleHeight;
   }
 
-  // Legend items
-  legendItems.forEach((item) => {
-    if (currentY + itemHeight > y + height - padding) return;
+  const contentStartY = currentY;
+
+  // Draw legend items in columns
+  legendItems.forEach((item, index) => {
+    // Calculate which column this item belongs to
+    const columnIndex = Math.floor(index / layout.itemsPerColumn);
+    const rowIndex = index % layout.itemsPerColumn;
+
+    // Skip if we exceed column count (shouldn't happen with proper layout calculation)
+    if (columnIndex >= layout.numColumns) return;
+
+    // Calculate position
+    const columnX = x + layout.padding + columnIndex * (layout.columnWidth + layout.columnGap);
+    const itemY = contentStartY + rowIndex * layout.itemHeight;
+
+    // Skip if item would exceed bounds
+    if (itemY + layout.itemHeight > y + height - layout.padding) return;
 
     // Calculate x offset for sub-items
-    const itemX = x + padding + (item.isSubItem ? subItemIndent : 0);
-    const symbolSize = item.isSubItem ? 12 : 16;
-    const symbolY = currentY + (item.isSubItem ? 3 : 2);
+    const itemX = columnX + (item.isSubItem ? layout.subItemIndent : 0);
+    const symbolSize = item.isSubItem ? Math.round(layout.symbolSize * 0.8) : layout.symbolSize;
+    const symbolY = itemY + Math.round((layout.itemHeight - symbolSize + 4) / 2);
 
     // Set font based on item type
+    const baseFontSize = layout.fontSize;
     if (item.isHeader) {
-      ctx.font = 'bold 11px Arial';
+      ctx.font = `bold ${baseFontSize}px Arial`;
     } else if (item.isSubItem) {
-      ctx.font = '10px Arial';
+      ctx.font = `${Math.round(baseFontSize * 0.9)}px Arial`;
     } else {
-      ctx.font = '11px Arial';
+      ctx.font = `${baseFontSize}px Arial`;
     }
 
     // Draw symbol
@@ -249,15 +387,16 @@ function drawLegend(ctx, x, y, width, height, legendItems, element) {
       if (item.symbol.type === 'line') {
         // Line symbol - draw as a horizontal line
         ctx.strokeStyle = item.symbol.color || '#888888';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = Math.max(2, symbolSize / 8);
         ctx.beginPath();
-        ctx.moveTo(itemX, currentY + (symbolSize / 2) + 2);
-        ctx.lineTo(itemX + symbolSize + 4, currentY + (symbolSize / 2) + 2);
+        const lineY = itemY + layout.itemHeight / 2;
+        ctx.moveTo(itemX, lineY);
+        ctx.lineTo(itemX + symbolSize + 4, lineY);
         ctx.stroke();
       } else if (item.symbol.hasTransparentFill && item.symbol.outlineColor) {
         // Polygon with transparent fill - draw outline only (no fill)
         ctx.strokeStyle = item.symbol.outlineColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = Math.max(2, symbolSize / 8);
         ctx.strokeRect(itemX, symbolY, symbolSize, symbolSize - 4);
       } else if (item.symbol.color) {
         // Filled polygon - draw filled rectangle with border
@@ -287,9 +426,8 @@ function drawLegend(ctx, x, y, width, height, legendItems, element) {
     // Draw label
     ctx.fillStyle = item.isHeader ? '#000000' : '#333333';
     const labelX = item.isHeader && !item.symbol ? itemX : itemX + symbolSize + 8;
-    ctx.fillText(item.label, labelX, currentY + 3);
-
-    currentY += itemHeight;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(item.label, labelX, itemY + layout.itemHeight / 2);
   });
 }
 
