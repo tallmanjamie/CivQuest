@@ -4,12 +4,17 @@
 //
 // Displays results from searches, allows clicking to zoom/highlight
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Search,
   X,
   ChevronRight,
-  Trash2
+  Trash2,
+  Maximize2,
+  Settings2,
+  ArrowUpAZ,
+  ArrowDownAZ,
+  Check
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -26,43 +31,125 @@ export default function SearchResultsPanel({
   onFeatureSelect,
   onFeatureHover,
   onClearResults,
+  onZoomToAll,
+  searchFields = [],
   className = ''
 }) {
-  const { 
-    config: atlasConfig, 
-    searchResults, 
+  const {
+    config: atlasConfig,
+    searchResults,
     updateSearchResults,
     highlightFeature,
-    zoomToFeature 
+    zoomToFeature,
+    activeMap
   } = useAtlas();
-  
+
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
+
+  // Get search fields from props or activeMap
+  const availableSearchFields = searchFields.length > 0 ? searchFields : (activeMap?.searchFields || []);
 
   // State
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [showConfig, setShowConfig] = useState(false);
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
+  const [displayField, setDisplayField] = useState(''); // Empty means auto-detect
 
   // Refs
   const panelRef = useRef(null);
   const listRef = useRef(null);
+  const configRef = useRef(null);
 
   // Get features from search results
-  const features = searchResults?.features || [];
-  const resultCount = features.length;
+  const rawFeatures = searchResults?.features || [];
+  const resultCount = rawFeatures.length;
+
+  // Close config popup when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (configRef.current && !configRef.current.contains(e.target)) {
+        setShowConfig(false);
+      }
+    };
+    if (showConfig) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showConfig]);
+
+  /**
+   * Get the value for sorting/display from a feature
+   */
+  const getFieldValue = useCallback((feature, fieldName) => {
+    if (!feature?.attributes || !fieldName) return '';
+    // Try exact match first, then case-insensitive
+    if (feature.attributes[fieldName] !== undefined) {
+      return feature.attributes[fieldName];
+    }
+    const lowerField = fieldName.toLowerCase();
+    for (const key of Object.keys(feature.attributes)) {
+      if (key.toLowerCase() === lowerField) {
+        return feature.attributes[key];
+      }
+    }
+    return '';
+  }, []);
+
+  /**
+   * Sorted and processed features
+   */
+  const features = useMemo(() => {
+    if (!rawFeatures.length) return [];
+
+    // If no display field selected, return features as-is
+    if (!displayField) return rawFeatures;
+
+    // Sort features by the display field
+    const sorted = [...rawFeatures].sort((a, b) => {
+      const valA = getFieldValue(a, displayField);
+      const valB = getFieldValue(b, displayField);
+
+      // Handle numeric comparison
+      const numA = parseFloat(valA);
+      const numB = parseFloat(valB);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return sortOrder === 'asc' ? numA - numB : numB - numA;
+      }
+
+      // String comparison
+      const strA = String(valA || '').toLowerCase();
+      const strB = String(valB || '').toLowerCase();
+      if (sortOrder === 'asc') {
+        return strA.localeCompare(strB);
+      }
+      return strB.localeCompare(strA);
+    });
+
+    return sorted;
+  }, [rawFeatures, displayField, sortOrder, getFieldValue]);
 
   /**
    * Get display title for a feature
    */
   const getFeatureTitle = useCallback((feature, index) => {
     if (!feature?.attributes) return `Result ${index + 1}`;
-    
+
+    // If a display field is selected, use it
+    if (displayField) {
+      const value = getFieldValue(feature, displayField);
+      if (value !== '' && value !== null && value !== undefined) {
+        return String(value);
+      }
+    }
+
     const attrs = feature.attributes;
     // Try common title fields
-    return attrs.title || attrs.TITLE || attrs.name || attrs.NAME || 
-           attrs.ADDRESS || attrs.address || attrs.PARCELID || 
+    return attrs.title || attrs.TITLE || attrs.name || attrs.NAME ||
+           attrs.ADDRESS || attrs.address || attrs.PARCELID ||
            attrs.GPIN || attrs.PIN || attrs.ID || `Result ${index + 1}`;
-  }, []);
+  }, [displayField, getFieldValue]);
 
   /**
    * Get subtitle/description for a feature
@@ -119,13 +206,36 @@ export default function SearchResultsPanel({
   const handleClear = useCallback(() => {
     setSelectedIndex(null);
     setHoveredIndex(null);
-    
+
     if (onClearResults) {
       onClearResults();
     } else if (updateSearchResults) {
       updateSearchResults({ features: [] });
     }
   }, [onClearResults, updateSearchResults]);
+
+  /**
+   * Handle zoom to all results
+   */
+  const handleZoomToAll = useCallback(() => {
+    if (onZoomToAll) {
+      onZoomToAll();
+    }
+  }, [onZoomToAll]);
+
+  /**
+   * Toggle sort order
+   */
+  const toggleSortOrder = useCallback(() => {
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+  }, []);
+
+  /**
+   * Select display field
+   */
+  const handleDisplayFieldChange = useCallback((field) => {
+    setDisplayField(field);
+  }, []);
 
   /**
    * Scroll selected item into view
@@ -188,13 +298,111 @@ export default function SearchResultsPanel({
         </div>
         <div className="flex items-center gap-1">
           {resultCount > 0 && (
-            <button
-              onClick={handleClear}
-              className="p-1 hover:bg-red-100 rounded transition"
-              title="Clear Results"
-            >
-              <Trash2 className="w-4 h-4 text-red-500" />
-            </button>
+            <>
+              {/* Zoom to All Results */}
+              <button
+                onClick={handleZoomToAll}
+                className="p-1 hover:bg-slate-200 rounded transition"
+                title="Zoom to All Results"
+              >
+                <Maximize2 className="w-4 h-4 text-slate-600" />
+              </button>
+
+              {/* Config Button */}
+              <div className="relative" ref={configRef}>
+                <button
+                  onClick={() => setShowConfig(!showConfig)}
+                  className={`p-1 rounded transition ${showConfig ? 'bg-slate-200' : 'hover:bg-slate-200'}`}
+                  title="Result Settings"
+                >
+                  <Settings2 className="w-4 h-4 text-slate-600" />
+                </button>
+
+                {/* Config Popup */}
+                {showConfig && (
+                  <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-xl border border-slate-200 w-56 z-50">
+                    {/* Sort Order Section */}
+                    <div className="p-3 border-b border-slate-100">
+                      <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Sort Order</p>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => setSortOrder('asc')}
+                          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sm transition ${
+                            sortOrder === 'asc'
+                              ? 'text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                          style={sortOrder === 'asc' ? { backgroundColor: colors.bg500 } : {}}
+                        >
+                          <ArrowUpAZ className="w-3.5 h-3.5" />
+                          Asc
+                        </button>
+                        <button
+                          onClick={() => setSortOrder('desc')}
+                          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sm transition ${
+                            sortOrder === 'desc'
+                              ? 'text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                          style={sortOrder === 'desc' ? { backgroundColor: colors.bg500 } : {}}
+                        >
+                          <ArrowDownAZ className="w-3.5 h-3.5" />
+                          Desc
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Display Field Section */}
+                    <div className="p-3">
+                      <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Display Field</p>
+                      <div className="max-h-40 overflow-y-auto space-y-0.5">
+                        {/* Auto option */}
+                        <button
+                          onClick={() => handleDisplayFieldChange('')}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition ${
+                            !displayField ? 'bg-slate-100 font-medium' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          {!displayField && <Check className="w-3.5 h-3.5" style={{ color: colors.text600 }} />}
+                          {displayField && <span className="w-3.5" />}
+                          <span className="text-slate-600">Auto-detect</span>
+                        </button>
+
+                        {/* Available search fields */}
+                        {availableSearchFields.map((field) => (
+                          <button
+                            key={field.field}
+                            onClick={() => handleDisplayFieldChange(field.field)}
+                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition ${
+                              displayField === field.field ? 'bg-slate-100 font-medium' : 'hover:bg-slate-50'
+                            }`}
+                          >
+                            {displayField === field.field && (
+                              <Check className="w-3.5 h-3.5" style={{ color: colors.text600 }} />
+                            )}
+                            {displayField !== field.field && <span className="w-3.5" />}
+                            <span className="text-slate-600">{field.label || field.field}</span>
+                          </button>
+                        ))}
+
+                        {availableSearchFields.length === 0 && (
+                          <p className="text-xs text-slate-400 px-2 py-1">No search fields configured</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Clear Results */}
+              <button
+                onClick={handleClear}
+                className="p-1 hover:bg-red-100 rounded transition"
+                title="Clear Results"
+              >
+                <Trash2 className="w-4 h-4 text-red-500" />
+              </button>
+            </>
           )}
           <button
             onClick={onToggle}
