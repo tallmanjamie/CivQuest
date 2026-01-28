@@ -732,21 +732,19 @@ export default function AtlasApp() {
   }, []);
 
   // Handle advanced search results
+  // Note: AdvancedSearchModal already calls updateSearchResults({ features }) and setIsSearching(false)
+  // This callback handles mode switching and zooming to results
   const handleAdvancedSearch = useCallback((features, whereClause) => {
     console.log(`[AtlasApp] Advanced search completed: ${features.length} features`);
-
-    // Update search results
-    setSearchResults(features);
-    setIsSearching(false);
 
     // If we have results and map mode is enabled, switch to map mode to show them
     if (features.length > 0 && enabledModes.includes('map')) {
       handleModeChange('map');
 
-      // Zoom to all features if map view has that capability
+      // Zoom to all results on the map
       setTimeout(() => {
-        if (mapViewRef.current?.zoomToAllFeatures) {
-          mapViewRef.current.zoomToAllFeatures(features);
+        if (mapViewRef.current?.zoomToAllResults) {
+          mapViewRef.current.zoomToAllResults();
         }
       }, 100);
     }
