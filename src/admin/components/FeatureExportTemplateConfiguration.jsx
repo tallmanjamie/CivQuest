@@ -35,7 +35,7 @@ const STARTER_TEMPLATES = [
   {
     id: 'starter-basic',
     name: 'Basic Feature Report',
-    description: 'Simple layout with title, attributes, and optional map',
+    description: 'Simple layout with title, attributes, and footer',
     pageSize: 'letter-portrait',
     elements: [
       { id: 'title-1', type: 'title', x: 0, y: 0, width: 100, height: 8, locked: false, visible: true, content: { text: 'Feature Report', fontSize: 24, fontWeight: 'bold', align: 'center', backgroundColor: '#1e293b', color: '#ffffff' } },
@@ -46,22 +46,6 @@ const STARTER_TEMPLATES = [
       { id: 'pageNumber-1', type: 'pageNumber', x: 45, y: 95, width: 10, height: 3, locked: false, visible: true, content: { format: 'Page {current} of {total}', fontSize: 9, align: 'center' } }
     ],
     mapExportTemplateId: null
-  },
-  {
-    id: 'starter-with-map',
-    name: 'Feature Report with Map',
-    description: 'Detailed report with attributes and map section',
-    pageSize: 'letter-portrait',
-    elements: [
-      { id: 'title-1', type: 'title', x: 0, y: 0, width: 100, height: 8, locked: false, visible: true, content: { text: 'Feature Report', fontSize: 24, fontWeight: 'bold', align: 'center', backgroundColor: '#1e293b', color: '#ffffff' } },
-      { id: 'logo-1', type: 'logo', x: 2, y: 1, width: 12, height: 6, locked: false, visible: true, content: { source: 'org-logo', alt: 'Organization Logo' } },
-      { id: 'date-1', type: 'date', x: 80, y: 2, width: 18, height: 4, locked: false, visible: true, content: { format: 'MMMM D, YYYY', fontSize: 10, align: 'right', color: '#ffffff' } },
-      { id: 'attributes-1', type: 'attributeData', x: 2, y: 12, width: 96, height: 40, locked: false, visible: true, content: { style: 'table', showLabels: true, fontSize: 11 } },
-      { id: 'text-1', type: 'text', x: 2, y: 55, width: 96, height: 4, locked: false, visible: true, content: { text: 'Location Map', fontSize: 12, fontWeight: 'bold', align: 'left', backgroundColor: '#f1f5f9', color: '#334155' } },
-      { id: 'text-2', type: 'text', x: 2, y: 85, width: 96, height: 6, locked: false, visible: true, content: { text: 'This report is for informational purposes only.', fontSize: 9, fontWeight: 'normal', align: 'center', backgroundColor: '#f8fafc', color: '#64748b' } },
-      { id: 'pageNumber-1', type: 'pageNumber', x: 45, y: 95, width: 10, height: 3, locked: false, visible: true, content: { format: 'Page {current} of {total}', fontSize: 9, align: 'center' } }
-    ],
-    mapExportTemplateId: null // Will be set to an existing map export template ID
   },
   {
     id: 'starter-compact',
