@@ -1107,10 +1107,11 @@ const MapView = forwardRef(function MapView(props, ref) {
     zoomToAllResults,
     clearResults,
     selectFeature: handleFeatureSelect,
+    closeFeaturePanel: handleCloseFeaturePanel,
     get view() { return viewRef.current; },
     get map() { return mapRef.current; },
     get markupLayer() { return markupLayerRef.current; }
-  }), [renderResults, highlightFeature, zoomToFeature, zoomToAllResults, clearResults, handleFeatureSelect]);
+  }), [renderResults, highlightFeature, zoomToFeature, zoomToAllResults, clearResults, handleFeatureSelect, handleCloseFeaturePanel]);
 
   // Update results when searchResults change
   useEffect(() => {
