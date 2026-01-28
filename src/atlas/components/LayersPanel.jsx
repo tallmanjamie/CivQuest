@@ -30,6 +30,60 @@ import { getThemeColors } from '../utils/themeColors';
 // ArcGIS imports
 import Legend from '@arcgis/core/widgets/Legend';
 
+/**
+ * LayerLegend Component
+ * Separate component for layer legends with proper lifecycle management
+ * This prevents React/ArcGIS DOM conflicts when mounting/unmounting
+ */
+const LayerLegend = React.memo(function LayerLegend({ view, layer }) {
+  const containerRef = useRef(null);
+  const legendWidgetRef = useRef(null);
+
+  useEffect(() => {
+    if (!view || !containerRef.current || !layer) return;
+
+    // Small delay to ensure container is fully mounted
+    const timeoutId = setTimeout(() => {
+      if (!containerRef.current) return;
+
+      try {
+        const legend = new Legend({
+          view: view,
+          container: containerRef.current,
+          layerInfos: [{
+            layer: layer,
+            title: ''
+          }],
+          style: 'classic'
+        });
+        legendWidgetRef.current = legend;
+      } catch (e) {
+        console.warn('[LayerLegend] Failed to create legend:', e);
+      }
+    }, 50);
+
+    // Cleanup function - destroy widget before React unmounts container
+    return () => {
+      clearTimeout(timeoutId);
+      if (legendWidgetRef.current) {
+        try {
+          legendWidgetRef.current.destroy();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        legendWidgetRef.current = null;
+      }
+    };
+  }, [view, layer]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="layer-legend ml-6 mb-2 p-2 bg-slate-50 rounded border border-slate-200"
+    />
+  );
+});
+
 // Storage key for layer state persistence
 const getStorageKey = (mapId) => `atlas_layers_state_${mapId || 'default'}`;
 
@@ -69,8 +123,6 @@ export default function LayersPanel({
   // Refs
   const panelRef = useRef(null);
   const mapPickerRef = useRef(null);
-  const legendContainersRef = useRef({});
-  const legendWidgetsRef = useRef({});
   const combinedLegendRef = useRef(null);
   const combinedLegendWidgetRef = useRef(null);
 
@@ -177,11 +229,6 @@ export default function LayersPanel({
 
     return () => {
       handle?.remove();
-      // Clean up legend widgets
-      Object.values(legendWidgetsRef.current).forEach(widget => {
-        if (widget?.destroy) widget.destroy();
-      });
-      legendWidgetsRef.current = {};
       // Clean up combined legend widget
       if (combinedLegendWidgetRef.current?.destroy) {
         combinedLegendWidgetRef.current.destroy();
@@ -190,33 +237,6 @@ export default function LayersPanel({
       combinedLegendRef.current = null;
     };
   }, [view, hiddenLayerIdsKey]);
-
-  /**
-   * Create legend for a layer
-   */
-  const createLegend = useCallback((layerData, containerEl) => {
-    if (!view || !containerEl || !layerData.layer) return;
-
-    // Destroy existing legend
-    if (legendWidgetsRef.current[layerData.id]) {
-      legendWidgetsRef.current[layerData.id].destroy();
-    }
-
-    try {
-      const legend = new Legend({
-        view: view,
-        container: containerEl,
-        layerInfos: [{
-          layer: layerData.layer,
-          title: ''
-        }],
-        style: 'classic'
-      });
-      legendWidgetsRef.current[layerData.id] = legend;
-    } catch (e) {
-      console.warn('[LayersPanel] Failed to create legend:', e);
-    }
-  }, [view]);
 
   /**
    * Handle combined legend view updates when switching views
@@ -482,16 +502,8 @@ export default function LayersPanel({
         </div>
 
         {/* Legend (for visible non-group layers) */}
-        {showLegend && (
-          <div 
-            className="layer-legend ml-6 mb-2 p-2 bg-slate-50 rounded border border-slate-200"
-            ref={(el) => {
-              if (el && layerData.layer) {
-                legendContainersRef.current[layerData.id] = el;
-                createLegend(layerData, el);
-              }
-            }}
-          />
+        {showLegend && layerData.layer && (
+          <LayerLegend view={view} layer={layerData.layer} />
         )}
 
         {/* Group Children */}
