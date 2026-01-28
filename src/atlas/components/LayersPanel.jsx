@@ -20,7 +20,9 @@ import {
   Plus,
   Map as MapIcon,
   Check,
-  List
+  List,
+  LayoutList,
+  BookOpen
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -62,12 +64,15 @@ export default function LayersPanel({
   const [layerOpacities, setLayerOpacities] = useState({});
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [expandedLegends, setExpandedLegends] = useState(new Set());
+  const [viewMode, setViewMode] = useState('layers'); // 'layers' or 'legend'
 
   // Refs
   const panelRef = useRef(null);
   const mapPickerRef = useRef(null);
   const legendContainersRef = useRef({});
   const legendWidgetsRef = useRef({});
+  const combinedLegendRef = useRef(null);
+  const combinedLegendWidgetRef = useRef(null);
 
   // Memoize hiddenLayers to prevent unnecessary rebuilds
   const hiddenLayerIdsKey = useMemo(() => JSON.stringify(hiddenLayers), [hiddenLayers]);
@@ -177,6 +182,12 @@ export default function LayersPanel({
         if (widget?.destroy) widget.destroy();
       });
       legendWidgetsRef.current = {};
+      // Clean up combined legend widget
+      if (combinedLegendWidgetRef.current?.destroy) {
+        combinedLegendWidgetRef.current.destroy();
+      }
+      combinedLegendWidgetRef.current = null;
+      combinedLegendRef.current = null;
     };
   }, [view, hiddenLayerIdsKey]);
 
@@ -206,6 +217,28 @@ export default function LayersPanel({
       console.warn('[LayersPanel] Failed to create legend:', e);
     }
   }, [view]);
+
+  /**
+   * Handle combined legend view updates when switching views
+   */
+  useEffect(() => {
+    if (viewMode === 'legend' && view && combinedLegendRef.current) {
+      // Destroy existing and recreate to ensure it's up to date
+      if (combinedLegendWidgetRef.current) {
+        combinedLegendWidgetRef.current.destroy();
+      }
+      try {
+        const legend = new Legend({
+          view: view,
+          container: combinedLegendRef.current,
+          style: 'classic'
+        });
+        combinedLegendWidgetRef.current = legend;
+      } catch (e) {
+        console.warn('[LayersPanel] Failed to create combined legend:', e);
+      }
+    }
+  }, [viewMode, view, layers]);
 
   /**
    * Toggle legend visibility
@@ -400,14 +433,18 @@ export default function LayersPanel({
               </span>
               
               {/* Legend Toggle Button */}
-              {isVisible && layerData.hasLegend && !isGroup && (
+              {layerData.hasLegend && !isGroup && (
                 <button
                   onClick={() => toggleLegend(layerData.id)}
-                  className={`p-0.5 rounded transition opacity-0 group-hover:opacity-100
-                             ${showLegend ? 'bg-slate-200' : 'hover:bg-slate-200'}`}
+                  className={`p-1 rounded transition flex-shrink-0
+                             ${showLegend
+                               ? 'bg-slate-200 text-slate-700'
+                               : isVisible
+                                 ? 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-600'
+                                 : 'bg-slate-50 text-slate-300'}`}
                   title={showLegend ? 'Hide Legend' : 'Show Legend'}
                 >
-                  <List className="w-3 h-3 text-slate-500" />
+                  <List className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
@@ -493,7 +530,7 @@ export default function LayersPanel({
                  flex flex-col max-h-[60vh] ${className}`}
     >
       {/* Header */}
-      <div 
+      <div
         className="flex items-center justify-between px-3 py-2 border-b border-slate-200 flex-shrink-0"
         style={{ backgroundColor: colors.bg50 }}
       >
@@ -501,12 +538,41 @@ export default function LayersPanel({
           <Layers className="w-4 h-4" style={{ color: colors.text600 }} />
           <span className="text-sm font-semibold text-slate-700">Layers</span>
         </div>
-        <button
-          onClick={onToggle}
-          className="p-1 hover:bg-white/50 rounded transition"
-        >
-          <X className="w-4 h-4 text-slate-500" />
-        </button>
+
+        {/* View Mode Toggle */}
+        <div className="flex items-center gap-1">
+          <div className="flex items-center bg-slate-100 rounded-md p-0.5">
+            <button
+              onClick={() => setViewMode('layers')}
+              className={`p-1.5 rounded transition-all ${
+                viewMode === 'layers'
+                  ? 'bg-white shadow-sm text-slate-700'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+              title="Layer List"
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setViewMode('legend')}
+              className={`p-1.5 rounded transition-all ${
+                viewMode === 'legend'
+                  ? 'bg-white shadow-sm text-slate-700'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+              title="Legend View"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <button
+            onClick={onToggle}
+            className="p-1 hover:bg-white/50 rounded transition ml-1"
+          >
+            <X className="w-4 h-4 text-slate-500" />
+          </button>
+        </div>
       </div>
 
       {/* Map Picker (if multiple maps) */}
@@ -550,18 +616,54 @@ export default function LayersPanel({
         </div>
       )}
 
-      {/* Layer List */}
-      <div className="flex-1 overflow-y-auto p-2">
-        {layers.length === 0 ? (
-          <div className="text-center py-6 text-slate-400 text-xs">
-            No layers available
-          </div>
-        ) : (
-          <div className="space-y-0.5">
-            {layers.map((layer, idx) => renderLayerItem(layer, idx))}
-          </div>
-        )}
-      </div>
+      {/* Layer List View */}
+      {viewMode === 'layers' && (
+        <div className="flex-1 overflow-y-auto p-2">
+          {layers.length === 0 ? (
+            <div className="text-center py-6 text-slate-400 text-xs">
+              No layers available
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {layers.map((layer, idx) => renderLayerItem(layer, idx))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Legend View - Shows all visible layer legends */}
+      {viewMode === 'legend' && (
+        <div className="flex-1 overflow-y-auto p-3">
+          <div
+            className="combined-legend"
+            ref={(el) => {
+              if (el && view && el !== combinedLegendRef.current) {
+                combinedLegendRef.current = el;
+                // Destroy existing widget
+                if (combinedLegendWidgetRef.current) {
+                  combinedLegendWidgetRef.current.destroy();
+                }
+                // Create legend showing all visible layers
+                try {
+                  const legend = new Legend({
+                    view: view,
+                    container: el,
+                    style: 'classic'
+                  });
+                  combinedLegendWidgetRef.current = legend;
+                } catch (e) {
+                  console.warn('[LayersPanel] Failed to create combined legend:', e);
+                }
+              }
+            }}
+          />
+          {layers.length === 0 && (
+            <div className="text-center py-6 text-slate-400 text-xs">
+              No layers available
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Styles */}
       <style>{`
@@ -595,6 +697,31 @@ export default function LayersPanel({
         }
         .layer-legend .esri-legend__message {
           display: none !important;
+        }
+        /* Combined legend styles */
+        .combined-legend .esri-widget {
+          box-shadow: none !important;
+          background: transparent !important;
+          font-size: 11px !important;
+        }
+        .combined-legend .esri-legend__service {
+          padding: 4px 0 !important;
+          border-bottom: 1px solid #e2e8f0 !important;
+          margin-bottom: 8px !important;
+        }
+        .combined-legend .esri-legend__service:last-child {
+          border-bottom: none !important;
+          margin-bottom: 0 !important;
+        }
+        .combined-legend .esri-legend__layer-caption {
+          font-weight: 600 !important;
+          color: #475569 !important;
+          font-size: 12px !important;
+          margin-bottom: 6px !important;
+        }
+        .combined-legend .esri-legend__message {
+          color: #94a3b8 !important;
+          font-style: italic !important;
         }
       `}</style>
     </div>
