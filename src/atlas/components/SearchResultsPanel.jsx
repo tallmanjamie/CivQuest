@@ -285,6 +285,18 @@ export default function SearchResultsPanel({
     }
   }, [selectedIndex]);
 
+  /**
+   * Auto-select single result
+   */
+  useEffect(() => {
+    if (rawFeatures.length === 1) {
+      setSelectedIndex(0);
+    } else {
+      // Reset selection when results change to multiple or zero
+      setSelectedIndex(null);
+    }
+  }, [rawFeatures]);
+
   // Collapsed button
   if (!isExpanded) {
     return (

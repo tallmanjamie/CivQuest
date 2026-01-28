@@ -571,10 +571,15 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
         const feature = features[0];
         const address = feature.attributes?.[addressField] || feature.attributes?.PROPERTYADDRESS || feature.attributes?.ADDRESS || 'Property';
         addMessage('ai', `I found **${address}**. Here are the details:`, { feature, showDetails: true });
-        
-        // Zoom to feature on single result
-        if (mapViewRef?.current?.zoomToFeature && enabledModes.includes('map')) {
-          mapViewRef.current.zoomToFeature(feature);
+
+        // Zoom to feature and select it to open popup on single result
+        if (mapViewRef?.current && enabledModes.includes('map')) {
+          if (mapViewRef.current.zoomToFeature) {
+            mapViewRef.current.zoomToFeature(feature);
+          }
+          if (mapViewRef.current.selectFeature) {
+            mapViewRef.current.selectFeature(feature);
+          }
         }
       } else {
         addMessage('ai', `I found **${features.length}** properties matching your search.`, { features, showResultActions: true });
