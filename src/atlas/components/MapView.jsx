@@ -1157,31 +1157,6 @@ const MapView = forwardRef(function MapView(props, ref) {
         </div>
       )}
 
-      {/* ==================== TOP RIGHT CONTROLS ==================== */}
-      {mapReady && !isLoading && !error && (
-        <div className="absolute top-4 right-4 flex items-center gap-2 z-20">
-          {/* Results Count Badge */}
-          {searchResults?.features?.length > 0 && (
-            <div 
-              className="text-white px-3 py-1.5 rounded-full text-sm font-medium shadow-lg"
-              style={{ backgroundColor: colors.bg600 }}
-            >
-              {searchResults.features.length} result{searchResults.features.length !== 1 ? 's' : ''}
-            </div>
-          )}
-
-          {/* Clear Results Button */}
-          {searchResults?.features?.length > 0 && (
-            <button
-              onClick={clearResults}
-              className="bg-white text-slate-600 px-3 py-1.5 rounded-full text-sm font-medium shadow-lg hover:bg-slate-100 flex items-center gap-1"
-            >
-              <X className="w-4 h-4" />
-              Clear
-            </button>
-          )}
-        </div>
-      )}
 
       {/* ==================== BOTTOM RIGHT CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
