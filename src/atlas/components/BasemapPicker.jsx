@@ -355,7 +355,7 @@ export default function BasemapPicker({
                  flex flex-col ${className}`}
     >
       {/* Header */}
-      <div 
+      <div
         className="flex items-center justify-between px-3 py-2 border-b border-slate-200 flex-shrink-0"
         style={{ backgroundColor: colors.bg50 }}
       >
@@ -363,31 +363,30 @@ export default function BasemapPicker({
           <Globe className="w-4 h-4" style={{ color: colors.text600 }} />
           <span className="text-sm font-semibold text-slate-700">Basemaps</span>
         </div>
-        <button
-          onClick={onToggle}
-          className="p-1 hover:bg-white/50 rounded transition"
-        >
-          <X className="w-4 h-4 text-slate-500" />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Swipe Toggle Button in Header */}
+          <button
+            onClick={toggleSwipe}
+            className={`p-1.5 rounded transition ${
+              isSwipeActive
+                ? 'bg-blue-500 text-white hover:bg-blue-600'
+                : 'hover:bg-white/50 text-slate-500 hover:text-slate-700'
+            }`}
+            title={isSwipeActive ? 'Swipe Compare: On' : 'Swipe Compare: Off'}
+          >
+            <Columns className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onToggle}
+            className="p-1 hover:bg-white/50 rounded transition"
+          >
+            <X className="w-4 h-4 text-slate-500" />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
       <div className="p-3 space-y-3">
-        {/* Swipe Toggle Button */}
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-600">Swipe Compare</span>
-          <button
-            onClick={toggleSwipe}
-            className={`px-3 py-1 text-xs font-medium rounded transition flex items-center gap-1
-                       ${isSwipeActive 
-                         ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-300'}`}
-          >
-            <Columns className="w-3 h-3" />
-            {isSwipeActive ? 'On' : 'Off'}
-          </button>
-        </div>
-
         {/* Basemap Select */}
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1">

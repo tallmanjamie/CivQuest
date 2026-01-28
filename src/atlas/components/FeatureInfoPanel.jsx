@@ -88,26 +88,28 @@ export default function FeatureInfoPanel({
     return matches;
   }, [customFeatureInfo, feature?.sourceLayerId, sourceLayer?.id]);
 
-  // Extract Arcade expression elements from popup template to auto-generate tabs
-  const arcadeExpressions = useMemo(() => {
-    if (!sourceLayer?.popupTemplate?.content) return [];
-
+  // Stable key for popup template content to prevent unnecessary recalculations
+  const popupContentKey = useMemo(() => {
+    if (!sourceLayer?.popupTemplate?.content) return '';
     const content = sourceLayer.popupTemplate.content;
-    if (!Array.isArray(content)) return [];
-
-    // Filter to only expression elements and extract their names
-    const expressions = content
+    if (!Array.isArray(content)) return '';
+    // Create a stable key from expression names
+    return content
       .filter(element => element.type === 'expression' && element.expressionInfo)
-      .map(element => {
-        // Get the expression name/title from expressionInfo
-        const name = element.expressionInfo?.name || element.expressionInfo?.title || '';
-        return name;
-      })
-      .filter(name => name); // Remove empty names
+      .map(element => element.expressionInfo?.name || element.expressionInfo?.title || '')
+      .filter(Boolean)
+      .join('|');
+  }, [sourceLayer?.popupTemplate?.content]);
 
+  // Extract Arcade expression elements from popup template to auto-generate tabs
+  // Uses popupContentKey for stability - only recalculates when expression names actually change
+  const arcadeExpressions = useMemo(() => {
+    if (!popupContentKey) return [];
+    // Parse the key back to array
+    const expressions = popupContentKey.split('|');
     console.log('[FeatureInfoPanel] Extracted Arcade expressions from popup template:', expressions);
     return expressions;
-  }, [sourceLayer?.popupTemplate?.content]);
+  }, [popupContentKey]);
 
   // Build tabs based on config or default
   const tabs = useMemo(() => {
@@ -192,6 +194,7 @@ export default function FeatureInfoPanel({
       { id: 'info', label: 'Info', icon: FileText },
       { id: 'markup', label: 'Markup', icon: Pencil, disabled: !onSaveAsMarkup }
     ];
+  // arcadeExpressions is now stable thanks to popupContentKey
   }, [isMarkupFeature, useCustomTabs, customFeatureInfo?.tabs, arcadeExpressions, onSaveAsMarkup]);
 
   // Set initial active tab
@@ -214,18 +217,11 @@ export default function FeatureInfoPanel({
   // Initialize Feature widget when feature or active tab changes
   useEffect(() => {
     console.log('[FeatureInfoPanel] useEffect for Feature widget - activeTab:', activeTab);
-    console.log('[FeatureInfoPanel] useEffect - feature:', !!feature, 'view:', !!view, 'container:', !!featureContainerRef.current);
+    console.log('[FeatureInfoPanel] useEffect - feature:', !!feature, 'view:', !!view);
 
-    if (!feature || !view || !featureContainerRef.current) {
-      console.log('[FeatureInfoPanel] useEffect - Missing required refs, skipping widget creation');
+    if (!feature || !view) {
+      console.log('[FeatureInfoPanel] useEffect - Missing feature or view, skipping widget creation');
       return;
-    }
-
-    // Clear previous widget
-    if (featureWidgetRef.current) {
-      console.log('[FeatureInfoPanel] useEffect - Destroying previous widget');
-      featureWidgetRef.current.destroy();
-      featureWidgetRef.current = null;
     }
 
     // Find the current tab config
@@ -243,131 +239,161 @@ export default function FeatureInfoPanel({
       return;
     }
 
-    // Create a graphic from the feature
-    let geometry;
-    if (feature.geometry) {
-      if (feature.geometry.rings) {
-        geometry = new Polygon({
-          rings: feature.geometry.rings,
-          spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
-        });
-      } else if (feature.geometry.paths) {
-        geometry = new Polyline({
-          paths: feature.geometry.paths,
-          spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
-        });
-      } else if (feature.geometry.x !== undefined) {
-        geometry = new Point({
-          x: feature.geometry.x,
-          y: feature.geometry.y,
-          spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
-        });
+    // Create widget with a delay to ensure container is mounted
+    const createWidget = () => {
+      if (!featureContainerRef.current) {
+        console.log('[FeatureInfoPanel] createWidget - Container not ready, retrying...');
+        return;
       }
-    }
 
-    // Create a graphic for the Feature widget
-    const graphic = new Graphic({
-      geometry,
-      attributes: feature.attributes || {},
-      layer: sourceLayer
-    });
+      // Clear previous widget
+      if (featureWidgetRef.current) {
+        console.log('[FeatureInfoPanel] createWidget - Destroying previous widget');
+        try {
+          featureWidgetRef.current.destroy();
+        } catch (e) {
+          // Ignore destroy errors
+        }
+        featureWidgetRef.current = null;
+      }
 
-    console.log('[FeatureInfoPanel] useEffect - Created graphic:', {
-      hasGeometry: !!geometry,
-      geometryType: geometry?.type,
-      attributeKeys: Object.keys(feature.attributes || {}),
-      sourceLayerId: sourceLayer?.id,
-      sourceLayerTitle: sourceLayer?.title,
-      hasSourceLayerPopupTemplate: !!sourceLayer?.popupTemplate
-    });
-
-    // If we have a custom tab with elements, filter the popup template
-    let popupTemplate = null;
-    if (currentTab?.isCustom && currentTab.elements?.length > 0 && sourceLayer?.popupTemplate) {
-      const originalTemplate = sourceLayer.popupTemplate;
-      console.log('[FeatureInfoPanel] useEffect - Original popup template:', {
-        title: originalTemplate.title,
-        contentType: typeof originalTemplate.content,
-        contentIsArray: Array.isArray(originalTemplate.content),
-        contentLength: Array.isArray(originalTemplate.content) ? originalTemplate.content.length : 'N/A',
-        outFields: originalTemplate.outFields
-      });
-
-      // Log each content element in the original template
-      if (Array.isArray(originalTemplate.content)) {
-        console.log('[FeatureInfoPanel] useEffect - Original template content elements:');
-        originalTemplate.content.forEach((element, idx) => {
-          console.log(`  [${idx}]:`, {
-            type: element.type,
-            title: element.title,
-            description: element.description,
-            text: element.text?.substring?.(0, 100),
-            expressionInfo: element.expressionInfo?.name || element.expressionInfo?.title,
-            fieldInfos: element.fieldInfos?.length
+      // Create a graphic from the feature
+      let geometry;
+      if (feature.geometry) {
+        if (feature.geometry.rings) {
+          geometry = new Polygon({
+            rings: feature.geometry.rings,
+            spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
           });
-        });
-      } else {
-        console.log('[FeatureInfoPanel] useEffect - Original template content (non-array):', {
-          type: originalTemplate.content?.type,
-          title: originalTemplate.content?.title,
-          description: originalTemplate.content?.description
-        });
+        } else if (feature.geometry.paths) {
+          geometry = new Polyline({
+            paths: feature.geometry.paths,
+            spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+          });
+        } else if (feature.geometry.x !== undefined) {
+          geometry = new Point({
+            x: feature.geometry.x,
+            y: feature.geometry.y,
+            spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+          });
+        }
       }
 
-      console.log('[FeatureInfoPanel] useEffect - Filtering with elements:', currentTab.elements);
-      const filteredContent = filterPopupContent(originalTemplate.content, currentTab.elements);
-      console.log('[FeatureInfoPanel] useEffect - Filtered content result:', {
-        filteredIsArray: Array.isArray(filteredContent),
-        filteredLength: Array.isArray(filteredContent) ? filteredContent.length : 'N/A',
-        filteredItems: Array.isArray(filteredContent) ? filteredContent.map(c => ({
-          type: c.type,
-          title: c.title,
-          description: c.description
-        })) : typeof filteredContent
+      // Create a graphic for the Feature widget
+      const graphic = new Graphic({
+        geometry,
+        attributes: feature.attributes || {},
+        layer: sourceLayer
       });
 
-      popupTemplate = {
-        title: originalTemplate.title,
-        content: filteredContent,
-        outFields: originalTemplate.outFields || ['*'],
-        fieldInfos: originalTemplate.fieldInfos
-      };
-    } else {
-      console.log('[FeatureInfoPanel] useEffect - NOT filtering popup template:', {
-        isCustomTab: currentTab?.isCustom,
-        hasElements: currentTab?.elements?.length > 0,
+      console.log('[FeatureInfoPanel] createWidget - Created graphic:', {
+        hasGeometry: !!geometry,
+        geometryType: geometry?.type,
+        attributeKeys: Object.keys(feature.attributes || {}),
+        sourceLayerId: sourceLayer?.id,
+        sourceLayerTitle: sourceLayer?.title,
         hasSourceLayerPopupTemplate: !!sourceLayer?.popupTemplate
       });
-    }
 
-    // Create new Feature widget
-    try {
-      const widgetConfig = {
-        graphic: graphic,
-        view: view,
-        container: featureContainerRef.current,
-        defaultPopupTemplateEnabled: !popupTemplate
-      };
+      // If we have a custom tab with elements, filter the popup template
+      let popupTemplate = null;
+      if (currentTab?.isCustom && currentTab.elements?.length > 0 && sourceLayer?.popupTemplate) {
+        const originalTemplate = sourceLayer.popupTemplate;
+        console.log('[FeatureInfoPanel] createWidget - Original popup template:', {
+          title: originalTemplate.title,
+          contentType: typeof originalTemplate.content,
+          contentIsArray: Array.isArray(originalTemplate.content),
+          contentLength: Array.isArray(originalTemplate.content) ? originalTemplate.content.length : 'N/A',
+          outFields: originalTemplate.outFields
+        });
 
-      // Apply custom popup template if we have one
-      if (popupTemplate) {
-        console.log('[FeatureInfoPanel] useEffect - Applying custom popup template to graphic');
-        graphic.popupTemplate = popupTemplate;
+        // Log each content element in the original template
+        if (Array.isArray(originalTemplate.content)) {
+          console.log('[FeatureInfoPanel] createWidget - Original template content elements:');
+          originalTemplate.content.forEach((element, idx) => {
+            console.log(`  [${idx}]:`, {
+              type: element.type,
+              title: element.title,
+              description: element.description,
+              text: element.text?.substring?.(0, 100),
+              expressionInfo: element.expressionInfo?.name || element.expressionInfo?.title,
+              fieldInfos: element.fieldInfos?.length
+            });
+          });
+        } else {
+          console.log('[FeatureInfoPanel] createWidget - Original template content (non-array):', {
+            type: originalTemplate.content?.type,
+            title: originalTemplate.content?.title,
+            description: originalTemplate.content?.description
+          });
+        }
+
+        console.log('[FeatureInfoPanel] createWidget - Filtering with elements:', currentTab.elements);
+        const filteredContent = filterPopupContent(originalTemplate.content, currentTab.elements);
+        console.log('[FeatureInfoPanel] createWidget - Filtered content result:', {
+          filteredIsArray: Array.isArray(filteredContent),
+          filteredLength: Array.isArray(filteredContent) ? filteredContent.length : 'N/A',
+          filteredItems: Array.isArray(filteredContent) ? filteredContent.map(c => ({
+            type: c.type,
+            title: c.title,
+            description: c.description
+          })) : typeof filteredContent
+        });
+
+        popupTemplate = {
+          title: originalTemplate.title,
+          content: filteredContent,
+          outFields: originalTemplate.outFields || ['*'],
+          fieldInfos: originalTemplate.fieldInfos
+        };
       } else {
-        console.log('[FeatureInfoPanel] useEffect - Using default popup template (defaultPopupTemplateEnabled: true)');
+        console.log('[FeatureInfoPanel] createWidget - NOT filtering popup template:', {
+          isCustomTab: currentTab?.isCustom,
+          hasElements: currentTab?.elements?.length > 0,
+          hasSourceLayerPopupTemplate: !!sourceLayer?.popupTemplate
+        });
       }
 
-      console.log('[FeatureInfoPanel] useEffect - Creating Feature widget');
-      const widget = new Feature(widgetConfig);
-      featureWidgetRef.current = widget;
-      console.log('[FeatureInfoPanel] useEffect - Feature widget created successfully');
-    } catch (err) {
-      console.error('[FeatureInfoPanel] Error creating Feature widget:', err);
-    }
+      // Create new Feature widget
+      try {
+        const widgetConfig = {
+          graphic: graphic,
+          view: view,
+          container: featureContainerRef.current,
+          defaultPopupTemplateEnabled: !popupTemplate
+        };
+
+        // Apply custom popup template if we have one
+        if (popupTemplate) {
+          console.log('[FeatureInfoPanel] createWidget - Applying custom popup template to graphic');
+          graphic.popupTemplate = popupTemplate;
+        } else {
+          console.log('[FeatureInfoPanel] createWidget - Using default popup template (defaultPopupTemplateEnabled: true)');
+        }
+
+        console.log('[FeatureInfoPanel] createWidget - Creating Feature widget');
+        const widget = new Feature(widgetConfig);
+        featureWidgetRef.current = widget;
+        console.log('[FeatureInfoPanel] createWidget - Feature widget created successfully');
+      } catch (err) {
+        console.error('[FeatureInfoPanel] Error creating Feature widget:', err);
+      }
+    };
+
+    // Use requestAnimationFrame to ensure DOM is ready after React render
+    const frameId = requestAnimationFrame(() => {
+      // Double RAF to ensure we're after the paint
+      requestAnimationFrame(createWidget);
+    });
 
     return () => {
+      cancelAnimationFrame(frameId);
       if (featureWidgetRef.current) {
-        featureWidgetRef.current.destroy();
+        try {
+          featureWidgetRef.current.destroy();
+        } catch (e) {
+          // Ignore destroy errors
+        }
         featureWidgetRef.current = null;
       }
     };

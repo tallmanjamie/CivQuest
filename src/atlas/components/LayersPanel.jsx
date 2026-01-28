@@ -239,14 +239,37 @@ export default function LayersPanel({
   }, [view, hiddenLayerIdsKey]);
 
   /**
-   * Handle combined legend view updates when switching views
+   * Handle combined legend view - create/destroy widget when viewMode changes
    */
   useEffect(() => {
-    if (viewMode === 'legend' && view && combinedLegendRef.current) {
-      // Destroy existing and recreate to ensure it's up to date
+    // Only create legend when in legend view mode
+    if (viewMode !== 'legend') {
+      // Clean up when switching away from legend view
       if (combinedLegendWidgetRef.current) {
-        combinedLegendWidgetRef.current.destroy();
+        try {
+          combinedLegendWidgetRef.current.destroy();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        combinedLegendWidgetRef.current = null;
       }
+      return;
+    }
+
+    // Wait a tick for the DOM to be ready
+    const createLegend = () => {
+      if (!view || !combinedLegendRef.current) return;
+
+      // Destroy existing widget first
+      if (combinedLegendWidgetRef.current) {
+        try {
+          combinedLegendWidgetRef.current.destroy();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        combinedLegendWidgetRef.current = null;
+      }
+
       try {
         const legend = new Legend({
           view: view,
@@ -257,8 +280,15 @@ export default function LayersPanel({
       } catch (e) {
         console.warn('[LayersPanel] Failed to create combined legend:', e);
       }
-    }
-  }, [viewMode, view, layers]);
+    };
+
+    // Use requestAnimationFrame to ensure DOM is ready
+    const frameId = requestAnimationFrame(createLegend);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [viewMode, view]);
 
   /**
    * Toggle legend visibility
@@ -648,26 +678,7 @@ export default function LayersPanel({
         <div className="flex-1 overflow-y-auto p-3">
           <div
             className="combined-legend"
-            ref={(el) => {
-              if (el && view && el !== combinedLegendRef.current) {
-                combinedLegendRef.current = el;
-                // Destroy existing widget
-                if (combinedLegendWidgetRef.current) {
-                  combinedLegendWidgetRef.current.destroy();
-                }
-                // Create legend showing all visible layers
-                try {
-                  const legend = new Legend({
-                    view: view,
-                    container: el,
-                    style: 'classic'
-                  });
-                  combinedLegendWidgetRef.current = legend;
-                } catch (e) {
-                  console.warn('[LayersPanel] Failed to create combined legend:', e);
-                }
-              }
-            }}
+            ref={combinedLegendRef}
           />
           {layers.length === 0 && (
             <div className="text-center py-6 text-slate-400 text-xs">
