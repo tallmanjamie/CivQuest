@@ -753,8 +753,8 @@ const MapView = forwardRef(function MapView(props, ref) {
           outline: { color: [255, 200, 0], width: 3 }
         });
       } else if (type === 'polyline') {
-        return new SimpleLineSymbol({ 
-          color: [255, 200, 0], 
+        return new SimpleLineSymbol({
+          color: [255, 200, 0],
           width: 4,
           style: "solid"
         });
@@ -775,7 +775,7 @@ const MapView = forwardRef(function MapView(props, ref) {
       try {
         console.log('[MapView] Highlight Strategy 1: Cloning original graphic', originalGraphic);
         const clone = originalGraphic.clone();
-        
+
         // Determine type for symbol
         let type = 'point';
         if (clone.geometry.type) {
@@ -785,10 +785,10 @@ const MapView = forwardRef(function MapView(props, ref) {
         } else if (clone.geometry.paths) {
            type = 'polyline';
         }
-        
+
         clone.symbol = getHighlightSymbol(type);
         highlightLayerRef.current.add(clone);
-        return; 
+        return;
       } catch (e) {
         console.warn("[MapView] Failed to clone original graphic for highlight:", e);
         // Fall through to Strategy 2
@@ -796,7 +796,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     }
 
     // --- STRATEGY 2: Reconstruct from JSON (Best for Search Results) ---
-    
+
     if (!feature?.geometry) {
       console.warn('[MapView] Highlight failed: No geometry found');
       return;
@@ -843,6 +843,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     }
 
     if (!geometry) {
+      console.warn('[MapView] Highlight failed: Could not create geometry from', geom);
       return;
     }
 
@@ -851,28 +852,84 @@ const MapView = forwardRef(function MapView(props, ref) {
     // Add highlighted feature geometry
     highlightLayerRef.current.add(new Graphic({ geometry, symbol }));
 
-    // Also highlight the pushpin marker at feature center (for multi-result views)
-    const center = getGeometryCenter(feature.geometry);
-    if (center && !originalGraphic) {
-      const pushpinPoint = new Point({
-        x: center.x,
-        y: center.y,
-        spatialReference: geomSR
-      });
+    // Find and highlight the associated pushpin if this is a multi-result search
+    // Check if feature has an _index attribute (indicating it's a search result)
+    const featureIndex = feature.attributes?._index;
+    const isMultiResult = searchResults?.features?.length > 1;
 
-      const pushpinHighlightSymbol = new SimpleMarkerSymbol({
-        style: 'circle',
-        color: [255, 200, 0],
-        size: 18,
-        outline: { color: [255, 255, 255], width: 3 }
-      });
+    if (isMultiResult && pushpinLayerRef.current) {
+      // Find the pushpin with matching _index in the pushpin layer
+      const pushpinGraphics = pushpinLayerRef.current.graphics;
+      let matchingPushpin = null;
 
-      highlightLayerRef.current.add(new Graphic({
-        geometry: pushpinPoint,
-        symbol: pushpinHighlightSymbol
-      }));
+      // If we have a feature index, find the matching pushpin
+      if (featureIndex !== undefined) {
+        pushpinGraphics.forEach(g => {
+          if (g.attributes?._index === featureIndex) {
+            matchingPushpin = g;
+          }
+        });
+      }
+
+      // If no index match, try to find pushpin by geometry center
+      if (!matchingPushpin) {
+        const center = getGeometryCenter(feature.geometry);
+        if (center) {
+          // Find pushpin closest to feature center
+          let minDist = Infinity;
+          pushpinGraphics.forEach(g => {
+            if (g.geometry?.x !== undefined && g.geometry?.y !== undefined) {
+              const dist = Math.sqrt(
+                Math.pow(g.geometry.x - center.x, 2) +
+                Math.pow(g.geometry.y - center.y, 2)
+              );
+              if (dist < minDist) {
+                minDist = dist;
+                matchingPushpin = g;
+              }
+            }
+          });
+        }
+      }
+
+      // Create a highlight ring around the pushpin
+      if (matchingPushpin && matchingPushpin.geometry) {
+        const pushpinHighlightSymbol = new SimpleMarkerSymbol({
+          style: 'circle',
+          color: [255, 200, 0, 0.8],
+          size: 22,
+          outline: { color: [255, 255, 255], width: 3 }
+        });
+
+        highlightLayerRef.current.add(new Graphic({
+          geometry: matchingPushpin.geometry.clone(),
+          symbol: pushpinHighlightSymbol
+        }));
+      }
+    } else if (!originalGraphic) {
+      // For single results or when no pushpin layer, add highlight at feature center
+      const center = getGeometryCenter(feature.geometry);
+      if (center) {
+        const pushpinPoint = new Point({
+          x: center.x,
+          y: center.y,
+          spatialReference: geomSR
+        });
+
+        const pushpinHighlightSymbol = new SimpleMarkerSymbol({
+          style: 'circle',
+          color: [255, 200, 0],
+          size: 18,
+          outline: { color: [255, 255, 255], width: 3 }
+        });
+
+        highlightLayerRef.current.add(new Graphic({
+          geometry: pushpinPoint,
+          symbol: pushpinHighlightSymbol
+        }));
+      }
     }
-  }, [getGeometryCenter]);
+  }, [getGeometryCenter, searchResults]);
 
   /**
    * Zoom to a specific feature
