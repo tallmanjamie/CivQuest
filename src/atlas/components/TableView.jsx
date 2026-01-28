@@ -44,7 +44,8 @@ const TableView = forwardRef(function TableView(props, ref) {
     zoomToFeature,
     highlightFeature,
     setMode,
-    mode
+    mode,
+    mapViewRef
   } = useAtlas();
 
   // Refs
@@ -109,6 +110,12 @@ const TableView = forwardRef(function TableView(props, ref) {
           if (feature) {
             zoomToFeature(feature);
             setMode('map');
+            // Open the map's feature panel after switching to map mode
+            setTimeout(() => {
+              if (mapViewRef?.current?.selectFeature) {
+                mapViewRef.current.selectFeature(feature);
+              }
+            }, 100);
           }
         }}
         title="View on map"
@@ -116,7 +123,7 @@ const TableView = forwardRef(function TableView(props, ref) {
         <MapPin className="w-4 h-4" />
       </button>
     );
-  }, [zoomToFeature, setMode]);
+  }, [zoomToFeature, setMode, mapViewRef]);
 
   /**
    * Get column definitions from config
@@ -273,6 +280,22 @@ const TableView = forwardRef(function TableView(props, ref) {
   }), []);
 
   /**
+   * Auto-size columns to fit content
+   */
+  const autoSizeColumns = useCallback((api) => {
+    if (!api) return;
+    // Get all column IDs except the action column
+    const allColumnIds = api.getColumns()
+      ?.filter(col => col.getColId() !== '_actions')
+      ?.map(col => col.getColId()) || [];
+
+    if (allColumnIds.length > 0) {
+      // Auto-size columns to fit content
+      api.autoSizeColumns(allColumnIds);
+    }
+  }, []);
+
+  /**
    * Grid ready callback
    */
   const onGridReady = useCallback((params) => {
@@ -280,11 +303,11 @@ const TableView = forwardRef(function TableView(props, ref) {
     setIsGridReady(true);
     const dataCols = getColumnDefs();
     setVisibleColumns(dataCols.map(c => c.field));
-    // Auto-size columns
+    // Auto-size columns to fit content
     setTimeout(() => {
-      params.api.sizeColumnsToFit();
+      autoSizeColumns(params.api);
     }, 100);
-  }, [getColumnDefs]);
+  }, [getColumnDefs, autoSizeColumns]);
 
   /**
    * Row click handler - opens side panel
@@ -320,8 +343,8 @@ const TableView = forwardRef(function TableView(props, ref) {
    * First data rendered callback
    */
   const onFirstDataRendered = useCallback((params) => {
-    params.api.sizeColumnsToFit();
-  }, []);
+    autoSizeColumns(params.api);
+  }, [autoSizeColumns]);
 
   /**
    * Resize columns when mode changes to table
@@ -330,11 +353,11 @@ const TableView = forwardRef(function TableView(props, ref) {
     if (mode === 'table' && gridRef.current?.api) {
       const timer = setTimeout(() => {
         console.log('[TableView] Mode changed to table, resizing grid');
-        gridRef.current.api.sizeColumnsToFit();
+        autoSizeColumns(gridRef.current.api);
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [mode]);
+  }, [mode, autoSizeColumns]);
 
   /**
    * Update visible columns when data changes
@@ -407,11 +430,14 @@ const TableView = forwardRef(function TableView(props, ref) {
     // Clear sort
     gridRef.current.api.applyColumnState({ defaultState: { sort: null } });
 
-    // Resize columns
+    // Clear all filters
+    gridRef.current.api.setFilterModel(null);
+
+    // Auto-size columns to fit content
     setTimeout(() => {
-      gridRef.current.api.sizeColumnsToFit();
+      autoSizeColumns(gridRef.current.api);
     }, 100);
-  }, [showAllColumns]);
+  }, [showAllColumns, autoSizeColumns]);
 
   /**
    * Clear table
@@ -440,8 +466,14 @@ const TableView = forwardRef(function TableView(props, ref) {
     if (selectedRecord?._feature) {
       zoomToFeature(selectedRecord._feature);
       setMode('map');
+      // Open the map's feature panel after switching to map mode
+      setTimeout(() => {
+        if (mapViewRef?.current?.selectFeature) {
+          mapViewRef.current.selectFeature(selectedRecord._feature);
+        }
+      }, 100);
     }
-  }, [selectedRecord, zoomToFeature, setMode]);
+  }, [selectedRecord, zoomToFeature, setMode, mapViewRef]);
 
   /**
    * Format value for side panel display
@@ -472,6 +504,15 @@ const TableView = forwardRef(function TableView(props, ref) {
 
   const allColumns = getColumnDefs();
 
+  // Compute display count - use AG Grid's displayed count if available, otherwise fallback to data length
+  const displayCount = useMemo(() => {
+    if (!hasResults) return 0;
+    // If rowCount has been set by AG Grid, use it (it respects filters)
+    if (rowCount > 0) return rowCount;
+    // Fallback to the actual data length if rowCount hasn't been set yet
+    return searchResults?.features?.length || 0;
+  }, [hasResults, rowCount, searchResults?.features?.length]);
+
   return (
     <div className="table-view-wrapper">
       {/* Inject Styles */}
@@ -484,7 +525,7 @@ const TableView = forwardRef(function TableView(props, ref) {
             <BarChart3 className="w-4 h-4" style={{ color: colors.text600 }} />
             <span className="table-status-text">
               {hasResults
-                ? `${(rowCount ?? 0).toLocaleString()} ${rowCount === 1 ? 'record' : 'records'}`
+                ? `${displayCount.toLocaleString()} ${displayCount === 1 ? 'record' : 'records'}`
                 : 'No results to display'}
             </span>
           </div>
