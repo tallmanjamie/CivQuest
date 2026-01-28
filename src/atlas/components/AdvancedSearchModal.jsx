@@ -1,69 +1,64 @@
 // src/atlas/components/AdvancedSearchModal.jsx
-// Advanced Search Modal Component
-// Provides field-based filtering with operators specific to each field type
+// Advanced Search Modal Component - Pre-built fields layout
+// All configured search fields are displayed with their own row
+// State persists when modal is closed and reopened
 //
 // Field Types:
-// - text: contains, does not contain, is exactly, is not exactly, starts with, ends with, is empty, is not empty
-// - number: equals, not equals, less than, greater than, between, is empty, is not empty
-// - date: before, after, between, is exactly, is empty, is not empty
+// - text: contains, does not contain, is exactly, is not exactly, starts with, ends with
+// - number: equals, not equals, less than, greater than, between
+// - date: before, after, between, is exactly
 // - single-select: dropdown list of unique values
-// - multi-select: select multiple values from a list
+// - multi-select: select multiple values from a list (tags)
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   X,
   Search,
-  Plus,
-  Trash2,
   Loader2,
   Filter,
   ChevronDown,
   Check,
-  AlertCircle
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
+
+// Module-level cache for filter state persistence across modal open/close
+// Keyed by endpoint to handle different maps
+const filterStateCache = new Map();
+
+// Cache for unique values to avoid re-fetching
+const uniqueValueCache = new Map();
 
 // Operators for each field type
 const OPERATORS = {
   text: [
     { value: 'contains', label: 'Contains' },
-    { value: 'not_contains', label: 'Does not contain' },
-    { value: 'equals', label: 'Is exactly' },
-    { value: 'not_equals', label: 'Is not exactly' },
-    { value: 'starts_with', label: 'Starts with' },
-    { value: 'ends_with', label: 'Ends with' },
-    { value: 'is_empty', label: 'Is empty' },
-    { value: 'is_not_empty', label: 'Is not empty' }
+    { value: 'not_contains', label: 'Does Not Contain' },
+    { value: 'equals', label: 'Is (Exact)' },
+    { value: 'not_equals', label: 'Is Not (Exact)' },
+    { value: 'starts_with', label: 'Starts With' },
+    { value: 'ends_with', label: 'Ends With' }
   ],
   number: [
-    { value: 'equals', label: 'Equals' },
-    { value: 'not_equals', label: 'Not equals' },
-    { value: 'less_than', label: 'Less than' },
-    { value: 'greater_than', label: 'Greater than' },
     { value: 'between', label: 'Between' },
-    { value: 'is_empty', label: 'Is empty' },
-    { value: 'is_not_empty', label: 'Is not empty' }
+    { value: 'greater_than', label: 'Greater Than (>)' },
+    { value: 'less_than', label: 'Less Than (<)' },
+    { value: 'equals', label: 'Equals (=)' }
   ],
   date: [
-    { value: 'equals', label: 'Is exactly' },
-    { value: 'before', label: 'Before' },
-    { value: 'after', label: 'After' },
     { value: 'between', label: 'Between' },
-    { value: 'is_empty', label: 'Is empty' },
-    { value: 'is_not_empty', label: 'Is not empty' }
+    { value: 'before', label: 'Before' },
+    { value: 'after', label: 'After' }
   ],
   'single-select': [
     { value: 'equals', label: 'Is' },
-    { value: 'not_equals', label: 'Is not' },
-    { value: 'is_empty', label: 'Is empty' },
-    { value: 'is_not_empty', label: 'Is not empty' }
+    { value: 'not_equals', label: 'Is Not' }
   ],
   'multi-select': [
-    { value: 'in', label: 'Is any of' },
-    { value: 'not_in', label: 'Is none of' },
-    { value: 'is_empty', label: 'Is empty' },
-    { value: 'is_not_empty', label: 'Is not empty' }
+    { value: 'in', label: 'Is Any Of' },
+    { value: 'not_in', label: 'Is None Of' }
   ]
 };
 
@@ -71,28 +66,18 @@ const OPERATORS = {
 function getDefaultOperator(fieldType) {
   switch (fieldType) {
     case 'text': return 'contains';
-    case 'number': return 'equals';
-    case 'date': return 'equals';
+    case 'number': return 'between';
+    case 'date': return 'between';
     case 'single-select': return 'equals';
     case 'multi-select': return 'in';
     default: return 'contains';
   }
 }
 
-// Check if operator needs value input
-function operatorNeedsValue(operator) {
-  return !['is_empty', 'is_not_empty'].includes(operator);
-}
-
-// Check if operator needs two values (between)
-function operatorNeedsTwoValues(operator) {
-  return operator === 'between';
-}
-
 /**
- * SingleSelectInput - Dropdown for selecting a single value
+ * SingleSelectDropdown - Dropdown for selecting a single value with search
  */
-function SingleSelectInput({
+function SingleSelectDropdown({
   field,
   value,
   onChange,
@@ -110,6 +95,12 @@ function SingleSelectInput({
   // Fetch unique values for the field
   useEffect(() => {
     if (!endpoint || !field) return;
+
+    const cacheKey = `${endpoint}:${field}`;
+    if (uniqueValueCache.has(cacheKey)) {
+      setOptions(uniqueValueCache.get(cacheKey));
+      return;
+    }
 
     const fetchOptions = async () => {
       setLoading(true);
@@ -134,9 +125,10 @@ function SingleSelectInput({
             .filter(v => v !== null && v !== undefined && v !== '')
             .sort((a, b) => String(a).localeCompare(String(b)));
           setOptions(uniqueValues);
+          uniqueValueCache.set(cacheKey, uniqueValues);
         }
       } catch (err) {
-        console.error('[SingleSelectInput] Error fetching options:', err);
+        console.error('[SingleSelectDropdown] Error fetching options:', err);
         setError('Failed to load options');
       } finally {
         setLoading(false);
@@ -162,7 +154,7 @@ function SingleSelectInput({
   );
 
   return (
-    <div className="relative flex-1" ref={dropdownRef}>
+    <div className="relative w-full" ref={dropdownRef}>
       <button
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
@@ -170,11 +162,11 @@ function SingleSelectInput({
         className={`w-full px-3 py-2 text-sm border rounded-lg text-left flex items-center justify-between transition-colors ${
           disabled
             ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
-            : 'bg-white border-slate-300 hover:border-slate-400'
+            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
         }`}
       >
         <span className={value ? 'text-slate-800' : 'text-slate-400'}>
-          {value || 'Select a value...'}
+          {value || 'Select...'}
         </span>
         {loading ? (
           <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
@@ -185,21 +177,31 @@ function SingleSelectInput({
 
       {isOpen && !disabled && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-64 overflow-hidden">
-          {/* Search input */}
           <div className="p-2 border-b border-slate-100">
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search..."
-              className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-opacity-50"
-              style={{ '--tw-ring-color': colors.bg500 }}
+              className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-sky-500"
               autoFocus
             />
           </div>
 
-          {/* Options list */}
           <div className="max-h-48 overflow-y-auto">
+            {/* Clear option */}
+            <button
+              type="button"
+              onClick={() => {
+                onChange('');
+                setIsOpen(false);
+                setSearchTerm('');
+              }}
+              className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 text-slate-400 italic"
+            >
+              Clear selection
+            </button>
+
             {error ? (
               <div className="p-3 text-sm text-red-600 flex items-center gap-2">
                 <AlertCircle className="w-4 h-4" />
@@ -238,9 +240,9 @@ function SingleSelectInput({
 }
 
 /**
- * MultiSelectInput - Select multiple values from a list
+ * MultiSelectTags - Multi-select with tag display
  */
-function MultiSelectInput({
+function MultiSelectTags({
   field,
   value = [],
   onChange,
@@ -250,21 +252,23 @@ function MultiSelectInput({
 }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef(null);
 
-  // Ensure value is always an array
   const selectedValues = Array.isArray(value) ? value : [];
 
-  // Fetch unique values for the field
+  // Fetch unique values
   useEffect(() => {
     if (!endpoint || !field) return;
 
+    const cacheKey = `${endpoint}:${field}`;
+    if (uniqueValueCache.has(cacheKey)) {
+      setOptions(uniqueValueCache.get(cacheKey));
+      return;
+    }
+
     const fetchOptions = async () => {
       setLoading(true);
-      setError(null);
       try {
         const params = new URLSearchParams({
           f: 'json',
@@ -285,10 +289,10 @@ function MultiSelectInput({
             .filter(v => v !== null && v !== undefined && v !== '')
             .sort((a, b) => String(a).localeCompare(String(b)));
           setOptions(uniqueValues);
+          uniqueValueCache.set(cacheKey, uniqueValues);
         }
       } catch (err) {
-        console.error('[MultiSelectInput] Error fetching options:', err);
-        setError('Failed to load options');
+        console.error('[MultiSelectTags] Error fetching options:', err);
       } finally {
         setLoading(false);
       }
@@ -308,16 +312,10 @@ function MultiSelectInput({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredOptions = options.filter(opt =>
-    String(opt).toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const toggleOption = (opt) => {
-    const strOpt = String(opt);
-    if (selectedValues.includes(strOpt)) {
-      onChange(selectedValues.filter(v => v !== strOpt));
-    } else {
-      onChange([...selectedValues, strOpt]);
+  const addValue = (val) => {
+    const strVal = String(val);
+    if (!selectedValues.includes(strVal)) {
+      onChange([...selectedValues, strVal]);
     }
   };
 
@@ -325,109 +323,70 @@ function MultiSelectInput({
     onChange(selectedValues.filter(v => v !== val));
   };
 
+  const availableOptions = options.filter(opt => !selectedValues.includes(String(opt)));
+
   return (
-    <div className="relative flex-1" ref={dropdownRef}>
-      <div
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`min-h-[38px] px-2 py-1.5 border rounded-lg flex flex-wrap items-center gap-1 cursor-pointer transition-colors ${
-          disabled
-            ? 'bg-slate-100 border-slate-200 cursor-not-allowed'
-            : 'bg-white border-slate-300 hover:border-slate-400'
-        }`}
-      >
-        {selectedValues.length === 0 ? (
-          <span className="text-sm text-slate-400 px-1">Select values...</span>
-        ) : (
-          selectedValues.map((val, idx) => (
-            <span
-              key={idx}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full"
-              style={{ backgroundColor: colors.bg100, color: colors.text700 }}
-            >
-              {val}
-              {!disabled && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeValue(val);
-                  }}
-                  className="hover:bg-white/50 rounded-full p-0.5"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </span>
-          ))
-        )}
-        <div className="ml-auto flex-shrink-0">
+    <div className="w-full space-y-2">
+      {/* Dropdown to add values */}
+      <div className="relative" ref={dropdownRef}>
+        <button
+          type="button"
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          disabled={disabled}
+          className={`w-full px-3 py-2 text-sm border rounded-lg text-left flex items-center justify-between transition-colors ${
+            disabled
+              ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+              : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <span className="text-slate-400">Select to add...</span>
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
           ) : (
             <ChevronDown className="w-4 h-4 text-slate-400" />
           )}
-        </div>
+        </button>
+
+        {isOpen && !disabled && availableOptions.length > 0 && (
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+            {availableOptions.map((opt, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  addValue(opt);
+                  setIsOpen(false);
+                }}
+                className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50"
+              >
+                {String(opt)}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {isOpen && !disabled && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-64 overflow-hidden">
-          {/* Search input */}
-          <div className="p-2 border-b border-slate-100">
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search..."
-              className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-opacity-50"
-              style={{ '--tw-ring-color': colors.bg500 }}
-              autoFocus
-            />
-          </div>
-
-          {/* Options list */}
-          <div className="max-h-48 overflow-y-auto">
-            {error ? (
-              <div className="p-3 text-sm text-red-600 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4" />
-                {error}
-              </div>
-            ) : filteredOptions.length === 0 ? (
-              <div className="p-3 text-sm text-slate-500 text-center">
-                {loading ? 'Loading...' : 'No options available'}
-              </div>
-            ) : (
-              filteredOptions.map((opt, idx) => {
-                const isSelected = selectedValues.includes(String(opt));
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => toggleOption(opt)}
-                    className={`w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2 ${
-                      isSelected ? 'bg-slate-50' : ''
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                        isSelected ? 'border-current' : 'border-slate-300'
-                      }`}
-                      style={isSelected ? { borderColor: colors.text600, backgroundColor: colors.bg600 } : {}}
-                    >
-                      {isSelected && <Check className="w-3 h-3 text-white" />}
-                    </div>
-                    <span className="truncate">{String(opt)}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-
-          {/* Selection summary */}
-          {selectedValues.length > 0 && (
-            <div className="px-3 py-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
-              {selectedValues.length} selected
-            </div>
-          )}
+      {/* Selected tags */}
+      {selectedValues.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {selectedValues.map((val, idx) => (
+            <span
+              key={idx}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border animate-in fade-in zoom-in duration-200"
+              style={{ backgroundColor: colors.bg100, color: colors.text700, borderColor: colors.bg200 }}
+            >
+              {val}
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={() => removeValue(val)}
+                  className="hover:bg-white/50 rounded-full p-0.5 ml-1"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </span>
+          ))}
         </div>
       )}
     </div>
@@ -435,289 +394,283 @@ function MultiSelectInput({
 }
 
 /**
- * FilterConditionRow - A single filter condition row
+ * FieldRow - A single pre-built field row
  */
-function FilterConditionRow({
-  condition,
-  index,
-  searchFields,
-  endpoint,
-  colors,
+function FieldRow({
+  fieldConfig,
+  filterState,
   onChange,
-  onRemove,
-  canRemove
+  endpoint,
+  colors
 }) {
-  const selectedField = searchFields.find(f => f.field === condition.field);
-  const fieldType = selectedField?.type || 'text';
-  const operators = OPERATORS[fieldType] || OPERATORS.text;
+  const { field, label, type } = fieldConfig;
+  const operators = OPERATORS[type] || OPERATORS.text;
+  const currentOperator = filterState?.operator || getDefaultOperator(type);
+  const needsTwoValues = currentOperator === 'between';
 
-  const handleFieldChange = (newField) => {
-    const newSelectedField = searchFields.find(f => f.field === newField);
-    const newFieldType = newSelectedField?.type || 'text';
-    const newOperator = getDefaultOperator(newFieldType);
-    onChange(index, {
-      ...condition,
-      field: newField,
-      operator: newOperator,
-      value: newFieldType === 'multi-select' ? [] : '',
-      value2: ''
+  const handleOperatorChange = (newOp) => {
+    onChange(field, {
+      ...filterState,
+      operator: newOp,
+      // Reset value2 if switching away from between
+      value2: newOp === 'between' ? filterState?.value2 : ''
     });
   };
 
-  const handleOperatorChange = (newOperator) => {
-    onChange(index, {
-      ...condition,
-      operator: newOperator,
-      // Reset value when changing to/from between
-      value: condition.field && fieldType === 'multi-select' ? [] : '',
-      value2: ''
-    });
+  const handleValueChange = (newValue) => {
+    onChange(field, { ...filterState, value: newValue });
   };
 
-  const needsValue = operatorNeedsValue(condition.operator);
-  const needsTwoValues = operatorNeedsTwoValues(condition.operator);
+  const handleValue2Change = (newValue) => {
+    onChange(field, { ...filterState, value2: newValue });
+  };
+
+  // Common input styles
+  const inputClass = 'w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all';
+  const selectClass = 'px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium text-slate-700 h-8 shadow-sm';
 
   return (
-    <div className="flex items-start gap-2 p-3 bg-slate-50 rounded-lg">
-      {/* Field selector */}
-      <select
-        value={condition.field}
-        onChange={(e) => handleFieldChange(e.target.value)}
-        className="w-40 px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50"
-        style={{ '--tw-ring-color': colors.bg500 }}
-      >
-        <option value="">Select field...</option>
-        {searchFields.map((field) => (
-          <option key={field.field} value={field.field}>
-            {field.label || field.field}
-          </option>
-        ))}
-      </select>
+    <div className="group space-y-1.5 border-b border-slate-50 pb-3 last:border-0 last:pb-0">
+      {/* Header row: Label + Operator */}
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          {label || field}
+        </label>
 
-      {/* Operator selector */}
-      <select
-        value={condition.operator}
-        onChange={(e) => handleOperatorChange(e.target.value)}
-        disabled={!condition.field}
-        className="w-36 px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50 disabled:bg-slate-100 disabled:text-slate-400"
-        style={{ '--tw-ring-color': colors.bg500 }}
-      >
-        {operators.map((op) => (
-          <option key={op.value} value={op.value}>
-            {op.label}
-          </option>
-        ))}
-      </select>
+        <select
+          value={currentOperator}
+          onChange={(e) => handleOperatorChange(e.target.value)}
+          className={selectClass}
+        >
+          {operators.map((op) => (
+            <option key={op.value} value={op.value}>
+              {op.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      {/* Value input - varies by field type */}
-      {needsValue && condition.field && (
-        <>
-          {fieldType === 'single-select' ? (
-            <SingleSelectInput
-              field={condition.field}
-              value={condition.value}
-              onChange={(val) => onChange(index, { ...condition, value: val })}
-              endpoint={endpoint}
-              colors={colors}
-              disabled={!condition.field}
-            />
-          ) : fieldType === 'multi-select' ? (
-            <MultiSelectInput
-              field={condition.field}
-              value={condition.value}
-              onChange={(val) => onChange(index, { ...condition, value: val })}
-              endpoint={endpoint}
-              colors={colors}
-              disabled={!condition.field}
-            />
-          ) : fieldType === 'date' ? (
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="date"
-                value={condition.value}
-                onChange={(e) => onChange(index, { ...condition, value: e.target.value })}
-                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50"
-                style={{ '--tw-ring-color': colors.bg500 }}
-              />
-              {needsTwoValues && (
-                <>
-                  <span className="text-sm text-slate-500">and</span>
-                  <input
-                    type="date"
-                    value={condition.value2 || ''}
-                    onChange={(e) => onChange(index, { ...condition, value2: e.target.value })}
-                    className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50"
-                    style={{ '--tw-ring-color': colors.bg500 }}
-                  />
-                </>
-              )}
-            </div>
-          ) : fieldType === 'number' ? (
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="number"
-                value={condition.value}
-                onChange={(e) => onChange(index, { ...condition, value: e.target.value })}
-                placeholder="Enter value..."
-                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50"
-                style={{ '--tw-ring-color': colors.bg500 }}
-              />
-              {needsTwoValues && (
-                <>
-                  <span className="text-sm text-slate-500">and</span>
-                  <input
-                    type="number"
-                    value={condition.value2 || ''}
-                    onChange={(e) => onChange(index, { ...condition, value2: e.target.value })}
-                    placeholder="Enter value..."
-                    className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50"
-                    style={{ '--tw-ring-color': colors.bg500 }}
-                  />
-                </>
-              )}
-            </div>
-          ) : (
-            // Text input (default)
-            <input
-              type="text"
-              value={condition.value}
-              onChange={(e) => onChange(index, { ...condition, value: e.target.value })}
-              placeholder="Enter value..."
-              className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-opacity-50"
-              style={{ '--tw-ring-color': colors.bg500 }}
-            />
-          )}
-        </>
+      {/* Value inputs based on type */}
+      {type === 'text' && (
+        <input
+          type="text"
+          value={filterState?.value || ''}
+          onChange={(e) => handleValueChange(e.target.value)}
+          placeholder="Value..."
+          className={inputClass}
+        />
       )}
 
-      {/* Remove button */}
-      <button
-        type="button"
-        onClick={() => onRemove(index)}
-        disabled={!canRemove}
-        className={`p-2 rounded-lg transition-colors ${
-          canRemove
-            ? 'text-slate-400 hover:text-red-500 hover:bg-red-50'
-            : 'text-slate-200 cursor-not-allowed'
-        }`}
-        title={canRemove ? 'Remove condition' : 'At least one condition is required'}
-      >
-        <Trash2 className="w-4 h-4" />
-      </button>
+      {type === 'number' && (
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            value={filterState?.value || ''}
+            onChange={(e) => handleValueChange(e.target.value)}
+            placeholder={needsTwoValues ? 'Min' : 'Value'}
+            className={inputClass}
+          />
+          {needsTwoValues && (
+            <>
+              <span className="text-slate-400 font-bold">-</span>
+              <input
+                type="number"
+                value={filterState?.value2 || ''}
+                onChange={(e) => handleValue2Change(e.target.value)}
+                placeholder="Max"
+                className={inputClass}
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      {type === 'date' && (
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={filterState?.value || ''}
+            onChange={(e) => handleValueChange(e.target.value)}
+            className={inputClass}
+          />
+          {needsTwoValues && (
+            <>
+              <span className="text-slate-400 text-xs uppercase font-bold">and</span>
+              <input
+                type="date"
+                value={filterState?.value2 || ''}
+                onChange={(e) => handleValue2Change(e.target.value)}
+                className={inputClass}
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      {type === 'single-select' && (
+        <SingleSelectDropdown
+          field={field}
+          value={filterState?.value || ''}
+          onChange={handleValueChange}
+          endpoint={endpoint}
+          colors={colors}
+        />
+      )}
+
+      {type === 'multi-select' && (
+        <MultiSelectTags
+          field={field}
+          value={filterState?.value || []}
+          onChange={handleValueChange}
+          endpoint={endpoint}
+          colors={colors}
+        />
+      )}
     </div>
   );
 }
 
 /**
- * Build ArcGIS WHERE clause from filter conditions
+ * Build ArcGIS WHERE clause from filter states
  */
-function buildWhereClause(conditions, searchFields) {
-  const clauses = conditions
-    .filter(c => c.field) // Only process conditions with a field selected
-    .map(condition => {
-      const field = condition.field;
-      const selectedField = searchFields.find(f => f.field === field);
-      const fieldType = selectedField?.type || 'text';
-      const operator = condition.operator;
-      const value = condition.value;
-      const value2 = condition.value2;
+function buildWhereClause(filterStates, searchFields) {
+  const clauses = [];
+  const descriptions = [];
 
-      // Handle empty/not empty operators
-      if (operator === 'is_empty') {
-        return `(${field} IS NULL OR ${field} = '')`;
+  searchFields.forEach(fieldConfig => {
+    const { field, label, type } = fieldConfig;
+    const state = filterStates[field];
+    if (!state) return;
+
+    const { operator, value, value2 } = state;
+    const displayLabel = label || field;
+
+    // Skip if no value
+    if (type === 'multi-select') {
+      if (!Array.isArray(value) || value.length === 0) return;
+    } else {
+      if (!value && value !== 0) return;
+    }
+
+    switch (type) {
+      case 'text': {
+        const escapedValue = String(value).toUpperCase().replace(/'/g, "''");
+        switch (operator) {
+          case 'contains':
+            clauses.push(`UPPER(${field}) LIKE '%${escapedValue}%'`);
+            descriptions.push(`${displayLabel} contains "${value}"`);
+            break;
+          case 'not_contains':
+            clauses.push(`UPPER(${field}) NOT LIKE '%${escapedValue}%'`);
+            descriptions.push(`${displayLabel} does not contain "${value}"`);
+            break;
+          case 'equals':
+            clauses.push(`UPPER(${field}) = '${escapedValue}'`);
+            descriptions.push(`${displayLabel} is "${value}"`);
+            break;
+          case 'not_equals':
+            clauses.push(`UPPER(${field}) <> '${escapedValue}'`);
+            descriptions.push(`${displayLabel} is not "${value}"`);
+            break;
+          case 'starts_with':
+            clauses.push(`UPPER(${field}) LIKE '${escapedValue}%'`);
+            descriptions.push(`${displayLabel} starts with "${value}"`);
+            break;
+          case 'ends_with':
+            clauses.push(`UPPER(${field}) LIKE '%${escapedValue}'`);
+            descriptions.push(`${displayLabel} ends with "${value}"`);
+            break;
+        }
+        break;
       }
-      if (operator === 'is_not_empty') {
-        return `(${field} IS NOT NULL AND ${field} <> '')`;
+
+      case 'number': {
+        const numVal = parseFloat(value);
+        if (isNaN(numVal)) return;
+
+        switch (operator) {
+          case 'equals':
+            clauses.push(`${field} = ${numVal}`);
+            descriptions.push(`${displayLabel} = ${numVal}`);
+            break;
+          case 'greater_than':
+            clauses.push(`${field} > ${numVal}`);
+            descriptions.push(`${displayLabel} > ${numVal}`);
+            break;
+          case 'less_than':
+            clauses.push(`${field} < ${numVal}`);
+            descriptions.push(`${displayLabel} < ${numVal}`);
+            break;
+          case 'between': {
+            const numVal2 = parseFloat(value2);
+            if (!isNaN(numVal2)) {
+              const min = Math.min(numVal, numVal2);
+              const max = Math.max(numVal, numVal2);
+              clauses.push(`${field} >= ${min} AND ${field} <= ${max}`);
+              descriptions.push(`${displayLabel} between ${min} and ${max}`);
+            }
+            break;
+          }
+        }
+        break;
       }
 
-      // Skip if no value provided (for operators that need values)
-      if (!value && value !== 0) return null;
-
-      // Build clause based on field type and operator
-      switch (fieldType) {
-        case 'text':
-          switch (operator) {
-            case 'contains':
-              return `UPPER(${field}) LIKE '%${String(value).toUpperCase().replace(/'/g, "''")}%'`;
-            case 'not_contains':
-              return `UPPER(${field}) NOT LIKE '%${String(value).toUpperCase().replace(/'/g, "''")}%'`;
-            case 'equals':
-              return `UPPER(${field}) = '${String(value).toUpperCase().replace(/'/g, "''")}'`;
-            case 'not_equals':
-              return `UPPER(${field}) <> '${String(value).toUpperCase().replace(/'/g, "''")}'`;
-            case 'starts_with':
-              return `UPPER(${field}) LIKE '${String(value).toUpperCase().replace(/'/g, "''")}%'`;
-            case 'ends_with':
-              return `UPPER(${field}) LIKE '%${String(value).toUpperCase().replace(/'/g, "''")}'`;
-            default:
-              return null;
-          }
-
-        case 'number':
-          const numVal = parseFloat(value);
-          const numVal2 = parseFloat(value2);
-          if (isNaN(numVal)) return null;
-
-          switch (operator) {
-            case 'equals':
-              return `${field} = ${numVal}`;
-            case 'not_equals':
-              return `${field} <> ${numVal}`;
-            case 'less_than':
-              return `${field} < ${numVal}`;
-            case 'greater_than':
-              return `${field} > ${numVal}`;
-            case 'between':
-              if (isNaN(numVal2)) return null;
-              return `${field} >= ${Math.min(numVal, numVal2)} AND ${field} <= ${Math.max(numVal, numVal2)}`;
-            default:
-              return null;
-          }
-
-        case 'date':
-          switch (operator) {
-            case 'equals':
-              return `${field} = DATE '${value}'`;
-            case 'before':
-              return `${field} < DATE '${value}'`;
-            case 'after':
-              return `${field} > DATE '${value}'`;
-            case 'between':
-              if (!value2) return null;
-              return `${field} >= DATE '${value}' AND ${field} <= DATE '${value2}'`;
-            default:
-              return null;
-          }
-
-        case 'single-select':
-          switch (operator) {
-            case 'equals':
-              return `${field} = '${String(value).replace(/'/g, "''")}'`;
-            case 'not_equals':
-              return `${field} <> '${String(value).replace(/'/g, "''")}'`;
-            default:
-              return null;
-          }
-
-        case 'multi-select':
-          if (!Array.isArray(value) || value.length === 0) return null;
-          const escapedValues = value.map(v => `'${String(v).replace(/'/g, "''")}'`).join(', ');
-          switch (operator) {
-            case 'in':
-              return `${field} IN (${escapedValues})`;
-            case 'not_in':
-              return `${field} NOT IN (${escapedValues})`;
-            default:
-              return null;
-          }
-
-        default:
-          return null;
+      case 'date': {
+        switch (operator) {
+          case 'before':
+            clauses.push(`${field} < DATE '${value}'`);
+            descriptions.push(`${displayLabel} before ${value}`);
+            break;
+          case 'after':
+            clauses.push(`${field} > DATE '${value}'`);
+            descriptions.push(`${displayLabel} after ${value}`);
+            break;
+          case 'between':
+            if (value2) {
+              clauses.push(`${field} >= DATE '${value}' AND ${field} <= DATE '${value2}'`);
+              descriptions.push(`${displayLabel} between ${value} and ${value2}`);
+            }
+            break;
+        }
+        break;
       }
-    })
-    .filter(Boolean);
 
-  return clauses.length > 0 ? clauses.join(' AND ') : '1=1';
+      case 'single-select': {
+        const escapedValue = String(value).replace(/'/g, "''");
+        switch (operator) {
+          case 'equals':
+            clauses.push(`${field} = '${escapedValue}'`);
+            descriptions.push(`${displayLabel} is "${value}"`);
+            break;
+          case 'not_equals':
+            clauses.push(`${field} <> '${escapedValue}'`);
+            descriptions.push(`${displayLabel} is not "${value}"`);
+            break;
+        }
+        break;
+      }
+
+      case 'multi-select': {
+        const escapedValues = value.map(v => `'${String(v).replace(/'/g, "''")}'`).join(', ');
+        switch (operator) {
+          case 'in':
+            clauses.push(`${field} IN (${escapedValues})`);
+            descriptions.push(`${displayLabel} in [${value.join(', ')}]`);
+            break;
+          case 'not_in':
+            clauses.push(`${field} NOT IN (${escapedValues})`);
+            descriptions.push(`${displayLabel} not in [${value.join(', ')}]`);
+            break;
+        }
+        break;
+      }
+    }
+  });
+
+  return {
+    whereClause: clauses.length > 0 ? clauses.join(' AND ') : null,
+    description: descriptions.join(', ')
+  };
 }
 
 /**
@@ -728,7 +681,17 @@ export default function AdvancedSearchModal({
   onClose,
   onSearch
 }) {
-  const { config, activeMap, updateSearchResults, setIsSearching, colors: contextColors } = useAtlas();
+  const {
+    config,
+    activeMap,
+    updateSearchResults,
+    setIsSearching,
+    colors: contextColors,
+    mapViewRef,
+    enabledModes,
+    chatViewRef,
+    saveToHistory
+  } = useAtlas();
 
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = contextColors || getThemeColors(themeColor);
@@ -736,47 +699,98 @@ export default function AdvancedSearchModal({
   const searchFields = activeMap?.searchFields || [];
   const endpoint = activeMap?.endpoint;
 
-  const [conditions, setConditions] = useState([
-    { field: '', operator: 'contains', value: '', value2: '' }
-  ]);
+  // Generate a cache key for this map
+  const cacheKey = endpoint || 'default';
+
+  // Initialize filter states from cache or create empty state
+  const [filterStates, setFilterStates] = useState(() => {
+    if (filterStateCache.has(cacheKey)) {
+      return filterStateCache.get(cacheKey);
+    }
+    // Initialize with default operators for each field
+    const initial = {};
+    searchFields.forEach(field => {
+      initial[field.field] = {
+        operator: getDefaultOperator(field.type),
+        value: field.type === 'multi-select' ? [] : '',
+        value2: ''
+      };
+    });
+    return initial;
+  });
+
   const [isSearchingLocal, setIsSearchingLocal] = useState(false);
   const [error, setError] = useState(null);
 
-  // Reset conditions when modal opens
+  // Ref to track if we've initialized for current endpoint
+  const initializedRef = useRef(null);
+
+  // Update filter states when searchFields change (different map)
   useEffect(() => {
-    if (isOpen) {
-      setConditions([{ field: '', operator: 'contains', value: '', value2: '' }]);
-      setError(null);
+    if (!endpoint || initializedRef.current === endpoint) return;
+
+    initializedRef.current = endpoint;
+
+    // Check cache first
+    if (filterStateCache.has(endpoint)) {
+      setFilterStates(filterStateCache.get(endpoint));
+      return;
     }
-  }, [isOpen]);
 
-  const handleConditionChange = (index, newCondition) => {
-    setConditions(prev => prev.map((c, i) => i === index ? newCondition : c));
-  };
+    // Initialize fresh state for new endpoint
+    const initial = {};
+    searchFields.forEach(field => {
+      initial[field.field] = {
+        operator: getDefaultOperator(field.type),
+        value: field.type === 'multi-select' ? [] : '',
+        value2: ''
+      };
+    });
+    setFilterStates(initial);
+    filterStateCache.set(endpoint, initial);
+  }, [endpoint, searchFields]);
 
-  const handleAddCondition = () => {
-    setConditions(prev => [
+  // Save to cache whenever filterStates changes
+  useEffect(() => {
+    if (endpoint && Object.keys(filterStates).length > 0) {
+      filterStateCache.set(endpoint, filterStates);
+    }
+  }, [filterStates, endpoint]);
+
+  // Handle field state change
+  const handleFieldChange = useCallback((fieldName, newState) => {
+    setFilterStates(prev => ({
       ...prev,
-      { field: '', operator: 'contains', value: '', value2: '' }
-    ]);
-  };
+      [fieldName]: newState
+    }));
+  }, []);
 
-  const handleRemoveCondition = (index) => {
-    if (conditions.length > 1) {
-      setConditions(prev => prev.filter((_, i) => i !== index));
-    }
-  };
+  // Reset all fields
+  const handleReset = useCallback(() => {
+    const initial = {};
+    searchFields.forEach(field => {
+      initial[field.field] = {
+        operator: getDefaultOperator(field.type),
+        value: field.type === 'multi-select' ? [] : '',
+        value2: ''
+      };
+    });
+    setFilterStates(initial);
+    filterStateCache.set(endpoint, initial);
+    setError(null);
+  }, [searchFields, endpoint]);
 
-  const handleSearch = async () => {
+  // Execute search
+  const handleSearch = useCallback(async () => {
     if (!endpoint) {
       setError('No endpoint configured');
       return;
     }
 
-    // Validate that at least one condition has a field selected
-    const validConditions = conditions.filter(c => c.field);
-    if (validConditions.length === 0) {
-      setError('Please select at least one field to filter by');
+    const { whereClause, description } = buildWhereClause(filterStates, searchFields);
+
+    if (!whereClause) {
+      setError('Please enter at least one filter criteria');
       return;
     }
 
@@ -784,8 +798,17 @@ export default function AdvancedSearchModal({
     setIsSearching?.(true);
     setError(null);
 
+    // Close modal immediately so user sees chat
+    onClose?.();
+
+    // Add search to chat as user message
+    const searchLabel = `Advanced Search: ${description}`;
+    if (chatViewRef?.current?.addMessage) {
+      chatViewRef.current.addMessage('user', searchLabel);
+      chatViewRef.current.addMessage('system', 'Searching with advanced filters...');
+    }
+
     try {
-      const whereClause = buildWhereClause(conditions, searchFields);
       console.log('[AdvancedSearch] WHERE clause:', whereClause);
 
       const params = new URLSearchParams({
@@ -807,64 +830,118 @@ export default function AdvancedSearchModal({
       console.log(`[AdvancedSearch] Found ${features.length} features`);
 
       // Update results in context
-      updateSearchResults?.(features);
+      updateSearchResults?.({ features });
+
+      // Save to history
+      saveToHistory?.(searchLabel);
+
+      // Add results to chat
+      if (chatViewRef?.current?.addMessage) {
+        if (features.length === 0) {
+          chatViewRef.current.addMessage('ai', 'No records found matching your filter criteria.');
+        } else if (features.length === 1) {
+          const addressField = searchFields.find(f =>
+            /ADDRESS|SITE|SITUS/i.test(f.label) || /ADDRESS|SITUS/i.test(f.field)
+          )?.field || 'PROPERTYADDRESS';
+          const feature = features[0];
+          const address = feature.attributes?.[addressField] || 'Property';
+          chatViewRef.current.addMessage('ai', `I found **${address}**. Here are the details:`, {
+            feature,
+            showDetails: true
+          });
+
+          // Zoom to single result
+          if (mapViewRef?.current && enabledModes?.includes('map')) {
+            mapViewRef.current.zoomToFeature?.(feature);
+            mapViewRef.current.selectFeature?.(feature);
+          }
+        } else {
+          chatViewRef.current.addMessage('ai', `I found **${features.length}** records matching your filter criteria.`, {
+            features,
+            showResultActions: true
+          });
+
+          // Render results on map
+          if (mapViewRef?.current?.renderResults) {
+            mapViewRef.current.renderResults(features);
+          }
+        }
+      }
 
       // Call onSearch callback if provided
       onSearch?.(features, whereClause);
 
-      // Close modal on successful search
-      onClose?.();
-
     } catch (err) {
       console.error('[AdvancedSearch] Error:', err);
       setError(err.message || 'Search failed');
+
+      if (chatViewRef?.current?.addMessage) {
+        chatViewRef.current.addMessage('error', `Search failed: ${err.message}`);
+      }
     } finally {
       setIsSearchingLocal(false);
       setIsSearching?.(false);
     }
-  };
+  }, [
+    endpoint, filterStates, searchFields, onClose, onSearch,
+    updateSearchResults, setIsSearching, chatViewRef, saveToHistory,
+    mapViewRef, enabledModes
+  ]);
 
-  const handleClear = () => {
-    setConditions([{ field: '', operator: 'contains', value: '', value2: '' }]);
-    setError(null);
-  };
+  // Count active filters
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    searchFields.forEach(field => {
+      const state = filterStates[field.field];
+      if (!state) return;
+      if (field.type === 'multi-select') {
+        if (Array.isArray(state.value) && state.value.length > 0) count++;
+      } else {
+        if (state.value) count++;
+      }
+    });
+    return count;
+  }, [filterStates, searchFields]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50"
         onClick={onClose}
       />
 
-      {/* Modal */}
-      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      {/* Modal - slides up from bottom on mobile, centered on desktop */}
+      <div
+        className="relative bg-white rounded-t-xl md:rounded-xl shadow-2xl w-full md:max-w-md max-h-[85vh] md:max-h-[80vh] flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: colors.bg100 }}
-            >
-              <Filter className="w-5 h-5" style={{ color: colors.text600 }} />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Advanced Search</h2>
-              <p className="text-sm text-slate-500">Filter records by specific field criteria</p>
-            </div>
-          </div>
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-xl shrink-0">
+          <h3 className="font-bold text-slate-700 flex items-center gap-2">
+            <Filter className="h-5 w-5" style={{ color: colors.text600 }} />
+            Advanced Search
+            {activeFilterCount > 0 && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={{ backgroundColor: colors.bg100, color: colors.text700 }}
+              >
+                {activeFilterCount} active
+              </span>
+            )}
+          </h3>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+            className="text-slate-400 hover:text-slate-600 transition-colors p-1 hover:bg-slate-100 rounded"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {searchFields.length === 0 ? (
             <div className="text-center py-8">
               <AlertCircle className="w-12 h-12 mx-auto mb-3 text-amber-500" />
@@ -874,87 +951,56 @@ export default function AdvancedSearchModal({
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className="text-sm text-slate-600 mb-4">
-                Add conditions to filter your search results. All conditions must match (AND logic).
-              </div>
+            searchFields.map((fieldConfig) => (
+              <FieldRow
+                key={fieldConfig.field}
+                fieldConfig={fieldConfig}
+                filterState={filterStates[fieldConfig.field]}
+                onChange={handleFieldChange}
+                endpoint={endpoint}
+                colors={colors}
+              />
+            ))
+          )}
 
-              {/* Filter conditions */}
-              <div className="space-y-2">
-                {conditions.map((condition, index) => (
-                  <FilterConditionRow
-                    key={index}
-                    condition={condition}
-                    index={index}
-                    searchFields={searchFields}
-                    endpoint={endpoint}
-                    colors={colors}
-                    onChange={handleConditionChange}
-                    onRemove={handleRemoveCondition}
-                    canRemove={conditions.length > 1}
-                  />
-                ))}
-              </div>
-
-              {/* Add condition button */}
-              <button
-                type="button"
-                onClick={handleAddCondition}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors"
-                style={{ color: colors.text600 }}
-              >
-                <Plus className="w-4 h-4" />
-                Add Condition
-              </button>
-
-              {/* Error message */}
-              {error && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  {error}
-                </div>
-              )}
+          {/* Error message */}
+          {error && (
+            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {error}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 rounded-b-xl flex justify-end gap-3 shrink-0">
           <button
             type="button"
-            onClick={handleClear}
-            className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            onClick={handleReset}
+            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors flex items-center gap-1"
           >
-            Clear All
+            <RotateCcw className="w-4 h-4" />
+            Reset
           </button>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSearch}
-              disabled={isSearchingLocal || searchFields.length === 0}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ backgroundColor: colors.bg600 }}
-            >
-              {isSearchingLocal ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Searching...
-                </>
-              ) : (
-                <>
-                  <Search className="w-4 h-4" />
-                  Search
-                </>
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleSearch}
+            disabled={isSearchingLocal || searchFields.length === 0}
+            className="px-6 py-2 text-white text-sm font-bold rounded-lg shadow-sm transition-all transform active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ backgroundColor: colors.bg600 }}
+          >
+            {isSearchingLocal ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Searching...
+              </>
+            ) : (
+              <>
+                <Search className="w-4 h-4" />
+                Search
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>
