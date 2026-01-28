@@ -981,13 +981,13 @@ const MapView = forwardRef(function MapView(props, ref) {
   /**
    * Handle saving a feature as markup
    */
-  const handleSaveAsMarkup = useCallback((feature) => {
+  const handleSaveAsMarkup = useCallback((feature, popupTitle) => {
     if (!markupLayerRef.current || !feature?.geometry) {
       console.warn('[MapView] Cannot save as markup: missing layer or geometry');
       return;
     }
 
-    console.log('[MapView] Saving feature as markup:', feature);
+    console.log('[MapView] Saving feature as markup:', feature, 'with title:', popupTitle);
 
     // Determine geometry type and create appropriate symbol
     const geometry = feature.geometry;
@@ -1051,9 +1051,9 @@ const MapView = forwardRef(function MapView(props, ref) {
       return;
     }
 
-    // Get a name for the markup from feature attributes
+    // Get a name for the markup - prefer the popup title passed from FeatureInfoPanel
     const attrs = feature.attributes || {};
-    const featureName = attrs.displayName || attrs.title || attrs.TITLE ||
+    const featureName = popupTitle || attrs.displayName || attrs.title || attrs.TITLE ||
                         attrs.name || attrs.NAME || attrs.ADDRESS ||
                         attrs.address || attrs.PARCELID || 'Saved Feature';
 

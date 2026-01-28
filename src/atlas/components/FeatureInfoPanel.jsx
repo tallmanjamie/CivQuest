@@ -318,7 +318,7 @@ export default function FeatureInfoPanel({
 
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
-      <ActionButton icon={Bookmark} label="Save to Markup" onClick={() => onSaveAsMarkup?.(feature)} />
+      <ActionButton icon={Bookmark} label="Save to Markup" onClick={() => onSaveAsMarkup?.(feature, displayTitle)} />
       <ActionButton icon={Download} label="Export PDF" onClick={onExportPDF} />
       <ActionButton icon={Target} label="Zoom To" onClick={() => onZoomTo?.(feature)} />
     </div>
