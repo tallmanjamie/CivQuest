@@ -566,10 +566,15 @@ export default function AtlasApp() {
   // Handle search execution from unified toolbar
   const handleSearch = useCallback(async (query) => {
     if (!query?.trim() || !activeMap) return;
-    
+
+    // Close any open feature panel before starting new search
+    if (mapViewRef.current?.closeFeaturePanel) {
+      mapViewRef.current.closeFeaturePanel();
+    }
+
     setSearchQuery(query);
     setIsSearching(true);
-    
+
     // Delegate to ChatView's search logic
     if (chatViewRef.current?.handleSearch) {
       chatViewRef.current.handleSearch(query);
