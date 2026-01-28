@@ -6,7 +6,9 @@
 // - Professional: Private only (no public maps allowed)
 // - Organization: Public or private allowed
 //
-// UPDATED: Added Export Templates tab for selecting which export templates are available for this map
+// UPDATED:
+// - Added Export Templates tab for selecting which export templates are available for this map
+// - Added Feature Export Template selection (one per map)
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -40,12 +42,13 @@ import {
   ArrowUp,
   ArrowDown
 } from 'lucide-react';
-import { 
-  canHavePublicMaps, 
-  getProductLicenseLimits, 
+import {
+  canHavePublicMaps,
+  getProductLicenseLimits,
   PRODUCTS,
-  LICENSE_TYPES 
+  LICENSE_TYPES
 } from '../../shared/services/licenses';
+import FeatureExportSettings from './FeatureExportSettings';
 
 // Page size display helper for export templates
 const PAGE_SIZES = {
@@ -97,13 +100,22 @@ export default function MapEditor({
   const licenseLimits = orgData ? getProductLicenseLimits(orgData, PRODUCTS.ATLAS) : null;
 
   // Get available export templates from org config
-  const availableExportTemplates = 
-    orgData?.atlasConfigDraft?.exportTemplates || 
-    orgData?.atlasConfig?.exportTemplates || 
+  const availableExportTemplates =
+    orgData?.atlasConfigDraft?.exportTemplates ||
+    orgData?.atlasConfig?.exportTemplates ||
     [];
-  
+
   // Filter to only enabled templates
   const enabledExportTemplates = availableExportTemplates.filter(t => t.enabled !== false);
+
+  // Get available feature export templates from org config
+  const availableFeatureExportTemplates =
+    orgData?.atlasConfigDraft?.featureExportTemplates ||
+    orgData?.atlasConfig?.featureExportTemplates ||
+    [];
+
+  // Filter to only enabled feature export templates
+  const enabledFeatureExportTemplates = availableFeatureExportTemplates.filter(t => t.enabled !== false);
 
   // Clone the data to avoid mutating props
   const [mapConfig, setMapConfig] = useState(() => ({
@@ -125,8 +137,10 @@ export default function MapEditor({
       enabled: false,
       url: ''
     },
-    // Export templates - array of selected template IDs
+    // Export templates - array of selected template IDs (for map export)
     exportTemplates: [],
+    // Feature export template - single template ID (for feature/attribute export)
+    featureExportTemplateId: null,
     // Custom feature info - per-map configuration for feature popup tabs
     customFeatureInfo: {
       layerId: '',
@@ -312,6 +326,14 @@ export default function MapEditor({
     setMapConfig(prev => ({
       ...prev,
       exportTemplates: []
+    }));
+  };
+
+  // Feature export template selection (single template per map)
+  const setFeatureExportTemplate = (templateId) => {
+    setMapConfig(prev => ({
+      ...prev,
+      featureExportTemplateId: templateId
     }));
   };
 
@@ -1449,7 +1471,7 @@ export default function MapEditor({
                         {(mapConfig.exportTemplates || []).map(id => {
                           const template = enabledExportTemplates.find(t => t.id === id);
                           if (!template) return null;
-                          
+
                           return (
                             <span
                               key={id}
@@ -1465,6 +1487,27 @@ export default function MapEditor({
                   )}
                 </>
               )}
+
+              {/* Feature Export Template Section */}
+              <div className="pt-6 mt-6 border-t border-slate-200">
+                <div className="flex items-center gap-2 text-slate-800 mb-4">
+                  <FileOutput className="w-5 h-5" />
+                  <h3 className="font-semibold">Feature Export Template</h3>
+                </div>
+
+                <p className="text-sm text-slate-600 mb-4">
+                  Select a feature export template for exporting feature data as PDF reports.
+                  This allows users to export attribute data for selected features.
+                </p>
+
+                <FeatureExportSettings
+                  availableTemplates={enabledFeatureExportTemplates}
+                  mapExportTemplates={enabledExportTemplates}
+                  selectedTemplateId={mapConfig.featureExportTemplateId}
+                  onChange={setFeatureExportTemplate}
+                  accentColor={accentColor}
+                />
+              </div>
             </div>
           )}
         </div>

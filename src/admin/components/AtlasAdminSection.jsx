@@ -2,17 +2,19 @@
 // Atlas Admin Section - integrates into AdminApp
 // Provides atlas configuration management for both super_admin and org_admin roles
 //
-// UPDATED: 
+// UPDATED:
 // - MapEditor wrapper now passes orgData for license enforcement
 // - Added Export Templates tab for managing export templates at organization level
 // - Export templates are stored in atlasConfig.exportTemplates
+// - Added Feature Export Templates tab for managing feature export templates
+// - Feature export templates are stored in atlasConfig.featureExportTemplates
 // - Super admin can now manage templates across all organizations
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Map, 
-  Settings, 
-  Layers, 
+import {
+  Map,
+  Settings,
+  Layers,
   Eye,
   AlertCircle,
   Users,
@@ -33,7 +35,8 @@ import {
   Link2,
   Globe,
   Save,
-  RotateCcw
+  RotateCcw,
+  FileOutput
 } from 'lucide-react';
 import { doc, updateDoc, collection, onSnapshot } from 'firebase/firestore';
 import { PATHS } from '../../shared/services/paths';
@@ -44,6 +47,8 @@ import ServiceFinder from './ServiceFinder';
 import AtlasUserManagement from './AtlasUserManagement';
 import ExportTemplateConfiguration from './ExportTemplateConfiguration';
 import ExportTemplateEditor from './ExportTemplateEditor';
+import FeatureExportTemplateConfiguration from './FeatureExportTemplateConfiguration';
+import FeatureExportTemplateEditor from './FeatureExportTemplateEditor';
 
 /**
  * AtlasAdminSection Component
@@ -150,7 +155,7 @@ export default function AtlasAdminSection({
       // Determine which config to update (prefer draft if it exists)
       const configField = orgData?.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
       const currentConfig = orgData?.[configField] || {};
-      
+
       // Update the config with new templates
       const updatedConfig = {
         ...currentConfig,
@@ -167,6 +172,37 @@ export default function AtlasAdminSection({
     } catch (error) {
       console.error('Error saving export templates:', error);
       addToast?.('Failed to save export templates', 'error');
+    }
+  };
+
+  // Handle feature export templates update
+  const handleUpdateFeatureExportTemplates = async (templates) => {
+    if (!db || !orgId) {
+      addToast?.('Unable to save: missing database connection', 'error');
+      return;
+    }
+
+    try {
+      // Determine which config to update (prefer draft if it exists)
+      const configField = orgData?.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
+      const currentConfig = orgData?.[configField] || {};
+
+      // Update the config with new feature export templates
+      const updatedConfig = {
+        ...currentConfig,
+        featureExportTemplates: templates
+      };
+
+      // Save to Firestore
+      const orgRef = doc(db, PATHS.organizations, orgId);
+      await updateDoc(orgRef, {
+        [configField]: updatedConfig
+      });
+
+      addToast?.('Feature export templates saved', 'success');
+    } catch (error) {
+      console.error('Error saving feature export templates:', error);
+      addToast?.('Failed to save feature export templates', 'error');
     }
   };
 
@@ -297,6 +333,51 @@ export default function AtlasAdminSection({
                 accentColor={accentColor}
               />
             </div>
+          </div>
+        );
+
+      case 'feature-export-templates':
+        // Feature export template management
+        // For super_admin: show org selector then template editor
+        // For org_admin: check if Atlas is initialized first
+
+        if (role === 'super_admin') {
+          return (
+            <SuperAdminFeatureExportTemplates
+              db={db}
+              addToast={addToast}
+              confirm={confirm}
+              accentColor={accentColor}
+            />
+          );
+        }
+
+        if (!hasAtlasConfig) {
+          return (
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
+              <AlertCircle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-slate-700 mb-2">Atlas Not Initialized</h3>
+              <p className="text-slate-500 mb-4">
+                You need to initialize Atlas before you can manage feature export templates.
+              </p>
+              <p className="text-sm text-slate-400">
+                Go to the <strong>Maps</strong> tab to initialize Atlas for your organization.
+              </p>
+            </div>
+          );
+        }
+
+        return (
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+            <FeatureExportTemplateConfiguration
+              templates={workingConfig?.featureExportTemplates || []}
+              mapExportTemplates={workingConfig?.exportTemplates || []}
+              orgData={orgData}
+              onUpdate={handleUpdateFeatureExportTemplates}
+              addToast={addToast}
+              confirm={confirm}
+              accentColor={accentColor}
+            />
           </div>
         );
 
@@ -993,6 +1074,446 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
 }
 
 /**
+ * SuperAdminFeatureExportTemplates Component
+ *
+ * Super Admin view for managing feature export templates across all organizations
+ */
+function SuperAdminFeatureExportTemplates({ db, addToast, confirm, accentColor = '#004E7C' }) {
+  const [organizations, setOrganizations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedOrgs, setExpandedOrgs] = useState({});
+  const [searchTerm, setSearchTerm] = useState('');
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [showStarterPicker, setShowStarterPicker] = useState(null);
+
+  // Default starter templates for feature export
+  const FEATURE_STARTER_TEMPLATES = [
+    {
+      id: 'starter-basic',
+      name: 'Basic Feature Report',
+      description: 'Simple layout with title, attributes, and optional map',
+      pageSize: 'letter-portrait',
+      elements: [
+        { id: 'title-1', type: 'title', x: 0, y: 0, width: 100, height: 8, locked: false, visible: true, content: { text: 'Feature Report', fontSize: 24, fontWeight: 'bold', align: 'center', backgroundColor: '#1e293b', color: '#ffffff' } },
+        { id: 'date-1', type: 'date', x: 80, y: 2, width: 18, height: 4, locked: false, visible: true, content: { format: 'MMMM D, YYYY', fontSize: 10, align: 'right', color: '#ffffff' } },
+        { id: 'attributes-1', type: 'attributeData', x: 2, y: 12, width: 96, height: 60, locked: false, visible: true, content: { style: 'table', showLabels: true, fontSize: 11 } },
+        { id: 'pageNumber-1', type: 'pageNumber', x: 45, y: 95, width: 10, height: 3, locked: false, visible: true, content: { format: 'Page {current} of {total}', fontSize: 9, align: 'center' } }
+      ],
+      mapExportTemplateId: null
+    },
+    {
+      id: 'starter-compact',
+      name: 'Compact Feature Card',
+      description: 'Compact single-page summary with key attributes',
+      pageSize: 'letter-landscape',
+      elements: [
+        { id: 'title-1', type: 'title', x: 0, y: 0, width: 100, height: 10, locked: false, visible: true, content: { text: 'Feature Summary', fontSize: 20, fontWeight: 'bold', align: 'center', backgroundColor: '#0f172a', color: '#ffffff' } },
+        { id: 'date-1', type: 'date', x: 85, y: 2, width: 13, height: 6, locked: false, visible: true, content: { format: 'MM/DD/YYYY', fontSize: 10, align: 'right', color: '#ffffff' } },
+        { id: 'attributes-1', type: 'attributeData', x: 2, y: 14, width: 96, height: 75, locked: false, visible: true, content: { style: 'list', showLabels: true, fontSize: 10 } },
+        { id: 'pageNumber-1', type: 'pageNumber', x: 90, y: 92, width: 8, height: 4, locked: false, visible: true, content: { format: '{current}/{total}', fontSize: 8, align: 'right' } }
+      ],
+      mapExportTemplateId: null
+    }
+  ];
+
+  // Fetch all organizations
+  useEffect(() => {
+    const q = collection(db, PATHS.organizations);
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const orgs = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      }));
+      setOrganizations(orgs);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [db]);
+
+  const getWorkingConfig = (org) => org.atlasConfigDraft || org.atlasConfig;
+  const hasAtlas = (org) => !!org.atlasConfig || !!org.atlasConfigDraft;
+  const getTemplates = (org) => getWorkingConfig(org)?.featureExportTemplates || [];
+  const getMapExportTemplates = (org) => getWorkingConfig(org)?.exportTemplates || [];
+
+  const toggleOrg = (orgId) => {
+    setExpandedOrgs(prev => ({ ...prev, [orgId]: !prev[orgId] }));
+  };
+
+  const saveTemplates = async (orgId, templates) => {
+    try {
+      const org = organizations.find(o => o.id === orgId);
+      if (!org) return;
+
+      const configField = org.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
+      const currentConfig = org[configField] || {};
+
+      const updatedConfig = { ...currentConfig, featureExportTemplates: templates };
+      const orgRef = doc(db, PATHS.organizations, orgId);
+      await updateDoc(orgRef, { [configField]: updatedConfig });
+
+      addToast?.('Feature export templates saved', 'success');
+    } catch (error) {
+      console.error('Error saving feature export templates:', error);
+      addToast?.('Failed to save feature export templates', 'error');
+    }
+  };
+
+  const handleCreateBlank = (orgId) => {
+    const org = organizations.find(o => o.id === orgId);
+    setEditingTemplate({ orgId, orgData: org, isNew: true, data: null });
+  };
+
+  const handleCreateFromStarter = (orgId, starter) => {
+    const org = organizations.find(o => o.id === orgId);
+    const newTemplate = {
+      ...starter,
+      id: `feature-template-${Date.now()}`,
+      name: `${starter.name}`,
+      createdAt: new Date().toISOString()
+    };
+    setEditingTemplate({ orgId, orgData: org, isNew: true, data: newTemplate });
+    setShowStarterPicker(null);
+  };
+
+  const handleEditTemplate = (orgId, template) => {
+    const org = organizations.find(o => o.id === orgId);
+    setEditingTemplate({ orgId, orgData: org, isNew: false, data: template });
+  };
+
+  const handleDuplicateTemplate = (orgId, template) => {
+    const org = organizations.find(o => o.id === orgId);
+    const templates = getTemplates(org);
+    const newTemplate = {
+      ...template,
+      id: `feature-template-${Date.now()}`,
+      name: `${template.name} (Copy)`,
+      createdAt: new Date().toISOString()
+    };
+    saveTemplates(orgId, [...templates, newTemplate]);
+  };
+
+  const handleDeleteTemplate = (orgId, templateId, templateName) => {
+    confirm?.({
+      title: 'Delete Feature Export Template',
+      message: `Are you sure you want to delete "${templateName}"? This action cannot be undone.`,
+      destructive: true,
+      confirmLabel: 'Delete',
+      onConfirm: () => {
+        const org = organizations.find(o => o.id === orgId);
+        const templates = getTemplates(org);
+        saveTemplates(orgId, templates.filter(t => t.id !== templateId));
+      }
+    });
+  };
+
+  const handleToggleEnabled = (orgId, templateId) => {
+    const org = organizations.find(o => o.id === orgId);
+    const templates = getTemplates(org);
+    saveTemplates(orgId, templates.map(t =>
+      t.id === templateId ? { ...t, enabled: t.enabled === false ? true : false } : t
+    ));
+  };
+
+  const handleSaveTemplate = (templateData) => {
+    const { orgId, isNew } = editingTemplate;
+    const org = organizations.find(o => o.id === orgId);
+    const templates = getTemplates(org);
+
+    if (isNew) {
+      saveTemplates(orgId, [...templates, { ...templateData, createdAt: new Date().toISOString(), enabled: true }]);
+    } else {
+      saveTemplates(orgId, templates.map(t =>
+        t.id === templateData.id ? { ...templateData, updatedAt: new Date().toISOString() } : t
+      ));
+    }
+    setEditingTemplate(null);
+  };
+
+  const filteredOrgs = organizations.filter(org =>
+    org.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    org.id?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const getPageSizeDisplay = (template) => {
+    if (template.pageSize === 'custom') {
+      return `Custom (${template.customWidth}×${template.customHeight}")`;
+    }
+    return PAGE_SIZES[template.pageSize] || template.pageSize;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">Feature Export Templates</h2>
+          <p className="text-slate-500 text-sm">Manage feature export templates for all organizations.</p>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Search organizations..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+        />
+      </div>
+
+      {/* Organizations List */}
+      {filteredOrgs.length === 0 ? (
+        <div className="text-center py-12 text-slate-500">
+          <Building2 className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+          <p>No organizations found.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredOrgs.map(org => {
+            const templates = getTemplates(org);
+            const isExpanded = expandedOrgs[org.id];
+            const atlasEnabled = hasAtlas(org);
+
+            return (
+              <div key={org.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                {/* Organization Header */}
+                <button
+                  onClick={() => toggleOrg(org.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
+                >
+                  <div className="text-slate-400">
+                    {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                  </div>
+
+                  <div
+                    className="w-10 h-10 rounded-lg flex items-center justify-center text-white"
+                    style={{ backgroundColor: atlasEnabled ? accentColor : '#94a3b8' }}
+                  >
+                    <Building2 className="w-5 h-5" />
+                  </div>
+
+                  <div className="flex-1 text-left">
+                    <h3 className="font-medium text-slate-800">{org.name}</h3>
+                    <p className="text-sm text-slate-500">
+                      {atlasEnabled ? (
+                        <span>{templates.length} feature template{templates.length !== 1 ? 's' : ''}</span>
+                      ) : (
+                        <span className="text-amber-600">Atlas not initialized</span>
+                      )}
+                    </p>
+                  </div>
+
+                  {atlasEnabled && templates.length > 0 && (
+                    <div className="flex -space-x-1">
+                      {templates.slice(0, 3).map((t) => (
+                        <div
+                          key={t.id}
+                          className="w-6 h-6 rounded bg-slate-200 border-2 border-white flex items-center justify-center"
+                          title={t.name}
+                        >
+                          <FileOutput className="w-3 h-3 text-slate-500" />
+                        </div>
+                      ))}
+                      {templates.length > 3 && (
+                        <div className="w-6 h-6 rounded bg-slate-300 border-2 border-white flex items-center justify-center text-xs text-slate-600">
+                          +{templates.length - 3}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </button>
+
+                {/* Expanded Content */}
+                {isExpanded && (
+                  <div className="border-t border-slate-200 bg-slate-50 p-4">
+                    {!atlasEnabled ? (
+                      <div className="text-center py-6">
+                        <AlertCircle className="w-10 h-10 mx-auto text-amber-400 mb-2" />
+                        <p className="text-slate-600 font-medium">Atlas Not Initialized</p>
+                        <p className="text-sm text-slate-500 mt-1">
+                          Initialize Atlas for this organization before managing feature export templates.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Add Template Buttons */}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setShowStarterPicker(org.id)}
+                            className="px-3 py-2 text-sm border border-slate-300 rounded-lg text-slate-700 hover:bg-white flex items-center gap-2"
+                          >
+                            <LayoutTemplate className="w-4 h-4" />
+                            From Template
+                          </button>
+                          <button
+                            onClick={() => handleCreateBlank(org.id)}
+                            className="px-3 py-2 text-sm text-white rounded-lg flex items-center gap-2"
+                            style={{ backgroundColor: accentColor }}
+                          >
+                            <Plus className="w-4 h-4" />
+                            New Blank
+                          </button>
+                        </div>
+
+                        {/* Templates List */}
+                        {templates.length === 0 ? (
+                          <div className="text-center py-6 bg-white rounded-lg border border-dashed border-slate-300">
+                            <FileOutput className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+                            <p className="text-slate-500">No feature export templates yet</p>
+                            <p className="text-sm text-slate-400">Create a template to enable feature exports</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {templates.map(template => (
+                              <div
+                                key={template.id}
+                                className={`flex items-center gap-3 p-3 bg-white rounded-lg border ${template.enabled === false ? 'border-slate-200 opacity-60' : 'border-slate-200'}`}
+                              >
+                                <div
+                                  className="w-10 h-10 rounded flex items-center justify-center"
+                                  style={{
+                                    backgroundColor: template.enabled !== false ? `${accentColor}15` : '#f1f5f9',
+                                    color: template.enabled !== false ? accentColor : '#94a3b8'
+                                  }}
+                                >
+                                  <FileOutput className="w-5 h-5" />
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-medium text-slate-800 truncate">{template.name}</h4>
+                                  <p className="text-xs text-slate-500">
+                                    {getPageSizeDisplay(template)} • {template.elements?.length || 0} elements
+                                    {template.mapExportTemplateId && (
+                                      <span className="ml-1 text-blue-600">+ Map</span>
+                                    )}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => handleToggleEnabled(org.id, template.id)}
+                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                    title={template.enabled !== false ? 'Disable' : 'Enable'}
+                                  >
+                                    {template.enabled !== false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                  </button>
+                                  <button
+                                    onClick={() => handleEditTemplate(org.id, template)}
+                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                    title="Edit"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDuplicateTemplate(org.id, template)}
+                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                    title="Duplicate"
+                                  >
+                                    <Copy className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTemplate(org.id, template.id, template.name)}
+                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Starter Template Picker Modal */}
+      {showStarterPicker && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">Choose a Starter Template</h3>
+                <p className="text-sm text-slate-500">Select a feature export template to customize</p>
+              </div>
+              <button onClick={() => setShowStarterPicker(null)} className="p-2 hover:bg-slate-100 rounded-lg">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              <div className="grid gap-4">
+                {FEATURE_STARTER_TEMPLATES.map(starter => (
+                  <button
+                    key={starter.id}
+                    onClick={() => handleCreateFromStarter(showStarterPicker, starter)}
+                    className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                  >
+                    <div
+                      className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
+                      style={{ backgroundColor: accentColor }}
+                    >
+                      <FileOutput className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-slate-800">{starter.name}</h4>
+                      <p className="text-sm text-slate-500 mt-0.5">{starter.description}</p>
+                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                        <span>{starter.pageSize.includes('landscape') ? 'Landscape' : 'Portrait'}</span>
+                        <span>•</span>
+                        <span>{starter.elements.length} elements</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0 mt-1" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
+              <button
+                onClick={() => setShowStarterPicker(null)}
+                className="w-full px-4 py-2 text-slate-700 border border-slate-300 rounded-lg hover:bg-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template Editor Modal */}
+      {editingTemplate && (
+        <FeatureExportTemplateEditor
+          data={editingTemplate.data}
+          orgData={editingTemplate.orgData}
+          mapExportTemplates={getMapExportTemplates(editingTemplate.orgData)}
+          onClose={() => setEditingTemplate(null)}
+          onSave={handleSaveTemplate}
+          accentColor={accentColor}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
  * Get Atlas navigation items based on role
  * @param {string} role - 'super_admin' | 'org_admin'
  * @returns {Array} Navigation items for atlas section
@@ -1003,14 +1524,16 @@ export function getAtlasNavItems(role) {
       { id: 'users', label: 'Users', icon: Users },
       { id: 'configuration', label: 'Configuration', icon: Settings },
       { id: 'export-templates', label: 'Export Templates', icon: Printer },
+      { id: 'feature-export-templates', label: 'Feature Export', icon: FileOutput },
     ];
   }
-  
-  // org_admin - includes Export Templates
+
+  // org_admin - includes Export Templates and Feature Export Templates
   return [
     { id: 'users', label: 'Users', icon: Users },
     { id: 'maps', label: 'Maps', icon: Layers },
     { id: 'export-templates', label: 'Export Templates', icon: Printer },
+    { id: 'feature-export-templates', label: 'Feature Export', icon: FileOutput },
     { id: 'preview', label: 'Preview', icon: Eye }
   ];
 }
