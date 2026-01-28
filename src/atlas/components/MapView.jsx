@@ -413,6 +413,9 @@ const MapView = forwardRef(function MapView(props, ref) {
   const handleMapClick = useCallback(async (event) => {
     if (!viewRef.current) return;
 
+    // DEBUG: Click detected
+    console.log('[MapView] Click detected at:', event.mapPoint);
+
     // Force close the Esri popup on every click with safety checks
     if (viewRef.current.popup) {
       viewRef.current.popup.visible = false;
@@ -427,6 +430,7 @@ const MapView = forwardRef(function MapView(props, ref) {
 
     try {
       const response = await viewRef.current.hitTest(event);
+      console.log('[MapView] HitTest results:', response.results);
       
       // Check for graphics layer hits (search results, pushpins, markup)
       const graphicHits = response.results.filter(r => 
@@ -475,7 +479,7 @@ const MapView = forwardRef(function MapView(props, ref) {
         return;
       }
 
-      // Check for operational layer hits - only include layers that had popup enabled in webmap
+      // Check for operational layer hits
       const layerHits = response.results.filter(r => {
         if (!r.graphic || !r.graphic.layer) return false;
 
@@ -488,13 +492,21 @@ const MapView = forwardRef(function MapView(props, ref) {
           return false;
         }
 
-        // Only include layers that had popup enabled in the original webmap config
-        const originalPopupEnabled = originalPopupEnabledRef.current.get(layerId);
-        return originalPopupEnabled === true;
+        // --- RELAXED FILTERING FOR DEBUGGING ---
+        // Instead of strictly requiring originalPopupEnabledRef, we just check if it's not internal.
+        // This ensures we catch the click even if initialization missed the layer config.
+        console.log(`[MapView] Found candidate layer hit: ${layerId}`);
+        return true;
+        
+        // Original Strict Logic:
+        // const originalPopupEnabled = originalPopupEnabledRef.current.get(layerId);
+        // return originalPopupEnabled === true;
       });
 
       if (layerHits.length > 0) {
         const hit = layerHits[0];
+        console.log('[MapView] Selected feature from layer:', hit.graphic.layer.title);
+
         // Ensure we pass the geometry in a usable format (JSON with attributes)
         // If geometry is missing, we rely on the graphic's geometry
         const feature = {
@@ -505,6 +517,8 @@ const MapView = forwardRef(function MapView(props, ref) {
 
         // Pass the raw graphic as well so we can use it for exact geometry references
         handleFeatureSelect(feature, hit.graphic, hit.graphic.layer);
+      } else {
+        console.log('[MapView] No valid layer hits found.');
       }
       
     } catch (err) {
@@ -722,6 +736,7 @@ const MapView = forwardRef(function MapView(props, ref) {
    */
   const highlightFeature = useCallback((feature, originalGraphic = null) => {
     if (!highlightLayerRef.current || !mapReady) {
+      console.warn('[MapView] Highlight skipped: Layer or Map not ready');
       return;
     }
 
