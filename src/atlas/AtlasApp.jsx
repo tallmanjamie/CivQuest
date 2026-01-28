@@ -80,7 +80,11 @@ function SearchToolbar({
   onSearch,
   isSearching,
   activeMap,
+  showHistory,
   onShowHistory,
+  onHideHistory,
+  searchHistory,
+  onClearHistory,
   onShowAdvanced,
   position = 'top'
 }) {
@@ -93,6 +97,7 @@ function SearchToolbar({
   const inputRef = useRef(null);
   const suggestionsRef = useRef(null);
   const debounceRef = useRef(null);
+  const menuButtonRef = useRef(null);
 
   // Get theme colors from config
   const themeColor = config?.ui?.themeColor || 'sky';
@@ -343,7 +348,14 @@ function SearchToolbar({
       <div className="flex-1 flex items-center gap-2 relative">
         {/* Menu Button */}
         <button
-          onClick={() => setShowMenu(!showMenu)}
+          ref={menuButtonRef}
+          onClick={() => {
+            if (showHistory) {
+              onHideHistory?.();
+            } else {
+              setShowMenu(!showMenu);
+            }
+          }}
           className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg flex-shrink-0"
           title="More options"
         >
@@ -351,7 +363,7 @@ function SearchToolbar({
         </button>
 
         {/* Menu Dropdown */}
-        {showMenu && (
+        {showMenu && !showHistory && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
             <div className={`absolute ${isBottom ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-slate-200 shadow-xl rounded-xl w-56 p-1.5 z-50`}>
@@ -385,6 +397,79 @@ function SearchToolbar({
                   <span className="block text-xs text-slate-400">View recent searches</span>
                 </div>
               </button>
+            </div>
+          </>
+        )}
+
+        {/* Search History Dropdown Panel */}
+        {showHistory && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => onHideHistory?.()} />
+            <div className={`absolute ${isBottom ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-slate-200 shadow-xl rounded-xl w-80 z-50 overflow-hidden`}>
+              {/* Header */}
+              <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4" style={{ color: colors.text600 }} />
+                  <span className="font-semibold text-slate-800 text-sm">Recent Searches</span>
+                </div>
+                <button
+                  onClick={() => onHideHistory?.()}
+                  className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* History List */}
+              <div className="max-h-64 overflow-y-auto">
+                {(!searchHistory || searchHistory.length === 0) ? (
+                  <div className="p-6 text-center">
+                    <Clock className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                    <p className="text-sm text-slate-500">No search history yet</p>
+                    <p className="text-xs text-slate-400 mt-1">Your recent searches will appear here</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {searchHistory.slice(0, 10).map((item, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          onSearch?.(item.query);
+                          onHideHistory?.();
+                        }}
+                        className="w-full px-4 py-2.5 text-left hover:bg-slate-50 transition-colors flex items-center gap-3 group"
+                      >
+                        <Search className="w-4 h-4 text-slate-300 group-hover:text-slate-500 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-slate-700 truncate">{item.query}</p>
+                          <p className="text-xs text-slate-400">
+                            {new Date(item.timestamp).toLocaleDateString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer - Clear button */}
+              {searchHistory && searchHistory.length > 0 && (
+                <div className="px-3 py-2 border-t border-slate-100 bg-slate-50">
+                  <button
+                    onClick={() => {
+                      onClearHistory?.();
+                    }}
+                    className="w-full py-1.5 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                  >
+                    Clear History
+                  </button>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -515,6 +600,45 @@ export default function AtlasApp() {
   const [showOrgSelector, setShowOrgSelector] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Search History State (shared across all views)
+  const [searchHistory, setSearchHistory] = useState([]);
+
+  // Load search history from localStorage on mount
+  useEffect(() => {
+    if (config?.id) {
+      const key = `atlas_history_${config.id}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try {
+          setSearchHistory(JSON.parse(saved));
+        } catch (e) {
+          console.warn('[AtlasApp] Failed to parse search history:', e);
+        }
+      }
+    }
+  }, [config?.id]);
+
+  // Save search to history (limited to 10 items)
+  const saveToHistory = useCallback((query) => {
+    if (!query?.trim() || !config?.id) return;
+
+    const key = `atlas_history_${config.id}`;
+    const newHistory = [
+      { query: query.trim(), timestamp: Date.now() },
+      ...searchHistory.filter(h => h.query !== query.trim()).slice(0, 9) // Keep 9 + 1 new = 10 max
+    ];
+    setSearchHistory(newHistory);
+    localStorage.setItem(key, JSON.stringify(newHistory));
+  }, [config?.id, searchHistory]);
+
+  // Clear search history
+  const clearHistory = useCallback(() => {
+    if (!config?.id) return;
+    const key = `atlas_history_${config.id}`;
+    setSearchHistory([]);
+    localStorage.removeItem(key);
+  }, [config?.id]);
   
   // Search State (shared across views)
   const [searchQuery, setSearchQuery] = useState('');
@@ -650,7 +774,12 @@ export default function AtlasApp() {
     showHistory,
     setShowHistory,
     showAdvanced,
-    setShowAdvanced
+    setShowAdvanced,
+
+    // Search History (shared across all views)
+    searchHistory,
+    saveToHistory,
+    clearHistory
   };
   
   // Loading state
@@ -717,7 +846,11 @@ export default function AtlasApp() {
       onSearch={handleSearch}
       isSearching={isSearching}
       activeMap={activeMap}
+      showHistory={showHistory}
       onShowHistory={() => setShowHistory(true)}
+      onHideHistory={() => setShowHistory(false)}
+      searchHistory={searchHistory}
+      onClearHistory={clearHistory}
       onShowAdvanced={() => setShowAdvanced(true)}
       position={searchBarPosition}
     />
