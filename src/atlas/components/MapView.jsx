@@ -91,6 +91,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const markupLayerRef = useRef(null);
   const mountedRef = useRef(true);
   const initStartedRef = useRef(false);
+  const originalPopupEnabledRef = useRef(new Map()); // Store original popupEnabled state for each layer
 
   // State
   const [isLoading, setIsLoading] = useState(true);
@@ -338,20 +339,27 @@ const MapView = forwardRef(function MapView(props, ref) {
           }
         );
 
-        // Also disable popup on all operational layers
+        // Store original popupEnabled state and disable popup on all operational layers
+        // We use FeatureInfoPanel instead of native popup, but need to know which layers
+        // should show popup based on webmap configuration
+        originalPopupEnabledRef.current.clear();
         webMap.allLayers.forEach(layer => {
           if (layer.popupEnabled !== undefined) {
-            console.log('[MapView] Disabling popup on layer:', layer.id, layer.title);
+            // Store original state before disabling
+            originalPopupEnabledRef.current.set(layer.id, layer.popupEnabled);
+            console.log('[MapView] Layer popup config:', layer.id, layer.title, 'enabled:', layer.popupEnabled);
             layer.popupEnabled = false;
           }
         });
 
-        // Watch for new layers being added and disable their popups
+        // Watch for new layers being added and disable their popups (but store original state)
         webMap.allLayers.on('change', (event) => {
           if (event.added) {
             event.added.forEach(layer => {
               if (layer.popupEnabled !== undefined) {
-                console.log('[MapView] Disabling popup on newly added layer:', layer.id, layer.title);
+                // Store original state before disabling
+                originalPopupEnabledRef.current.set(layer.id, layer.popupEnabled);
+                console.log('[MapView] New layer popup config:', layer.id, layer.title, 'enabled:', layer.popupEnabled);
                 layer.popupEnabled = false;
               }
             });
@@ -470,23 +478,31 @@ const MapView = forwardRef(function MapView(props, ref) {
         return;
       }
 
-      // Check for operational layer hits
-      const layerHits = response.results.filter(r =>
-        r.graphic &&
-        r.graphic.layer &&
-        r.graphic.layer.id !== RESULTS_LAYER_ID &&
-        r.graphic.layer.id !== HIGHLIGHT_LAYER_ID &&
-        r.graphic.layer.id !== PUSHPIN_LAYER_ID &&
-        r.graphic.layer.id !== MARKUP_LAYER_ID
-      );
+      // Check for operational layer hits - only include layers that had popup enabled in webmap
+      const layerHits = response.results.filter(r => {
+        if (!r.graphic || !r.graphic.layer) return false;
 
-      console.log('[MapView] handleMapClick - Layer hits:', layerHits.length);
+        const layerId = r.graphic.layer.id;
+        // Exclude our internal layers
+        if (layerId === RESULTS_LAYER_ID ||
+            layerId === HIGHLIGHT_LAYER_ID ||
+            layerId === PUSHPIN_LAYER_ID ||
+            layerId === MARKUP_LAYER_ID) {
+          return false;
+        }
+
+        // Only include layers that had popup enabled in the original webmap config
+        const originalPopupEnabled = originalPopupEnabledRef.current.get(layerId);
+        return originalPopupEnabled === true;
+      });
+
+      console.log('[MapView] handleMapClick - Layer hits (popup enabled only):', layerHits.length);
       layerHits.forEach((hit, idx) => {
         console.log(`[MapView] handleMapClick - Layer hit ${idx}:`, {
           layerId: hit.graphic.layer?.id,
           layerTitle: hit.graphic.layer?.title,
           hasPopupTemplate: !!hit.graphic.layer?.popupTemplate,
-          popupEnabled: hit.graphic.layer?.popupEnabled
+          originalPopupEnabled: originalPopupEnabledRef.current.get(hit.graphic.layer?.id)
         });
       });
 
@@ -935,9 +951,101 @@ const MapView = forwardRef(function MapView(props, ref) {
    * Handle saving a feature as markup
    */
   const handleSaveAsMarkup = useCallback((feature) => {
-    // This would integrate with MarkupTool to save the feature
-    console.log('[MapView] Save as markup:', feature);
-  }, []);
+    if (!markupLayerRef.current || !feature?.geometry) {
+      console.warn('[MapView] Cannot save as markup: missing layer or geometry');
+      return;
+    }
+
+    console.log('[MapView] Saving feature as markup:', feature);
+
+    // Determine geometry type and create appropriate symbol
+    const geometry = feature.geometry;
+    let graphicGeometry;
+    let symbol;
+    let toolType = 'polygon';
+
+    // Get theme color for the markup
+    const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
+    const hex500 = palette[500];
+    const hexToRgb = (hex) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? [
+        parseInt(result[1], 16),
+        parseInt(result[2], 16),
+        parseInt(result[3], 16)
+      ] : [14, 165, 233];
+    };
+    const [r, g, b] = hexToRgb(hex500);
+
+    if (geometry.rings) {
+      // Polygon
+      graphicGeometry = new Polygon({
+        rings: geometry.rings,
+        spatialReference: geometry.spatialReference || { wkid: 4326 }
+      });
+      symbol = new SimpleFillSymbol({
+        color: [r, g, b, 0.35],
+        outline: new SimpleLineSymbol({
+          color: [r, g, b],
+          width: 2
+        })
+      });
+      toolType = 'polygon';
+    } else if (geometry.paths) {
+      // Polyline
+      graphicGeometry = new Polyline({
+        paths: geometry.paths,
+        spatialReference: geometry.spatialReference || { wkid: 4326 }
+      });
+      symbol = new SimpleLineSymbol({
+        color: [r, g, b],
+        width: 3
+      });
+      toolType = 'polyline';
+    } else if (geometry.x !== undefined) {
+      // Point
+      graphicGeometry = new Point({
+        x: geometry.x,
+        y: geometry.y,
+        spatialReference: geometry.spatialReference || { wkid: 4326 }
+      });
+      symbol = new SimpleMarkerSymbol({
+        color: [r, g, b],
+        size: 12,
+        outline: { color: [255, 255, 255], width: 2 }
+      });
+      toolType = 'point';
+    } else {
+      console.warn('[MapView] Unsupported geometry type for markup');
+      return;
+    }
+
+    // Get a name for the markup from feature attributes
+    const attrs = feature.attributes || {};
+    const featureName = attrs.displayName || attrs.title || attrs.TITLE ||
+                        attrs.name || attrs.NAME || attrs.ADDRESS ||
+                        attrs.address || attrs.PARCELID || 'Saved Feature';
+
+    // Create the markup graphic
+    const markupGraphic = new Graphic({
+      geometry: graphicGeometry,
+      symbol,
+      attributes: {
+        id: `markup_${Date.now()}`,
+        name: featureName,
+        tool: toolType,
+        symbolStyle: toolType === 'point' ? 'circle' : 'solid',
+        color: hex500,
+        isMarkup: true,
+        timestamp: Date.now(),
+        savedFrom: 'feature-info-panel'
+      }
+    });
+
+    // Add to markup layer
+    markupLayerRef.current.add(markupGraphic);
+    console.log('[MapView] Feature saved as markup:', markupGraphic.attributes.name);
+  }, [themeColor]);
 
   /**
    * Handle export to PDF
