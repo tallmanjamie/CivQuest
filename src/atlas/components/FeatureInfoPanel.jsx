@@ -8,7 +8,6 @@ import {
   MapPin,
   Target,
   Download,
-  Pencil,
   Layers,
   GripVertical
 } from 'lucide-react';
@@ -102,10 +101,9 @@ export default function FeatureInfoPanel({
       }));
     }
     return [
-      { id: 'info', label: 'Info', icon: FileText },
-      { id: 'markup', label: 'Markup', icon: Pencil, disabled: !onSaveAsMarkup }
+      { id: 'info', label: 'Info', icon: FileText }
     ];
-  }, [isMarkupFeature, useCustomTabs, customFeatureInfo, arcadeExpressions, onSaveAsMarkup]);
+  }, [isMarkupFeature, useCustomTabs, customFeatureInfo, arcadeExpressions]);
 
   useEffect(() => {
     if (tabs.length > 0 && (!activeTab || !tabs.find(t => t.id === activeTab))) {
@@ -227,7 +225,7 @@ export default function FeatureInfoPanel({
 
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
-      <ActionButton icon={Bookmark} label="Save" onClick={onSaveAsMarkup} />
+      <ActionButton icon={Bookmark} label="Save to Markup" onClick={onSaveAsMarkup} />
       <ActionButton icon={Download} label="Export PDF" onClick={onExportPDF} />
       <ActionButton icon={Target} label="Zoom To" onClick={() => onZoomTo?.(feature)} />
     </div>
@@ -255,7 +253,6 @@ export default function FeatureInfoPanel({
           {renderTabsList()}
           <div className="flex-1 overflow-y-auto p-5 pb-20">
             <div ref={featureContainerRef} className="feature-widget-container" />
-            {activeTab === 'markup' && <MarkupTabContent feature={feature} onSaveAsMarkup={onSaveAsMarkup} colors={colors} />}
           </div>
         </div>
       </div>
@@ -267,11 +264,14 @@ export default function FeatureInfoPanel({
       className="absolute right-0 top-0 bottom-0 bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.05)] z-40 flex flex-col border-l border-slate-200"
       style={{ width: desktopWidth }}
     >
-      <div 
-        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-sky-400/30 transition-colors z-50 flex items-center justify-center group"
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize transition-colors z-50 flex items-center justify-center group"
+        style={{ '--hover-bg': `${colors.bg500}4D` }}
         onMouseDown={startResizingDesktop}
+        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${colors.bg500}4D`}
+        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
       >
-        <div className="hidden group-hover:block"><GripVertical className="w-3 h-3 text-sky-600" /></div>
+        <div className="hidden group-hover:block"><GripVertical className="w-3 h-3" style={{ color: colors.text600 }} /></div>
       </div>
 
       <div className="flex items-center justify-between p-4 border-b border-slate-200" style={{ backgroundColor: colors.bg50 }}>
@@ -288,7 +288,6 @@ export default function FeatureInfoPanel({
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <div className="p-6">
           <div ref={featureContainerRef} className="feature-widget-container" />
-          {activeTab === 'markup' && <MarkupTabContent feature={feature} onSaveAsMarkup={onSaveAsMarkup} colors={colors} />}
         </div>
       </div>
 
@@ -313,26 +312,3 @@ function ActionButton({ icon: Icon, label, onClick }) {
   );
 }
 
-function MarkupTabContent({ feature, onSaveAsMarkup, colors }) {
-  const [title, setTitle] = useState('');
-  return (
-    <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div>
-        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Location Name</label>
-        <input 
-          type="text" 
-          value={title} 
-          onChange={(e) => setTitle(e.target.value)} 
-          className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-sky-500 shadow-sm" 
-        />
-      </div>
-      <button 
-        onClick={() => onSaveAsMarkup?.({ ...feature, attributes: { ...feature.attributes, title } })} 
-        className="w-full py-3.5 rounded-xl font-bold text-white shadow-lg active:scale-95 transition-transform" 
-        style={{ backgroundColor: colors.bg600 }}
-      >
-        Save to Markup
-      </button>
-    </div>
-  );
-}
