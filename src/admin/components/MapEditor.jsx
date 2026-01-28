@@ -932,11 +932,13 @@ export default function MapEditor({
                         <select
                           value={sf.type || 'text'}
                           onChange={(e) => updateSearchField(idx, 'type', e.target.value)}
-                          className="w-24 px-2 py-1 text-sm border border-slate-300 rounded"
+                          className="w-32 px-2 py-1 text-sm border border-slate-300 rounded"
                         >
                           <option value="text">Text</option>
                           <option value="number">Number</option>
                           <option value="date">Date</option>
+                          <option value="single-select">Single Select</option>
+                          <option value="multi-select">Multi Select</option>
                         </select>
                         <button
                           type="button"

@@ -41,6 +41,7 @@ import WelcomeScreen from './components/WelcomeScreen';
 import LoadingScreen from './components/LoadingScreen';
 import ErrorScreen from './components/ErrorScreen';
 import OrgSelector from './components/OrgSelector';
+import AdvancedSearchModal from './components/AdvancedSearchModal';
 
 // Theme utility for proper dynamic theming
 import { getThemeColors, getThemeCssVars } from './utils/themeColors';
@@ -729,7 +730,28 @@ export default function AtlasApp() {
       mapViewRef.current.highlightFeature(feature);
     }
   }, []);
-  
+
+  // Handle advanced search results
+  const handleAdvancedSearch = useCallback((features, whereClause) => {
+    console.log(`[AtlasApp] Advanced search completed: ${features.length} features`);
+
+    // Update search results
+    setSearchResults(features);
+    setIsSearching(false);
+
+    // If we have results and map mode is enabled, switch to map mode to show them
+    if (features.length > 0 && enabledModes.includes('map')) {
+      handleModeChange('map');
+
+      // Zoom to all features if map view has that capability
+      setTimeout(() => {
+        if (mapViewRef.current?.zoomToAllFeatures) {
+          mapViewRef.current.zoomToAllFeatures(features);
+        }
+      }, 100);
+    }
+  }, [enabledModes, handleModeChange]);
+
   // Context value - includes theme colors for child components
   const contextValue = {
     // Config
@@ -931,7 +953,7 @@ export default function AtlasApp() {
         
         {/* Org Selector Modal */}
         {showOrgSelector && (
-          <OrgSelector 
+          <OrgSelector
             onSelect={(newOrgId) => {
               setOrgId(newOrgId);
               setShowOrgSelector(false);
@@ -940,6 +962,13 @@ export default function AtlasApp() {
             currentOrg={orgId}
           />
         )}
+
+        {/* Advanced Search Modal */}
+        <AdvancedSearchModal
+          isOpen={showAdvanced}
+          onClose={() => setShowAdvanced(false)}
+          onSearch={handleAdvancedSearch}
+        />
       </div>
     </AtlasContext.Provider>
   );
