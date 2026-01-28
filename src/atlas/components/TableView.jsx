@@ -484,7 +484,7 @@ const TableView = forwardRef(function TableView(props, ref) {
             <BarChart3 className="w-4 h-4" style={{ color: colors.text600 }} />
             <span className="table-status-text">
               {hasResults
-                ? `${rowCount.toLocaleString()} ${rowCount === 1 ? 'record' : 'records'}`
+                ? `${(rowCount ?? 0).toLocaleString()} ${rowCount === 1 ? 'record' : 'records'}`
                 : 'No results to display'}
             </span>
           </div>
