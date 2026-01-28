@@ -42,6 +42,9 @@ export default function FeatureInfoPanel({
   const [activeTab, setActiveTab] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
   
+  // Title State (Resolved from Feature Widget)
+  const [dynamicTitle, setDynamicTitle] = useState(null);
+  
   // Resizing State
   const [desktopWidth, setDesktopWidth] = useState(400); 
   const [isResizing, setIsResizing] = useState(false);
@@ -49,6 +52,7 @@ export default function FeatureInfoPanel({
   // Refs
   const featureWidgetRef = useRef(null);
   const featureContainerRef = useRef(null);
+  const titleWatcherRef = useRef(null); // Ref to hold the title watcher handle
   const resizeRef = useRef({ startX: 0, startW: 0 });
 
   const useCustomTabs = useMemo(() => {
@@ -103,6 +107,11 @@ export default function FeatureInfoPanel({
     }
   }, [tabs, activeTab]);
 
+  // Reset dynamic title when feature changes
+  useEffect(() => {
+    setDynamicTitle(null);
+  }, [feature]);
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
@@ -115,8 +124,12 @@ export default function FeatureInfoPanel({
 
     const loadArcGIS = async () => {
       try {
-        const FeatureClass = await import('@arcgis/core/widgets/Feature').then(m => m.default).catch(() => window.esri?.widgets?.Feature);
-        const GraphicClass = await import('@arcgis/core/Graphic').then(m => m.default).catch(() => window.esri?.Graphic);
+        // Dynamically load modules
+        const [FeatureClass, GraphicClass, reactiveUtils] = await Promise.all([
+          import('@arcgis/core/widgets/Feature').then(m => m.default).catch(() => window.esri?.widgets?.Feature),
+          import('@arcgis/core/Graphic').then(m => m.default).catch(() => window.esri?.Graphic),
+          import('@arcgis/core/core/reactiveUtils').catch(() => window.esri?.core?.reactiveUtils)
+        ]);
         
         if (!FeatureClass || !GraphicClass || !featureContainerRef.current) return;
 
@@ -128,8 +141,25 @@ export default function FeatureInfoPanel({
           return;
         }
 
+        // --- Fix for Geometry Autocast Error ---
+        // Ensure geometry is a valid object with a 'type' property if it's a plain JSON object
+        let geometry = feature.geometry;
+        if (geometry && typeof geometry === 'object' && !geometry.declaredClass) {
+          // It's likely a plain JSON object. Clone it to avoid mutating props.
+          geometry = { ...geometry };
+          
+          // Injects type if missing (required for Graphic autocasting)
+          if (!geometry.type) {
+             if (geometry.rings) geometry.type = 'polygon';
+             else if (geometry.paths) geometry.type = 'polyline';
+             else if (geometry.x !== undefined) geometry.type = 'point';
+             else if (geometry.xmin !== undefined) geometry.type = 'extent';
+             else if (geometry.points) geometry.type = 'multipoint';
+          }
+        }
+
         const graphic = new GraphicClass({
-          geometry: feature.geometry,
+          geometry: geometry,
           attributes: feature.attributes || {},
           layer: sourceLayer
         });
@@ -151,6 +181,7 @@ export default function FeatureInfoPanel({
           };
         }
 
+        // Initialize or update widget
         if (!featureWidgetRef.current) {
           featureWidgetRef.current = new FeatureClass({
             graphic,
@@ -161,13 +192,48 @@ export default function FeatureInfoPanel({
           featureWidgetRef.current.container = featureContainerRef.current;
           featureWidgetRef.current.graphic = graphic;
         }
+
+        // --- Title Resolution Logic (Updated for reactiveUtils) ---
+        // Clean up old watcher if exists
+        if (titleWatcherRef.current) {
+          titleWatcherRef.current.remove();
+          titleWatcherRef.current = null;
+        }
+
+        const updateTitle = (newTitle) => {
+          if (newTitle && typeof newTitle === 'string') {
+             setDynamicTitle(newTitle);
+          }
+        };
+
+        // Set initial value if available
+        if (featureWidgetRef.current.title) {
+          updateTitle(featureWidgetRef.current.title);
+        }
+
+        // Start watching using reactiveUtils (replaces deprecated .watch)
+        if (reactiveUtils) {
+          titleWatcherRef.current = reactiveUtils.watch(
+            () => featureWidgetRef.current.title,
+            updateTitle
+          );
+        }
+
       } catch (err) {
-        console.warn("ArcGIS modules not available for preview.");
+        console.warn("ArcGIS modules error:", err);
       }
     };
 
     const timer = setTimeout(loadArcGIS, 50);
-    return () => clearTimeout(timer);
+    
+    // Cleanup function
+    return () => {
+      clearTimeout(timer);
+      if (titleWatcherRef.current) {
+        titleWatcherRef.current.remove();
+        titleWatcherRef.current = null;
+      }
+    };
   }, [feature, view, sourceLayer, activeTab, tabs, isMobile]);
 
   const startResizingDesktop = useCallback((e) => {
@@ -187,6 +253,7 @@ export default function FeatureInfoPanel({
     window.addEventListener('mouseup', onMouseUp);
   }, [desktopWidth]);
 
+  // Fallback title logic if Widget hasn't loaded or fails
   const getFeatureTitle = useCallback(() => {
     // Priority 1: Check for 'displayName' (set by SearchResults or passed enrichment)
     if (feature?.attributes?.displayName) return feature.attributes.displayName;
@@ -228,6 +295,9 @@ export default function FeatureInfoPanel({
            attrs.ADDRESS || attrs.address || attrs.PARCELID || 'Feature Details';
   }, [feature, sourceLayer]);
 
+  // Determine final title to display
+  const displayTitle = dynamicTitle || getFeatureTitle();
+
   const renderTabsList = () => (
     <div className="flex border-b border-slate-200 overflow-x-auto bg-white sticky top-0 z-10 no-scrollbar">
       {tabs.map(tab => (
@@ -267,7 +337,7 @@ export default function FeatureInfoPanel({
             <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-white shadow-sm border border-slate-100">
               <MapPin className="w-4 h-4" style={{ color: colors.bg500 }} />
             </div>
-            <h3 className="font-bold text-slate-800 truncate text-lg">{getFeatureTitle()}</h3>
+            <h3 className="font-bold text-slate-800 truncate text-lg">{displayTitle}</h3>
           </div>
           <button onClick={onClose} className="p-2.5 hover:bg-slate-100 rounded-full transition active:scale-90"><X className="w-6 h-6 text-slate-500" /></button>
         </div>
@@ -300,7 +370,7 @@ export default function FeatureInfoPanel({
       <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50/50">
         <div className="flex items-center gap-3 min-w-0">
           <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: colors.bg500 }} />
-          <h3 className="font-bold text-slate-800 truncate text-base">{getFeatureTitle()}</h3>
+          <h3 className="font-bold text-slate-800 truncate text-base">{displayTitle}</h3>
         </div>
         <button onClick={onClose} className="p-2 hover:bg-white rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>
       </div>
@@ -334,4 +404,3 @@ function ActionButton({ icon: Icon, label, onClick }) {
     </button>
   );
 }
-

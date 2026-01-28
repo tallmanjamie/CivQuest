@@ -1,19 +1,6 @@
 // src/atlas/components/MapView.jsx
 // CivQuest Atlas - Map View Component
 // ArcGIS WebMap integration with results layer and modern tool components
-//
-// INTEGRATED COMPONENTS:
-// - SearchResultsPanel: Expandable list of search results (top)
-// - MarkupTool: Drawing and annotation tools
-// - LayersPanel: Collapsible layer list with legends and map picker
-// - BasemapPicker: Basemap selection with swipe tool
-// - MapExport: Map export functionality (stub)
-// - FeatureInfoPanel: Feature details (right side desktop / bottom mobile)
-//
-// LAYOUT:
-// - Top Left: SearchResultsPanel, MarkupTool, LayersPanel, BasemapPicker, MapExport (stacked)
-// - Top Right: Results count, Clear button
-// - Bottom Right: Zoom controls
 
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
@@ -333,8 +320,18 @@ const MapView = forwardRef(function MapView(props, ref) {
           (visible) => {
             if (visible) {
               console.log('[MapView] Popup attempted to open - closing it');
-              view.popup.close();
-              view.popup.visible = false;
+              // Safe close: prioritize visible = false
+              if (view.popup) {
+                view.popup.visible = false;
+                // Only call close if it's a function (sometimes checking if it exists is safer)
+                if (typeof view.popup.close === 'function') {
+                  try {
+                    view.popup.close();
+                  } catch (e) {
+                    // Ignore close error if not ready
+                  }
+                }
+              }
             }
           }
         );
@@ -416,21 +413,20 @@ const MapView = forwardRef(function MapView(props, ref) {
   const handleMapClick = useCallback(async (event) => {
     if (!viewRef.current) return;
 
-    // Force close the Esri popup on every click
+    // Force close the Esri popup on every click with safety checks
     if (viewRef.current.popup) {
-      viewRef.current.popup.close();
       viewRef.current.popup.visible = false;
+      if (typeof viewRef.current.popup.close === 'function') {
+        try {
+          viewRef.current.popup.close();
+        } catch (e) {
+          // Ignore close errors if popup is not fully initialized
+        }
+      }
     }
-
-    console.log('[MapView] handleMapClick - Starting hit test');
-    console.log('[MapView] handleMapClick - Popup state before:', {
-      autoOpenEnabled: viewRef.current.popup?.autoOpenEnabled,
-      visible: viewRef.current.popup?.visible
-    });
 
     try {
       const response = await viewRef.current.hitTest(event);
-      console.log('[MapView] handleMapClick - Hit test results:', response.results.length, 'hits');
       
       // Check for graphics layer hits (search results, pushpins, markup)
       const graphicHits = response.results.filter(r => 
@@ -472,7 +468,8 @@ const MapView = forwardRef(function MapView(props, ref) {
               ...feature,
               sourceLayerId: customLayerId
             } : feature;
-            handleFeatureSelect(enrichedFeature, null, sourceLayer);
+            // Highlight feature using the cloned graphic if available
+            handleFeatureSelect(enrichedFeature, clickedGraphic, sourceLayer);
           }
         }
         return;
@@ -496,66 +493,36 @@ const MapView = forwardRef(function MapView(props, ref) {
         return originalPopupEnabled === true;
       });
 
-      console.log('[MapView] handleMapClick - Layer hits (popup enabled only):', layerHits.length);
-      layerHits.forEach((hit, idx) => {
-        console.log(`[MapView] handleMapClick - Layer hit ${idx}:`, {
-          layerId: hit.graphic.layer?.id,
-          layerTitle: hit.graphic.layer?.title,
-          hasPopupTemplate: !!hit.graphic.layer?.popupTemplate,
-          originalPopupEnabled: originalPopupEnabledRef.current.get(hit.graphic.layer?.id)
-        });
-      });
-
       if (layerHits.length > 0) {
         const hit = layerHits[0];
+        // Ensure we pass the geometry in a usable format (JSON with attributes)
+        // If geometry is missing, we rely on the graphic's geometry
         const feature = {
           geometry: hit.graphic.geometry?.toJSON?.() || hit.graphic.geometry,
           attributes: hit.graphic.attributes || {},
           sourceLayerId: hit.graphic.layer?.id
         };
 
-        console.log('[MapView] handleMapClick - Selected feature:', {
-          sourceLayerId: feature.sourceLayerId,
-          attributeKeys: Object.keys(feature.attributes || {}),
-          hasGeometry: !!feature.geometry
-        });
-
-        // Force close popup again before opening panel
-        if (viewRef.current.popup) {
-          viewRef.current.popup.close();
-          viewRef.current.popup.visible = false;
-        }
-
+        // Pass the raw graphic as well so we can use it for exact geometry references
         handleFeatureSelect(feature, hit.graphic, hit.graphic.layer);
       }
       
     } catch (err) {
       console.warn('[MapView] Click handler error:', err);
     }
-  }, [searchResults]);
+  }, [searchResults, activeMap]);
 
   /**
    * Handle feature selection (opens FeatureInfoPanel)
    */
   const handleFeatureSelect = useCallback((feature, graphic = null, layer = null) => {
-    console.log('[MapView] handleFeatureSelect - Input:', {
-      featureSourceLayerId: feature?.sourceLayerId,
-      featureAttributeKeys: Object.keys(feature?.attributes || {}),
-      graphicProvided: !!graphic,
-      layerProvided: !!layer,
-      layerId: layer?.id,
-      layerTitle: layer?.title
-    });
-
     // If no layer provided, try to find the custom feature layer
     let resolvedLayer = layer;
     let enrichedFeature = feature;
 
     if (!layer && activeMap?.customFeatureInfo?.layerId && mapRef.current) {
       const customLayerId = activeMap.customFeatureInfo.layerId;
-      console.log('[MapView] handleFeatureSelect - Looking for custom layer:', customLayerId);
       resolvedLayer = mapRef.current.allLayers?.find(l => l.id === customLayerId);
-      console.log('[MapView] handleFeatureSelect - Found custom layer:', !!resolvedLayer, resolvedLayer?.title);
       if (resolvedLayer) {
         enrichedFeature = {
           ...feature,
@@ -564,32 +531,13 @@ const MapView = forwardRef(function MapView(props, ref) {
       }
     }
 
-    console.log('[MapView] handleFeatureSelect - Resolved:', {
-      resolvedLayerId: resolvedLayer?.id,
-      resolvedLayerTitle: resolvedLayer?.title,
-      hasPopupTemplate: !!resolvedLayer?.popupTemplate,
-      popupTemplateTitle: resolvedLayer?.popupTemplate?.title,
-      popupTemplateContentType: typeof resolvedLayer?.popupTemplate?.content,
-      popupTemplateContentIsArray: Array.isArray(resolvedLayer?.popupTemplate?.content),
-      enrichedFeatureSourceLayerId: enrichedFeature?.sourceLayerId,
-      customFeatureInfoLayerId: activeMap?.customFeatureInfo?.layerId,
-      customFeatureInfoTabs: activeMap?.customFeatureInfo?.tabs?.length || 0
-    });
-
-    // Log popup template content details for debugging
-    if (resolvedLayer?.popupTemplate?.content) {
-      console.log('[MapView] handleFeatureSelect - PopupTemplate content:',
-        JSON.stringify(resolvedLayer.popupTemplate.content, null, 2).substring(0, 1000)
-      );
-    }
-
     setSelectedFeature(enrichedFeature);
     setSelectedFeatureLayer(resolvedLayer);
     setIsMarkupFeature(false);
     setShowFeaturePanel(true);
 
-    // Highlight the feature
-    highlightFeature(feature);
+    // Highlight the feature - Pass the graphic explicitly!
+    highlightFeature(feature, graphic);
 
     // Query for related features if configured
     queryRelatedFeatures(feature, graphic);
@@ -660,8 +608,6 @@ const MapView = forwardRef(function MapView(props, ref) {
     }
 
     if (!features || features.length === 0) return;
-
-    console.log('[MapView] Rendering', features.length, 'results');
 
     // Get theme color RGB values
     const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
@@ -774,54 +720,100 @@ const MapView = forwardRef(function MapView(props, ref) {
   /**
    * Highlight a single feature (including its pushpin if multi-result)
    */
-  const highlightFeature = useCallback((feature) => {
+  const highlightFeature = useCallback((feature, originalGraphic = null) => {
     if (!highlightLayerRef.current || !mapReady) {
-      console.log('[MapView] highlightFeature - early return:', {
-        hasHighlightLayer: !!highlightLayerRef.current,
-        mapReady
-      });
       return;
     }
 
     highlightLayerRef.current.removeAll();
 
+    // --- Helper to create standard highlight symbols ---
+    const getHighlightSymbol = (type) => {
+      if (type === 'polygon') {
+        return new SimpleFillSymbol({
+          color: [255, 255, 0, 0.3],
+          style: "solid",
+          outline: { color: [255, 200, 0], width: 3 }
+        });
+      } else if (type === 'polyline') {
+        return new SimpleLineSymbol({ 
+          color: [255, 200, 0], 
+          width: 4,
+          style: "solid"
+        });
+      } else {
+        return new SimpleMarkerSymbol({
+          color: [255, 200, 0],
+          size: 16,
+          style: "circle",
+          outline: { color: [255, 255, 255], width: 3 }
+        });
+      }
+    };
+
+    // --- STRATEGY 1: Use Original Graphic (Best for Map Clicks) ---
+    // If we have the original graphic from the hitTest, clone it.
+    // This is robust because it guarantees the geometry type and spatial reference are correct.
+    if (originalGraphic && originalGraphic.geometry) {
+      try {
+        console.log('[MapView] Highlight Strategy 1: Cloning original graphic', originalGraphic);
+        const clone = originalGraphic.clone();
+        
+        // Determine type for symbol
+        let type = 'point';
+        if (clone.geometry.type) {
+           type = clone.geometry.type;
+        } else if (clone.geometry.rings) {
+           type = 'polygon';
+        } else if (clone.geometry.paths) {
+           type = 'polyline';
+        }
+        
+        clone.symbol = getHighlightSymbol(type);
+        highlightLayerRef.current.add(clone);
+        return; 
+      } catch (e) {
+        console.warn("[MapView] Failed to clone original graphic for highlight:", e);
+        // Fall through to Strategy 2
+      }
+    }
+
+    // --- STRATEGY 2: Reconstruct from JSON (Best for Search Results) ---
+    
     if (!feature?.geometry) {
-      console.log('[MapView] highlightFeature - no geometry on feature');
+      console.warn('[MapView] Highlight failed: No geometry found');
       return;
     }
 
-    const geom = feature.geometry;
-    console.log('[MapView] highlightFeature - geometry type detection:', {
-      hasRings: !!geom.rings,
-      hasPaths: !!geom.paths,
-      hasX: geom.x !== undefined,
-      hasLongitude: geom.longitude !== undefined,
-      type: geom.type,
-      keys: Object.keys(geom)
-    });
+    console.log('[MapView] Highlight Strategy 2: Reconstructing from JSON', feature.geometry);
 
+    const geom = feature.geometry;
     let geometry;
-    let geometryType;
+    let geometryType = 'point'; // Default
+
+    // Default to the view's spatial reference if missing in the feature geometry (common with JSON objects)
+    const defaultSR = viewRef.current?.spatialReference || { wkid: 4326 };
+    const geomSR = geom.spatialReference || defaultSR;
 
     // Detect geometry type - check for rings (polygon), paths (polyline), or point coordinates
     if (geom.rings && geom.rings.length > 0) {
       geometryType = 'polygon';
       geometry = new Polygon({
         rings: geom.rings,
-        spatialReference: geom.spatialReference || { wkid: 4326 }
+        spatialReference: geomSR
       });
     } else if (geom.paths && geom.paths.length > 0) {
       geometryType = 'polyline';
       geometry = new Polyline({
         paths: geom.paths,
-        spatialReference: geom.spatialReference || { wkid: 4326 }
+        spatialReference: geomSR
       });
     } else if (geom.x !== undefined && geom.y !== undefined) {
       geometryType = 'point';
       geometry = new Point({
         x: geom.x,
         y: geom.y,
-        spatialReference: geom.spatialReference || { wkid: 4326 }
+        spatialReference: geomSR
       });
     } else if (geom.longitude !== undefined && geom.latitude !== undefined) {
       // Handle lat/lon format
@@ -829,42 +821,26 @@ const MapView = forwardRef(function MapView(props, ref) {
       geometry = new Point({
         x: geom.longitude,
         y: geom.latitude,
-        spatialReference: geom.spatialReference || { wkid: 4326 }
+        spatialReference: geomSR
       });
     }
 
     if (!geometry) {
-      console.log('[MapView] highlightFeature - could not create geometry');
       return;
     }
 
-    let symbol;
-    if (geometryType === 'polygon') {
-      symbol = new SimpleFillSymbol({
-        color: [255, 255, 0, 0.3],
-        outline: new SimpleLineSymbol({ color: [255, 200, 0], width: 3 })
-      });
-    } else if (geometryType === 'polyline') {
-      symbol = new SimpleLineSymbol({ color: [255, 200, 0], width: 4 });
-    } else {
-      symbol = new SimpleMarkerSymbol({
-        color: [255, 200, 0],
-        size: 16,
-        outline: { color: [255, 255, 255], width: 3 }
-      });
-    }
+    const symbol = getHighlightSymbol(geometryType);
 
     // Add highlighted feature geometry
     highlightLayerRef.current.add(new Graphic({ geometry, symbol }));
-    console.log('[MapView] highlightFeature - added highlight graphic for', geometryType);
 
     // Also highlight the pushpin marker at feature center (for multi-result views)
     const center = getGeometryCenter(feature.geometry);
-    if (center) {
+    if (center && !originalGraphic) {
       const pushpinPoint = new Point({
         x: center.x,
         y: center.y,
-        spatialReference: feature.geometry.spatialReference || { wkid: 4326 }
+        spatialReference: geomSR
       });
 
       const pushpinHighlightSymbol = new SimpleMarkerSymbol({
