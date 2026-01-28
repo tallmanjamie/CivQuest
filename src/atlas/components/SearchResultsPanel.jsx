@@ -228,20 +228,29 @@ export default function SearchResultsPanel({
   }, [onFeatureSelect, zoomToFeature, activeMap?.customFeatureInfo?.layerId, getFeatureTitle]);
 
   /**
-   * Handle feature hover
+   * Handle feature hover - highlights feature and pushpin on map
    */
   const handleFeatureHover = useCallback((feature, index, isEntering) => {
     setHoveredIndex(isEntering ? index : null);
-    
+
     if (onFeatureHover) {
       onFeatureHover(isEntering ? feature : null);
     }
-    
-    // Highlight feature on map
-    if (highlightFeature && isEntering) {
-      highlightFeature(feature);
+
+    // Highlight feature on map when entering, clear when leaving
+    if (highlightFeature) {
+      if (isEntering) {
+        // Find the original index in searchResults for better pushpin matching
+        const originalIndex = searchResults?.features?.findIndex(f => f === feature);
+        const featureWithIndex = originalIndex !== undefined && originalIndex !== -1
+          ? { ...feature, attributes: { ...feature.attributes, _index: originalIndex } }
+          : feature;
+        highlightFeature(featureWithIndex);
+      }
+      // Note: We don't clear highlight on mouse leave to preserve the last highlighted state
+      // This provides better UX as user can see which feature was just hovered
     }
-  }, [onFeatureHover, highlightFeature]);
+  }, [onFeatureHover, highlightFeature, searchResults?.features]);
 
   /**
    * Handle clear results
