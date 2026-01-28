@@ -88,9 +88,30 @@ export default function FeatureInfoPanel({
     return matches;
   }, [customFeatureInfo, feature?.sourceLayerId, sourceLayer?.id]);
 
+  // Extract Arcade expression elements from popup template to auto-generate tabs
+  const arcadeExpressions = useMemo(() => {
+    if (!sourceLayer?.popupTemplate?.content) return [];
+
+    const content = sourceLayer.popupTemplate.content;
+    if (!Array.isArray(content)) return [];
+
+    // Filter to only expression elements and extract their names
+    const expressions = content
+      .filter(element => element.type === 'expression' && element.expressionInfo)
+      .map(element => {
+        // Get the expression name/title from expressionInfo
+        const name = element.expressionInfo?.name || element.expressionInfo?.title || '';
+        return name;
+      })
+      .filter(name => name); // Remove empty names
+
+    console.log('[FeatureInfoPanel] Extracted Arcade expressions from popup template:', expressions);
+    return expressions;
+  }, [sourceLayer?.popupTemplate?.content]);
+
   // Build tabs based on config or default
   const tabs = useMemo(() => {
-    console.log('[FeatureInfoPanel] Building tabs - isMarkupFeature:', isMarkupFeature, 'useCustomTabs:', useCustomTabs);
+    console.log('[FeatureInfoPanel] Building tabs - isMarkupFeature:', isMarkupFeature, 'useCustomTabs:', useCustomTabs, 'arcadeExpressions:', arcadeExpressions.length);
 
     if (isMarkupFeature) {
       console.log('[FeatureInfoPanel] Using markup feature tabs');
@@ -101,6 +122,34 @@ export default function FeatureInfoPanel({
       ];
     }
 
+    // Auto-generate tabs from Arcade expressions in the popup template
+    // This is preferred when the popup template has expression elements
+    // Only use manual tabs if they comprehensively cover all expressions (same count)
+    if (useCustomTabs && arcadeExpressions.length > 0) {
+      const manualTabCount = customFeatureInfo?.tabs?.length || 0;
+
+      // If manual tabs don't match the number of Arcade expressions, auto-generate
+      // This ensures tabs are created for all expressions in the popup template
+      if (manualTabCount !== arcadeExpressions.length) {
+        console.log('[FeatureInfoPanel] Auto-generating tabs from Arcade expressions (manual tabs:', manualTabCount, ', expressions:', arcadeExpressions.length, ')');
+        const autoTabs = arcadeExpressions.map((expressionName, index) => ({
+          id: `custom-${index}`,
+          label: expressionName,
+          icon: FileText,
+          elements: [expressionName], // Filter to show only this expression
+          isCustom: true
+        }));
+        console.log('[FeatureInfoPanel] Auto-generated tabs:', autoTabs.map(t => ({
+          id: t.id,
+          label: t.label,
+          elements: t.elements,
+          isCustom: t.isCustom
+        })));
+        return autoTabs;
+      }
+    }
+
+    // If we have custom tabs configured that match the expression count, use those
     if (useCustomTabs && customFeatureInfo?.tabs?.length > 0) {
       // Use custom tabs from config
       const customTabs = customFeatureInfo.tabs.map((tab, index) => ({
@@ -110,7 +159,7 @@ export default function FeatureInfoPanel({
         elements: tab.elements || [],
         isCustom: true
       }));
-      console.log('[FeatureInfoPanel] Using custom tabs:', customTabs.map(t => ({
+      console.log('[FeatureInfoPanel] Using manually configured custom tabs:', customTabs.map(t => ({
         id: t.id,
         label: t.label,
         elements: t.elements,
@@ -119,13 +168,31 @@ export default function FeatureInfoPanel({
       return customTabs;
     }
 
+    // Fallback: Auto-generate tabs from Arcade expressions (when useCustomTabs is false but we have expressions)
+    if (arcadeExpressions.length > 0) {
+      const autoTabs = arcadeExpressions.map((expressionName, index) => ({
+        id: `custom-${index}`,
+        label: expressionName,
+        icon: FileText,
+        elements: [expressionName], // Filter to show only this expression
+        isCustom: true
+      }));
+      console.log('[FeatureInfoPanel] Auto-generated tabs from Arcade expressions:', autoTabs.map(t => ({
+        id: t.id,
+        label: t.label,
+        elements: t.elements,
+        isCustom: t.isCustom
+      })));
+      return autoTabs;
+    }
+
     // Default tabs
     console.log('[FeatureInfoPanel] Using default tabs (Info/Markup)');
     return [
       { id: 'info', label: 'Info', icon: FileText },
       { id: 'markup', label: 'Markup', icon: Pencil, disabled: !onSaveAsMarkup }
     ];
-  }, [isMarkupFeature, useCustomTabs, customFeatureInfo?.tabs, onSaveAsMarkup]);
+  }, [isMarkupFeature, useCustomTabs, customFeatureInfo?.tabs, arcadeExpressions, onSaveAsMarkup]);
 
   // Set initial active tab
   useEffect(() => {
