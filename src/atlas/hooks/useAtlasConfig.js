@@ -38,6 +38,7 @@ const DEFAULT_CONFIG = {
     // Header links configuration - shows links in header
     links: {
       enabled: false,                  // Disabled by default
+      layout: 'horizontal',            // 'horizontal' (across banner) or 'stacked' (right-justified, vertical)
       items: []                        // Array of { label: string, url: string } (max 4)
     }
   },
