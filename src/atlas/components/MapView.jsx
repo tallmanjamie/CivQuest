@@ -15,7 +15,8 @@ import {
   Layers,
   Globe,
   Printer,
-  ChevronRight
+  ChevronRight,
+  Navigation
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors, COLOR_PALETTE } from '../utils/themeColors';
@@ -48,6 +49,7 @@ const RESULTS_LAYER_ID = 'atlas-results-layer';
 const HIGHLIGHT_LAYER_ID = 'atlas-highlight-layer';
 const PUSHPIN_LAYER_ID = 'atlas-pushpin-layer';
 const MARKUP_LAYER_ID = 'atlas-markup-layer';
+const GPS_LAYER_ID = 'atlas-gps-layer';
 
 // Import Feature Export Service
 import { exportFeatureToPDF } from '../utils/FeatureExportService';
@@ -107,6 +109,16 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [isMobile, setIsMobile] = useState(false);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const toolsMenuRef = useRef(null);
+
+  // GPS Location state
+  const [gpsActive, setGpsActive] = useState(false);
+  const [gpsTracking, setGpsTracking] = useState(false); // Continuous tracking mode
+  const [gpsTrackingInterval, setGpsTrackingInterval] = useState(5000); // Default 5 seconds
+  const [showGpsSettings, setShowGpsSettings] = useState(false);
+  const [gpsError, setGpsError] = useState(null);
+  const gpsIntervalRef = useRef(null);
+  const gpsLayerRef = useRef(null);
+  const gpsWatchIdRef = useRef(null);
 
   // Theme
   const themeColor = config?.ui?.themeColor || 'sky';
@@ -257,10 +269,17 @@ const MapView = forwardRef(function MapView(props, ref) {
           listMode: 'hide'
         });
 
+        const gpsLayer = new GraphicsLayer({
+          id: GPS_LAYER_ID,
+          title: 'GPS Location',
+          listMode: 'hide'
+        });
+
         graphicsLayerRef.current = graphicsLayer;
         highlightLayerRef.current = highlightLayer;
         pushpinLayerRef.current = pushpinLayer;
         markupLayerRef.current = markupLayer;
+        gpsLayerRef.current = gpsLayer;
 
         if (!mountedRef.current || !containerRef.current) {
           console.log('[MapView] Component unmounted before view creation');
@@ -274,6 +293,9 @@ const MapView = forwardRef(function MapView(props, ref) {
           container: containerRef.current,
           map: webMap,
           padding: { top: 0, right: 0, bottom: 0, left: 0 },
+          constraints: {
+            rotationEnabled: false // Disable map rotation
+          },
           ui: {
             components: ['attribution']
           },
@@ -302,8 +324,8 @@ const MapView = forwardRef(function MapView(props, ref) {
 
         console.log('[MapView] Map loaded, adding layers...');
 
-        // Add graphics layers (markup on top, then pushpins, then highlight, then results)
-        webMap.addMany([graphicsLayer, highlightLayer, pushpinLayer, markupLayer]);
+        // Add graphics layers (GPS on top, then markup, then pushpins, then highlight, then results)
+        webMap.addMany([graphicsLayer, highlightLayer, pushpinLayer, markupLayer, gpsLayer]);
 
         // Apply saved extent
         if (initialExtent) {
@@ -397,6 +419,15 @@ const MapView = forwardRef(function MapView(props, ref) {
     // Cleanup
     return () => {
       mountedRef.current = false;
+      // Clear GPS tracking
+      if (gpsIntervalRef.current) {
+        clearInterval(gpsIntervalRef.current);
+        gpsIntervalRef.current = null;
+      }
+      if (gpsWatchIdRef.current) {
+        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+        gpsWatchIdRef.current = null;
+      }
       if (viewRef.current) {
         viewRef.current.destroy();
         viewRef.current = null;
@@ -406,6 +437,7 @@ const MapView = forwardRef(function MapView(props, ref) {
       highlightLayerRef.current = null;
       pushpinLayerRef.current = null;
       markupLayerRef.current = null;
+      gpsLayerRef.current = null;
       initStartedRef.current = false;
     };
   }, [activeMap?.webMap?.itemId, getExtentStorageKey]);
@@ -1039,6 +1071,199 @@ const MapView = forwardRef(function MapView(props, ref) {
   }, [mapReady]);
 
   /**
+   * Display GPS marker at the given coordinates
+   */
+  const displayGpsMarker = useCallback((latitude, longitude, accuracy) => {
+    if (!gpsLayerRef.current || !viewRef.current) return;
+
+    // Clear previous marker
+    gpsLayerRef.current.removeAll();
+
+    const point = new Point({
+      longitude,
+      latitude,
+      spatialReference: { wkid: 4326 }
+    });
+
+    // Create GPS marker symbol (blue dot with white outline and pulse effect ring)
+    const markerSymbol = new SimpleMarkerSymbol({
+      style: 'circle',
+      color: [66, 133, 244, 1], // Google blue
+      size: 14,
+      outline: {
+        color: [255, 255, 255],
+        width: 3
+      }
+    });
+
+    // Create accuracy circle if accuracy is available
+    if (accuracy) {
+      const accuracySymbol = new SimpleFillSymbol({
+        color: [66, 133, 244, 0.15],
+        outline: new SimpleLineSymbol({
+          color: [66, 133, 244, 0.5],
+          width: 1
+        })
+      });
+
+      // Create a circle representing accuracy (approximate - 1 degree ≈ 111km at equator)
+      const metersPerDegree = 111320 * Math.cos(latitude * Math.PI / 180);
+      const radiusDegrees = accuracy / metersPerDegree;
+
+      // Create a simple circular polygon for accuracy
+      const numPoints = 64;
+      const ring = [];
+      for (let i = 0; i <= numPoints; i++) {
+        const angle = (i / numPoints) * 2 * Math.PI;
+        ring.push([
+          longitude + radiusDegrees * Math.cos(angle),
+          latitude + radiusDegrees * Math.sin(angle)
+        ]);
+      }
+
+      const accuracyCircle = new Polygon({
+        rings: [ring],
+        spatialReference: { wkid: 4326 }
+      });
+
+      gpsLayerRef.current.add(new Graphic({
+        geometry: accuracyCircle,
+        symbol: accuracySymbol
+      }));
+    }
+
+    // Add the GPS marker on top
+    gpsLayerRef.current.add(new Graphic({
+      geometry: point,
+      symbol: markerSymbol
+    }));
+  }, []);
+
+  /**
+   * Get user's current location and center the map
+   */
+  const getCurrentLocation = useCallback((centerMap = true) => {
+    if (!navigator.geolocation) {
+      setGpsError('Geolocation is not supported by this browser');
+      return;
+    }
+
+    setGpsError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        console.log('[MapView] GPS location:', latitude, longitude, 'accuracy:', accuracy);
+
+        displayGpsMarker(latitude, longitude, accuracy);
+
+        if (centerMap && viewRef.current) {
+          const point = new Point({
+            longitude,
+            latitude,
+            spatialReference: { wkid: 4326 }
+          });
+          viewRef.current.goTo(
+            { target: point, zoom: Math.max(viewRef.current.zoom, 16) },
+            { duration: 500 }
+          );
+        }
+
+        setGpsActive(true);
+      },
+      (error) => {
+        console.error('[MapView] GPS error:', error);
+        let errorMessage = 'Unable to retrieve location';
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = 'Location permission denied';
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = 'Location information unavailable';
+            break;
+          case error.TIMEOUT:
+            errorMessage = 'Location request timed out';
+            break;
+        }
+        setGpsError(errorMessage);
+        setGpsActive(false);
+        setGpsTracking(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  }, [displayGpsMarker]);
+
+  /**
+   * Start continuous GPS tracking with interval refresh
+   */
+  const startGpsTracking = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGpsError('Geolocation is not supported by this browser');
+      return;
+    }
+
+    // First get the current location
+    getCurrentLocation(true);
+
+    // Clear any existing interval
+    if (gpsIntervalRef.current) {
+      clearInterval(gpsIntervalRef.current);
+    }
+
+    // Set up interval for periodic updates
+    gpsIntervalRef.current = setInterval(() => {
+      getCurrentLocation(false); // Don't center map on updates, just update marker
+    }, gpsTrackingInterval);
+
+    setGpsTracking(true);
+    console.log('[MapView] GPS tracking started with interval:', gpsTrackingInterval, 'ms');
+  }, [getCurrentLocation, gpsTrackingInterval]);
+
+  /**
+   * Stop GPS tracking
+   */
+  const stopGpsTracking = useCallback(() => {
+    if (gpsIntervalRef.current) {
+      clearInterval(gpsIntervalRef.current);
+      gpsIntervalRef.current = null;
+    }
+
+    if (gpsWatchIdRef.current) {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      gpsWatchIdRef.current = null;
+    }
+
+    // Clear GPS marker
+    if (gpsLayerRef.current) {
+      gpsLayerRef.current.removeAll();
+    }
+
+    setGpsTracking(false);
+    setGpsActive(false);
+    setShowGpsSettings(false);
+    console.log('[MapView] GPS tracking stopped');
+  }, []);
+
+  /**
+   * Toggle GPS - single location or tracking mode
+   */
+  const toggleGps = useCallback(() => {
+    if (gpsTracking) {
+      stopGpsTracking();
+    } else if (gpsActive) {
+      // Already have a location, show settings for tracking
+      setShowGpsSettings(!showGpsSettings);
+    } else {
+      // Get initial location
+      getCurrentLocation(true);
+    }
+  }, [gpsActive, gpsTracking, showGpsSettings, getCurrentLocation, stopGpsTracking]);
+
+  /**
    * Handle saving a feature as markup
    */
   const handleSaveAsMarkup = useCallback((feature, popupTitle) => {
@@ -1501,6 +1726,111 @@ const MapView = forwardRef(function MapView(props, ref) {
       {/* ==================== BOTTOM RIGHT CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
         <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20">
+          {/* GPS Button and Settings */}
+          <div className="relative">
+            <div className="flex flex-col bg-white rounded-lg shadow-lg overflow-hidden">
+              <button
+                onClick={toggleGps}
+                className={`p-2 hover:bg-slate-100 transition-colors ${gpsTracking ? 'bg-blue-50' : ''}`}
+                title={gpsTracking ? 'Stop GPS Tracking' : gpsActive ? 'GPS Settings' : 'Show My Location'}
+              >
+                <Navigation
+                  className={`w-5 h-5 ${gpsTracking ? 'animate-pulse' : ''}`}
+                  style={{ color: gpsTracking ? '#4285F4' : gpsActive ? '#4285F4' : colors.bg600 }}
+                  fill={gpsTracking ? '#4285F4' : 'none'}
+                />
+              </button>
+            </div>
+
+            {/* GPS Settings Dropdown */}
+            {showGpsSettings && !gpsTracking && (
+              <div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg shadow-xl border border-slate-200 p-3 min-w-[200px]">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-slate-700">GPS Tracking</span>
+                  <button
+                    onClick={() => setShowGpsSettings(false)}
+                    className="p-1 hover:bg-slate-100 rounded"
+                  >
+                    <X className="w-4 h-4 text-slate-400" />
+                  </button>
+                </div>
+
+                <div className="mb-3">
+                  <label className="block text-xs text-slate-500 mb-1">Refresh Interval</label>
+                  <select
+                    value={gpsTrackingInterval}
+                    onChange={(e) => setGpsTrackingInterval(Number(e.target.value))}
+                    className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value={2000}>2 seconds</option>
+                    <option value={5000}>5 seconds</option>
+                    <option value={10000}>10 seconds</option>
+                    <option value={30000}>30 seconds</option>
+                    <option value={60000}>1 minute</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      getCurrentLocation(true);
+                      setShowGpsSettings(false);
+                    }}
+                    className="flex-1 px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded transition-colors"
+                  >
+                    Locate Once
+                  </button>
+                  <button
+                    onClick={() => {
+                      startGpsTracking();
+                      setShowGpsSettings(false);
+                    }}
+                    className="flex-1 px-3 py-1.5 text-sm text-white rounded transition-colors"
+                    style={{ backgroundColor: '#4285F4' }}
+                  >
+                    Start Tracking
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* GPS Error Toast */}
+            {gpsError && (
+              <div className="absolute bottom-full right-0 mb-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 min-w-[180px]">
+                <div className="flex items-center gap-2">
+                  <X className="w-4 h-4 text-red-500 flex-shrink-0" />
+                  <span className="text-xs text-red-600">{gpsError}</span>
+                </div>
+                <button
+                  onClick={() => setGpsError(null)}
+                  className="mt-1 text-xs text-red-500 underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* GPS Tracking Active Indicator */}
+            {gpsTracking && (
+              <div className="absolute bottom-full right-0 mb-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 min-w-[160px]">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                  <span className="text-xs font-medium text-blue-700">Tracking Active</span>
+                </div>
+                <span className="text-xs text-blue-600">
+                  Updating every {gpsTrackingInterval / 1000}s
+                </span>
+                <button
+                  onClick={stopGpsTracking}
+                  className="mt-2 w-full px-2 py-1 text-xs text-red-600 bg-red-50 hover:bg-red-100 rounded transition-colors"
+                >
+                  Stop Tracking
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Zoom Controls */}
           <div className="flex flex-col bg-white rounded-lg shadow-lg overflow-hidden">
             <button
               onClick={zoomIn}
