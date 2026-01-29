@@ -1,60 +1,48 @@
 // src/admin/components/AtlasUserManagement.jsx
-// Atlas User Management - Manage user access to Atlas maps
-// Uses the same user store as Notify but tracks Atlas access separately
-// 
-// LICENSE ENFORCEMENT: Enforces user limits based on organization license type
-// - Personal: Max 3 users
-// - Professional: Unlimited users
+// Atlas User Management - View and suspend users who have Atlas access
+//
+// Users now self-register from the organization's sign-in page.
+// Admins can only view users and suspend/unsuspend them.
+// Users cannot be invited, granted access, or deleted by admins.
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  collection, 
-  doc, 
-  updateDoc, 
+import {
+  collection,
+  doc,
+  updateDoc,
   onSnapshot,
-  query,
-  where,
-  getDoc,
-  setDoc,
   serverTimestamp
 } from "firebase/firestore";
-import { 
-  Users, 
-  Search, 
-  UserPlus,
-  UserMinus,
+import {
+  Users,
+  Search,
+  Ban,
+  UserCheck,
   Map,
-  Layers,
   Check,
   X,
   Loader2,
   Mail,
   Building2,
-  Eye,
-  EyeOff,
   Filter,
-  Download,
-  RefreshCw,
   AlertCircle,
   Shield,
   Clock,
-  Lock
+  AlertTriangle
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
-import { 
-  canAddAtlasUser, 
-  getProductLicenseLimits, 
+import {
+  getProductLicenseLimits,
   PRODUCTS,
-  LICENSE_TYPES 
+  LICENSE_TYPES
 } from '../../shared/services/licenses';
 
 /**
  * Atlas User Management Component
- * 
+ *
  * Manages user access to Atlas for an organization.
- * Users are stored in the same collection as Notify users but with
- * separate atlasAccess field tracking which orgs they can access.
- * 
+ * Users self-register - admins can only view and suspend users.
+ *
  * Props:
  * - db: Firestore instance
  * - role: 'admin' (super) or 'org_admin'
@@ -64,10 +52,10 @@ import {
  * - addToast: Toast notification function
  * - confirm: Confirmation dialog function
  */
-export default function AtlasUserManagement({ 
-  db, 
-  role, 
-  orgId, 
+export default function AtlasUserManagement({
+  db,
+  role,
+  orgId,
   orgData,
   accentColor,
   addToast,
@@ -79,10 +67,7 @@ export default function AtlasUserManagement({
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterOrg, setFilterOrg] = useState(role === 'admin' ? 'all' : orgId);
-  const [showOnlyAtlasUsers, setShowOnlyAtlasUsers] = useState(false);
-  const [showGrantModal, setShowGrantModal] = useState(false);
-  const [grantEmail, setGrantEmail] = useState('');
-  const [grantOrg, setGrantOrg] = useState(orgId || '');
+  const [showOnlyAtlasUsers, setShowOnlyAtlasUsers] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Load users
@@ -133,7 +118,7 @@ export default function AtlasUserManagement({
   }, [db, role, orgId, orgData]);
 
   // ============================================================
-  // LICENSE & ACCESS HELPERS
+  // USER HELPERS
   // ============================================================
 
   // Check if user has Atlas access to an org
@@ -141,14 +126,9 @@ export default function AtlasUserManagement({
     return user.atlasAccess?.[targetOrgId]?.enabled === true;
   };
 
-  // Get user's Atlas access details for an org
-  const getAtlasAccessDetails = (user, targetOrgId) => {
-    return user.atlasAccess?.[targetOrgId] || null;
-  };
-
   // Count current Atlas users for an organization
   const getAtlasUserCount = (targetOrgId) => {
-    return users.filter(user => hasAtlasAccess(user, targetOrgId)).length;
+    return users.filter(user => hasAtlasAccess(user, targetOrgId) && !user.suspended).length;
   };
 
   // Get license limits for an organization
@@ -158,24 +138,16 @@ export default function AtlasUserManagement({
     return getProductLicenseLimits(org, PRODUCTS.ATLAS);
   };
 
-  // Check if organization can add more Atlas users
-  const canOrgAddUser = (targetOrgId) => {
-    const org = organizations.find(o => o.id === targetOrgId);
-    if (!org) return { allowed: false, limit: 0, remaining: 0 };
-    const currentCount = getAtlasUserCount(targetOrgId);
-    return canAddAtlasUser(org, currentCount);
-  };
-
   // Filter users based on search and filters
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
       // Search filter
-      const matchesSearch = !searchTerm || 
+      const matchesSearch = !searchTerm ||
         user.email?.toLowerCase().includes(searchTerm.toLowerCase());
-      
+
       // Org filter (for admin view)
       const targetOrg = role === 'admin' ? filterOrg : orgId;
-      
+
       // Atlas access filter
       if (showOnlyAtlasUsers) {
         if (targetOrg === 'all') {
@@ -187,70 +159,32 @@ export default function AtlasUserManagement({
           return matchesSearch && hasAtlasAccess(user, targetOrg);
         }
       }
-      
+
       return matchesSearch;
     });
   }, [users, searchTerm, filterOrg, showOnlyAtlasUsers, role, orgId]);
 
-  // Grant Atlas access with license check
-  const handleGrantAccess = async (userId, userEmail, targetOrgId, mapIds = null) => {
-    // Check license limits before granting access
-    const licenseCheck = canOrgAddUser(targetOrgId);
-    
-    if (!licenseCheck.allowed) {
-      const limits = getOrgLicenseLimits(targetOrgId);
-      addToast?.(
-        `Cannot add user: ${limits?.label || 'Personal'} license limit reached (${limits?.maxUsers || 3} users max). Upgrade to Professional for unlimited users.`,
-        'error'
-      );
-      return false;
-    }
-
-    setSaving(true);
-    try {
-      const userRef = doc(db, PATHS.users, userId);
-      await updateDoc(userRef, {
-        [`atlasAccess.${targetOrgId}`]: {
-          enabled: true,
-          maps: mapIds, // null = all maps, array = specific maps
-          grantedAt: serverTimestamp(),
-          grantedBy: 'admin' // Could pass admin email here
-        }
-      });
-      
-      addToast?.(`Atlas access granted to ${userEmail}`, 'success');
-      return true;
-    } catch (error) {
-      console.error('[AtlasUserManagement] Grant error:', error);
-      addToast?.('Failed to grant access. Please try again.', 'error');
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Revoke Atlas access
-  const handleRevokeAccess = async (userId, userEmail, targetOrgId) => {
+  // Suspend user
+  const handleSuspendUser = async (userId, userEmail) => {
     confirm?.({
-      title: 'Revoke Atlas Access',
-      message: `Are you sure you want to revoke Atlas access for ${userEmail}?`,
-      confirmLabel: 'Revoke',
+      title: 'Suspend User',
+      message: `Are you sure you want to suspend ${userEmail}? They will not be able to access Atlas until unsuspended.`,
+      confirmLabel: 'Suspend',
       destructive: true,
       onConfirm: async () => {
         setSaving(true);
         try {
           const userRef = doc(db, PATHS.users, userId);
           await updateDoc(userRef, {
-            [`atlasAccess.${targetOrgId}`]: {
-              enabled: false,
-              revokedAt: serverTimestamp()
-            }
+            suspended: true,
+            suspendedAt: serverTimestamp(),
+            suspendReason: 'Suspended by admin'
           });
-          
-          addToast?.(`Atlas access revoked for ${userEmail}`, 'success');
+
+          addToast?.(`User ${userEmail} has been suspended`, 'success');
         } catch (error) {
-          console.error('[AtlasUserManagement] Revoke error:', error);
-          addToast?.('Failed to revoke access. Please try again.', 'error');
+          console.error('[AtlasUserManagement] Suspend error:', error);
+          addToast?.('Failed to suspend user. Please try again.', 'error');
         } finally {
           setSaving(false);
         }
@@ -258,57 +192,22 @@ export default function AtlasUserManagement({
     });
   };
 
-  // Grant access to new user
-  const handleGrantNewUser = async () => {
-    if (!grantEmail.trim() || !grantOrg) {
-      addToast?.('Please enter an email and select an organization', 'error');
-      return;
-    }
-
-    const email = grantEmail.trim().toLowerCase();
-    
-    // Check license first
-    const licenseCheck = canOrgAddUser(grantOrg);
-    if (!licenseCheck.allowed) {
-      const limits = getOrgLicenseLimits(grantOrg);
-      addToast?.(
-        `Cannot add user: ${limits?.label || 'Personal'} license limit reached (${limits?.maxUsers || 3} users max). Upgrade to Professional for unlimited users.`,
-        'error'
-      );
-      return;
-    }
-
-    // Check if user exists
-    let existingUser = users.find(u => u.email?.toLowerCase() === email);
-
+  // Unsuspend user
+  const handleUnsuspendUser = async (userId, userEmail) => {
     setSaving(true);
     try {
-      if (existingUser) {
-        // Update existing user
-        await handleGrantAccess(existingUser.id, email, grantOrg);
-      } else {
-        // Create new user with Atlas access
-        const userRef = doc(collection(db, PATHS.users));
-        await setDoc(userRef, {
-          email,
-          createdAt: serverTimestamp(),
-          atlasAccess: {
-            [grantOrg]: {
-              enabled: true,
-              maps: null,
-              grantedAt: serverTimestamp(),
-              grantedBy: 'admin'
-            }
-          }
-        });
-        addToast?.(`New user created and Atlas access granted to ${email}`, 'success');
-      }
+      const userRef = doc(db, PATHS.users, userId);
+      await updateDoc(userRef, {
+        suspended: false,
+        suspendedAt: null,
+        suspendReason: null,
+        unsuspendedAt: serverTimestamp()
+      });
 
-      setShowGrantModal(false);
-      setGrantEmail('');
+      addToast?.(`User ${userEmail} has been unsuspended`, 'success');
     } catch (error) {
-      console.error('[AtlasUserManagement] Grant new user error:', error);
-      addToast?.('Failed to grant access. Please try again.', 'error');
+      console.error('[AtlasUserManagement] Unsuspend error:', error);
+      addToast?.('Failed to unsuspend user. Please try again.', 'error');
     } finally {
       setSaving(false);
     }
@@ -318,7 +217,7 @@ export default function AtlasUserManagement({
   const getLicenseInfo = (targetOrgId) => {
     const limits = getOrgLicenseLimits(targetOrgId);
     if (!limits) return null;
-    
+
     const currentCount = getAtlasUserCount(targetOrgId);
     return {
       ...limits,
@@ -348,9 +247,9 @@ export default function AtlasUserManagement({
             Atlas Users
           </h2>
           <p className="text-slate-500 text-sm mt-1">
-            {role === 'admin' 
-              ? 'Manage Atlas access across all organizations'
-              : 'Manage who can access your Atlas maps'}
+            {role === 'admin'
+              ? 'View and manage Atlas users across all organizations'
+              : 'View and manage users who have access to your Atlas maps'}
           </p>
         </div>
 
@@ -370,6 +269,18 @@ export default function AtlasUserManagement({
             )}
           </div>
         )}
+      </div>
+
+      {/* Info Banner */}
+      <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+        <div className="text-sm text-blue-700">
+          <p className="font-medium">Users self-register for Atlas</p>
+          <p className="mt-1">
+            Users create their own accounts on the organization's sign-in page.
+            You can suspend users to temporarily revoke their access.
+          </p>
+        </div>
       </div>
 
       {/* Actions Bar */}
@@ -408,110 +319,15 @@ export default function AtlasUserManagement({
         <button
           onClick={() => setShowOnlyAtlasUsers(!showOnlyAtlasUsers)}
           className={`flex items-center gap-2 px-4 py-2 border rounded-lg text-sm transition ${
-            showOnlyAtlasUsers 
-              ? 'border-emerald-300 bg-emerald-50 text-emerald-700' 
+            showOnlyAtlasUsers
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
               : 'border-slate-300 text-slate-600 hover:bg-slate-50'
           }`}
         >
           <Filter className="w-4 h-4" />
           {showOnlyAtlasUsers ? 'Atlas Users Only' : 'All Users'}
         </button>
-
-        {/* Grant Access Button */}
-        <button
-          onClick={() => setShowGrantModal(true)}
-          className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium text-sm transition"
-          style={{ backgroundColor: accentColor }}
-        >
-          <UserPlus className="w-4 h-4" />
-          Grant Access
-        </button>
       </div>
-
-      {/* Grant Access Modal */}
-      {showGrantModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4">Grant Atlas Access</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={grantEmail}
-                  onChange={(e) => setGrantEmail(e.target.value)}
-                  placeholder="user@example.com"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-opacity-50"
-                  style={{ '--tw-ring-color': accentColor }}
-                />
-              </div>
-
-              {role === 'admin' && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Organization
-                  </label>
-                  <select
-                    value={grantOrg}
-                    onChange={(e) => setGrantOrg(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-opacity-50"
-                    style={{ '--tw-ring-color': accentColor }}
-                  >
-                    <option value="">Select organization...</option>
-                    {organizations.map(org => {
-                      const info = getLicenseInfo(org.id);
-                      return (
-                        <option key={org.id} value={org.id}>
-                          {org.name || org.id}
-                          {info && info.maxUsers !== Infinity && ` (${info.current}/${info.maxUsers} users)`}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              )}
-
-              {/* License limit warning */}
-              {grantOrg && (() => {
-                const info = getLicenseInfo(grantOrg);
-                if (info && info.remaining !== null && info.remaining <= 0) {
-                  return (
-                    <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                      <div className="text-sm text-amber-700">
-                        <strong>License limit reached.</strong> This organization's {info.label} license allows {info.maxUsers} users.
-                        {info.type === LICENSE_TYPES.PERSONAL && ' Upgrade to Professional for unlimited users.'}
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => { setShowGrantModal(false); setGrantEmail(''); }}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleGrantNewUser}
-                disabled={saving || !grantEmail.trim() || !grantOrg}
-                className="flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm disabled:opacity-50"
-                style={{ backgroundColor: accentColor }}
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                Grant Access
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Users Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -539,28 +355,35 @@ export default function AtlasUserManagement({
               {filteredUsers.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                    {searchTerm ? 'No users match your search' : 'No users found'}
+                    {searchTerm ? 'No users match your search' : 'No Atlas users found'}
                   </td>
                 </tr>
               ) : (
                 filteredUsers.map(user => {
                   const targetOrg = role === 'admin' && filterOrg !== 'all' ? filterOrg : orgId;
                   const hasAccess = targetOrg ? hasAtlasAccess(user, targetOrg) : false;
-                  const accessDetails = targetOrg ? getAtlasAccessDetails(user, targetOrg) : null;
+                  const isSuspended = user.suspended === true;
 
                   // Count orgs with Atlas access (for super admin all view)
                   const atlasOrgCount = Object.values(user.atlasAccess || {})
                     .filter(a => a.enabled).length;
 
                   return (
-                    <tr key={user.id} className="hover:bg-slate-50">
+                    <tr key={user.id} className={`hover:bg-slate-50 ${isSuspended ? 'bg-red-50/50' : ''}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <Mail className="w-4 h-4 text-slate-400" />
-                          <span className="text-sm text-slate-800">{user.email}</span>
+                          <span className={`text-sm ${isSuspended ? 'text-slate-500' : 'text-slate-800'}`}>
+                            {user.email}
+                          </span>
+                          {user.arcgisProfile?.username && (
+                            <span className="text-xs text-slate-400">
+                              (ArcGIS: {user.arcgisProfile.username})
+                            </span>
+                          )}
                         </div>
                       </td>
-                      
+
                       {role === 'admin' && filterOrg === 'all' && (
                         <td className="px-4 py-3">
                           {atlasOrgCount > 0 ? (
@@ -573,9 +396,14 @@ export default function AtlasUserManagement({
                           )}
                         </td>
                       )}
-                      
+
                       <td className="px-4 py-3">
-                        {targetOrg && hasAccess ? (
+                        {isSuspended ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded text-xs">
+                            <Ban className="w-3 h-3" />
+                            Suspended
+                          </span>
+                        ) : targetOrg && hasAccess ? (
                           <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs">
                             <Check className="w-3 h-3" />
                             Active
@@ -589,32 +417,31 @@ export default function AtlasUserManagement({
                           <span className="text-xs text-slate-400">—</span>
                         )}
                       </td>
-                      
+
                       <td className="px-4 py-3 text-right">
-                        {targetOrg && (
-                          <div className="flex items-center justify-end gap-1">
-                            {hasAccess ? (
-                              <button
-                                onClick={() => handleRevokeAccess(user.id, user.email, targetOrg)}
-                                className="flex items-center gap-1 px-2 py-1 text-red-600 hover:bg-red-50 rounded text-xs"
-                                title="Revoke access"
-                              >
-                                <UserMinus className="w-3 h-3" />
-                                Revoke
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleGrantAccess(user.id, user.email, targetOrg)}
-                                disabled={saving}
-                                className="flex items-center gap-1 px-2 py-1 text-emerald-600 hover:bg-emerald-50 rounded text-xs disabled:opacity-50"
-                                title="Grant access"
-                              >
-                                <UserPlus className="w-3 h-3" />
-                                Grant
-                              </button>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex items-center justify-end gap-1">
+                          {isSuspended ? (
+                            <button
+                              onClick={() => handleUnsuspendUser(user.id, user.email)}
+                              disabled={saving}
+                              className="flex items-center gap-1 px-2 py-1 text-emerald-600 hover:bg-emerald-50 rounded text-xs disabled:opacity-50"
+                              title="Unsuspend user"
+                            >
+                              <UserCheck className="w-3 h-3" />
+                              Unsuspend
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleSuspendUser(user.id, user.email)}
+                              disabled={saving}
+                              className="flex items-center gap-1 px-2 py-1 text-amber-600 hover:bg-amber-50 rounded text-xs disabled:opacity-50"
+                              title="Suspend user"
+                            >
+                              <Ban className="w-3 h-3" />
+                              Suspend
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -629,7 +456,7 @@ export default function AtlasUserManagement({
       {(role === 'org_admin' || filterOrg !== 'all') && (
         <div className="flex items-center justify-between text-sm text-slate-500">
           <span>
-            {getAtlasUserCount(role === 'admin' ? filterOrg : orgId)} users with Atlas access
+            {getAtlasUserCount(role === 'admin' ? filterOrg : orgId)} active users with Atlas access
           </span>
           {(() => {
             const info = getLicenseInfo(role === 'admin' ? filterOrg : orgId);

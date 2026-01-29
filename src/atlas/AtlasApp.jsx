@@ -5,16 +5,19 @@
 // UPDATED: Now uses themeColors utility for proper dynamic theming
 // Tailwind can't handle dynamic class names like `bg-${color}-600`
 // So we use inline styles with the theme utility
+//
+// UPDATED: Now uses Firebase auth (same as Notify) with ArcGIS OAuth support
+// Users sign up from org page and are automatically assigned to that org
 
 import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
-import { 
-  Map, 
-  Table2, 
-  MessageSquare, 
-  Menu, 
-  X, 
-  LogIn, 
-  LogOut, 
+import {
+  Map,
+  Table2,
+  MessageSquare,
+  Menu,
+  X,
+  LogIn,
+  LogOut,
   ChevronDown,
   HelpCircle,
   Loader2,
@@ -26,6 +29,32 @@ import {
   Clock,
   Filter
 } from 'lucide-react';
+
+// Firebase Auth
+import { auth, db } from '@shared/services/firebase';
+import { PATHS } from '@shared/services/paths';
+import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  serverTimestamp
+} from 'firebase/firestore';
+import {
+  parseOAuthCallback,
+  clearOAuthParams,
+  verifyOAuthState,
+  completeArcGISOAuth,
+  generateDeterministicPassword,
+  getOAuthMode,
+  getOAuthRedirectUri
+} from '@shared/services/arcgis-auth';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword
+} from 'firebase/auth';
+import { sendWelcomeEmail } from '@shared/services/email';
 
 // Hooks
 import { useAtlasConfig, useActiveMap, detectOrganizationId } from './hooks/useAtlasConfig';
@@ -42,6 +71,7 @@ import LoadingScreen from './components/LoadingScreen';
 import ErrorScreen from './components/ErrorScreen';
 import OrgSelector from './components/OrgSelector';
 import AdvancedSearchModal from './components/AdvancedSearchModal';
+import AuthScreen from './components/AuthScreen';
 
 // Theme utility for proper dynamic theming
 import { getThemeColors, getThemeCssVars } from './utils/themeColors';
@@ -590,10 +620,261 @@ export default function AtlasApp() {
   // Configuration & Auth
   const { config, loading: configLoading, error: configError, orgId, setOrgId, availableMaps, isPreviewMode } = useAtlasConfig();
   const { activeMap, activeMapIndex, setActiveMap } = useActiveMap(config);
-  const { user: arcgisUser, loading: authLoading, signIn, signOut, isAuthenticated } = useArcGISAuth();
-  
+  // ArcGIS Portal auth - used for map access control (separate from user account auth)
+  const { user: arcgisUser, loading: arcgisAuthLoading, signIn: arcgisSignIn, signOut: arcgisSignOut, isAuthenticated: isArcGISAuthenticated } = useArcGISAuth();
+
+  // Firebase Auth State - user account authentication
+  const [firebaseUser, setFirebaseUser] = useState(null);
+  const [firebaseUserData, setFirebaseUserData] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [oauthProcessing, setOauthProcessing] = useState(false);
+  const [oauthError, setOauthError] = useState(null);
+
   // Add padding to body when preview banner is shown
   usePreviewBannerPadding(isPreviewMode);
+
+  // Handle OAuth callback on mount
+  useEffect(() => {
+    const handleOAuthCallback = async () => {
+      const { code, state, error, errorDescription } = parseOAuthCallback();
+
+      if (error) {
+        setOauthError(errorDescription || error);
+        clearOAuthParams();
+        return;
+      }
+
+      if (!code) return;
+
+      // Verify state for CSRF protection
+      if (!verifyOAuthState(state)) {
+        setOauthError('Invalid OAuth state. Please try again.');
+        clearOAuthParams();
+        return;
+      }
+
+      // Get the mode (signin or signup) that was set before redirecting
+      const oauthMode = getOAuthMode() || 'signin';
+      // Get the org ID that was stored before OAuth redirect
+      const signupOrgId = sessionStorage.getItem('atlas_signup_org');
+      sessionStorage.removeItem('atlas_signup_org');
+
+      setOauthProcessing(true);
+
+      try {
+        const redirectUri = getOAuthRedirectUri();
+        const { token, user: agolUser, org: agolOrg } = await completeArcGISOAuth(code, redirectUri);
+
+        // Clear OAuth params from URL
+        clearOAuthParams();
+
+        // Get email from AGOL user profile
+        const email = agolUser.email;
+        if (!email) {
+          throw new Error('No email address found in your ArcGIS account. Please ensure your ArcGIS profile has an email address.');
+        }
+
+        // Generate deterministic password based on ArcGIS credentials
+        const password = await generateDeterministicPassword(agolUser.username, email);
+
+        if (oauthMode === 'signup') {
+          // SIGN UP MODE: Only create account, error if exists
+          try {
+            const cred = await createUserWithEmailAndPassword(auth, email, password);
+            const userUid = cred.user.uid;
+
+            // Build user document with AGOL data
+            const userData = {
+              email: email.toLowerCase(),
+              createdAt: serverTimestamp(),
+              subscriptions: {},
+              disabled: false,
+              suspended: false,
+              linkedArcGISUsername: agolUser.username,
+              arcgisProfile: {
+                username: agolUser.username,
+                fullName: agolUser.fullName || '',
+                email: agolUser.email,
+                orgId: agolUser.orgId || null,
+                linkedAt: new Date().toISOString()
+              }
+            };
+
+            if (agolOrg) {
+              userData.arcgisOrganization = {
+                id: agolOrg.id,
+                name: agolOrg.name,
+                urlKey: agolOrg.urlKey || null
+              };
+            }
+
+            // Grant Atlas access to the signup organization
+            if (signupOrgId || orgId) {
+              const targetOrgId = signupOrgId || orgId;
+              userData.atlasAccess = {
+                [targetOrgId]: {
+                  enabled: true,
+                  grantedAt: serverTimestamp(),
+                  grantedBy: 'self-signup'
+                }
+              };
+            }
+
+            await setDoc(doc(db, PATHS.user(userUid)), userData);
+
+            // Send welcome email via Brevo
+            try {
+              await sendWelcomeEmail(email, agolUser.fullName || '');
+            } catch (emailErr) {
+              console.warn("Could not send welcome email:", emailErr);
+            }
+
+            // Wait for auth state to propagate
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+          } catch (authErr) {
+            if (authErr.code === 'auth/email-already-in-use') {
+              setOauthError(`An account with email ${email} already exists. Please use the Sign In option instead.`);
+            } else {
+              throw authErr;
+            }
+          }
+
+        } else {
+          // SIGN IN MODE: Only sign in, error if account doesn't exist
+          try {
+            const cred = await signInWithEmailAndPassword(auth, email, password);
+
+            // Check if user is suspended
+            const userRef = doc(db, PATHS.user(cred.user.uid));
+            const userSnap = await getDoc(userRef);
+
+            if (userSnap.exists()) {
+              const userData = userSnap.data();
+              if (userData.suspended) {
+                await firebaseSignOut(auth);
+                setOauthError('Your account has been suspended. Please contact the administrator.');
+                setOauthProcessing(false);
+                return;
+              }
+
+              // Grant access to this org if not already
+              if ((signupOrgId || orgId) && !userData.atlasAccess?.[signupOrgId || orgId]?.enabled) {
+                await updateDoc(userRef, {
+                  [`atlasAccess.${signupOrgId || orgId}`]: {
+                    enabled: true,
+                    grantedAt: serverTimestamp(),
+                    grantedBy: 'self-signup'
+                  }
+                });
+              }
+            }
+
+            // Wait for auth state to propagate
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } catch (signInErr) {
+            if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
+              setOauthError(`No account found with email ${email}. Please use the Create Account option first.`);
+            } else {
+              throw signInErr;
+            }
+          }
+        }
+
+      } catch (err) {
+        console.error('OAuth error:', err);
+        setOauthError(err.message || 'Failed to sign in with ArcGIS. Please try again.');
+      } finally {
+        setOauthProcessing(false);
+      }
+    };
+
+    handleOAuthCallback();
+  }, [orgId]);
+
+  // Firebase Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setFirebaseUser(currentUser);
+
+      if (currentUser) {
+        // Fetch user data from Firestore
+        try {
+          const userRef = doc(db, PATHS.user(currentUser.uid));
+          const userSnap = await getDoc(userRef);
+
+          if (userSnap.exists()) {
+            const userData = userSnap.data();
+
+            // Check if user is suspended
+            if (userData.suspended) {
+              await firebaseSignOut(auth);
+              setOauthError('Your account has been suspended. Please contact the administrator.');
+              setFirebaseUser(null);
+              setFirebaseUserData(null);
+            } else {
+              setFirebaseUserData(userData);
+
+              // Ensure user has access to current org
+              if (orgId && !userData.atlasAccess?.[orgId]?.enabled) {
+                await updateDoc(userRef, {
+                  [`atlasAccess.${orgId}`]: {
+                    enabled: true,
+                    grantedAt: serverTimestamp(),
+                    grantedBy: 'self-signup'
+                  }
+                });
+              }
+            }
+          } else {
+            // Create user document if it doesn't exist
+            const newUserData = {
+              email: currentUser.email?.toLowerCase(),
+              createdAt: serverTimestamp(),
+              subscriptions: {},
+              disabled: false,
+              suspended: false
+            };
+
+            if (orgId) {
+              newUserData.atlasAccess = {
+                [orgId]: {
+                  enabled: true,
+                  grantedAt: serverTimestamp(),
+                  grantedBy: 'self-signup'
+                }
+              };
+            }
+
+            await setDoc(userRef, newUserData);
+            setFirebaseUserData(newUserData);
+          }
+        } catch (err) {
+          console.error('[AtlasApp] Error fetching user data:', err);
+        }
+      } else {
+        setFirebaseUserData(null);
+      }
+
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [orgId]);
+
+  // Sign out handler
+  const handleSignOut = useCallback(async () => {
+    try {
+      await firebaseSignOut(auth);
+      // Also sign out of ArcGIS Portal if needed
+      arcgisSignOut?.();
+    } catch (err) {
+      console.error('[AtlasApp] Sign out error:', err);
+    }
+  }, [arcgisSignOut]);
+
+  // Check if user has access to current org
+  const hasOrgAccess = firebaseUserData?.atlasAccess?.[orgId]?.enabled === true;
   
   // UI State
   const [mode, setMode] = useState('chat');
@@ -760,16 +1041,21 @@ export default function AtlasApp() {
     activeMapIndex,
     setActiveMap,
     availableMaps,
-    
+
     // Theme colors (for child components)
     themeColor,
     colors,
-    
-    // Auth
+
+    // Firebase Auth (user account)
+    user: firebaseUser,
+    userData: firebaseUserData,
+    signOut: handleSignOut,
+
+    // ArcGIS Portal Auth (map access)
     arcgisUser,
-    isAuthenticated,
-    signIn,
-    signOut,
+    isArcGISAuthenticated,
+    arcgisSignIn,
+    arcgisSignOut,
     
     // Mode
     mode,
@@ -808,8 +1094,41 @@ export default function AtlasApp() {
   };
   
   // Loading state
-  if (configLoading || authLoading) {
-    return <LoadingScreen message="Loading Atlas..." />;
+  if (configLoading || authLoading || oauthProcessing) {
+    return (
+      <LoadingScreen
+        message={oauthProcessing ? "Signing in with ArcGIS..." : "Loading Atlas..."}
+      />
+    );
+  }
+
+  // Not authenticated - show auth screen
+  if (!firebaseUser) {
+    return (
+      <div className="h-dvh flex flex-col bg-slate-100 font-sans">
+        {/* Simple header for auth screen */}
+        <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-3">
+          <img
+            src="https://geoplan.nyc3.digitaloceanspaces.com/CivQuest/CVG_Logo_Medium.jpg"
+            alt="CivQuest Logo"
+            className="h-10 w-auto object-contain rounded-sm"
+          />
+          <h1 className="font-bold text-xl tracking-tight" style={{ color: colors.text700 }}>
+            {config?.name || 'CivQuest Atlas'}
+          </h1>
+        </header>
+
+        <main className="flex-1 overflow-auto">
+          <AuthScreen
+            orgId={orgId}
+            orgName={config?.name}
+            themeColor={themeColor}
+            oauthError={oauthError}
+            setOauthError={setOauthError}
+          />
+        </main>
+      </div>
+    );
   }
   
   // Error state
@@ -842,14 +1161,14 @@ export default function AtlasApp() {
   // No maps available
   if (!activeMap) {
     return (
-      <ErrorScreen 
+      <ErrorScreen
         title="No Maps Available"
-        message={isAuthenticated 
+        message={isArcGISAuthenticated
           ? "You don't have access to any maps in this organization."
           : "Sign in with ArcGIS to access protected maps."}
-        action={!isAuthenticated && (
+        action={!isArcGISAuthenticated && (
           <button
-            onClick={signIn}
+            onClick={arcgisSignIn}
             className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 flex items-center gap-2"
           >
             <LogIn className="w-4 h-4" />
@@ -936,15 +1255,15 @@ export default function AtlasApp() {
         
         {/* Mobile Menu Overlay */}
         {showMobileMenu && (
-          <MobileMenu 
+          <MobileMenu
             config={config}
             mode={mode}
             onModeChange={handleModeChange}
             enabledModes={enabledModes}
             onClose={() => setShowMobileMenu(false)}
-            arcgisUser={arcgisUser}
-            onSignIn={signIn}
-            onSignOut={signOut}
+            user={firebaseUser}
+            userData={firebaseUserData}
+            onSignOut={handleSignOut}
             colors={colors}
           />
         )}
@@ -976,15 +1295,15 @@ export default function AtlasApp() {
 /**
  * Mobile Menu Component
  */
-function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisUser, onSignIn, onSignOut, colors }) {
+function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, user, userData, onSignOut, colors }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose}>
-      <div 
+      <div
         className="absolute right-0 top-0 bottom-0 w-72 bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Menu Header */}
-        <div 
+        <div
           className="p-4 text-white flex justify-between items-center"
           style={{ backgroundColor: colors.bg700 }}
         >
@@ -993,7 +1312,7 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         {/* Mode Selection */}
         <div className="p-4 border-b">
           <h3 className="text-xs font-semibold text-slate-500 uppercase mb-2">View Mode</h3>
@@ -1006,7 +1325,7 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
                   key={m.id}
                   onClick={() => { onModeChange(m.id); onClose(); }}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition ${
-                    isActive 
+                    isActive
                       ? 'font-medium'
                       : 'text-slate-600 hover:bg-slate-100'
                   }`}
@@ -1019,27 +1338,25 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
             })}
           </div>
         </div>
-        
+
         {/* User Section */}
         <div className="p-4">
-          {arcgisUser ? (
+          {user ? (
             <div>
               <div className="flex items-center gap-3 mb-3">
-                <div 
+                <div
                   className="w-10 h-10 rounded-full flex items-center justify-center"
                   style={{ backgroundColor: colors.bg100 }}
                 >
-                  {arcgisUser.thumbnailUrl ? (
-                    <img src={arcgisUser.thumbnailUrl} alt="" className="w-10 h-10 rounded-full" />
-                  ) : (
-                    <span className="text-lg font-semibold" style={{ color: colors.text600 }}>
-                      {arcgisUser.fullName?.[0] || arcgisUser.username?.[0] || '?'}
-                    </span>
-                  )}
+                  <span className="text-lg font-semibold" style={{ color: colors.text600 }}>
+                    {userData?.arcgisProfile?.fullName?.[0] || user.email?.[0]?.toUpperCase() || '?'}
+                  </span>
                 </div>
                 <div>
-                  <p className="font-medium text-slate-800">{arcgisUser.fullName || arcgisUser.username}</p>
-                  <p className="text-xs text-slate-500">{arcgisUser.email}</p>
+                  <p className="font-medium text-slate-800">
+                    {userData?.arcgisProfile?.fullName || user.email}
+                  </p>
+                  <p className="text-xs text-slate-500">{user.email}</p>
                 </div>
               </div>
               <button
@@ -1051,14 +1368,7 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, arcgisU
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => { onSignIn(); onClose(); }}
-              className="w-full py-2 text-white rounded-lg flex items-center justify-center gap-2"
-              style={{ backgroundColor: colors.bg600 }}
-            >
-              <LogIn className="w-4 h-4" />
-              Sign in with ArcGIS
-            </button>
+            <p className="text-sm text-slate-500 text-center">Not signed in</p>
           )}
         </div>
       </div>

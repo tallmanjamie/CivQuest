@@ -87,13 +87,39 @@ export async function updateLastLogin(uid, email) {
 }
 
 /**
- * Disable user account
+ * Disable user account (legacy - use suspendUser instead)
  */
 export async function disableUser(uid) {
   const docRef = doc(db, PATHS.user(uid));
   await updateDoc(docRef, {
     disabled: true,
     subscriptions: {}
+  });
+}
+
+/**
+ * Suspend user account (preserves subscriptions/access)
+ * User cannot log in while suspended but their data is preserved
+ */
+export async function suspendUser(uid, reason = '') {
+  const docRef = doc(db, PATHS.user(uid));
+  await updateDoc(docRef, {
+    suspended: true,
+    suspendedAt: serverTimestamp(),
+    suspendReason: reason
+  });
+}
+
+/**
+ * Unsuspend user account (restore access)
+ */
+export async function unsuspendUser(uid) {
+  const docRef = doc(db, PATHS.user(uid));
+  await updateDoc(docRef, {
+    suspended: false,
+    suspendedAt: null,
+    suspendReason: null,
+    unsuspendedAt: serverTimestamp()
   });
 }
 
@@ -129,5 +155,7 @@ export default {
   subscribeToUser,
   updateLastLogin,
   disableUser,
+  suspendUser,
+  unsuspendUser,
   linkArcGISAccount
 };
