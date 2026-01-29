@@ -28,7 +28,13 @@ import {
   Lightbulb,
   Search,
   Eye,
-  EyeOff
+  EyeOff,
+  Shield,
+  Code,
+  Link,
+  CheckSquare,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 
 /**
@@ -123,6 +129,20 @@ export default function AtlasSettingsEditor({
       searchTip: '',
       ...data?.messages
     },
+    disclaimer: {
+      enabled: false,
+      width: '600',
+      widthUnit: 'px',
+      height: '400',
+      heightUnit: 'px',
+      contentMode: 'html',
+      htmlContent: '',
+      embedUrl: '',
+      confirmationType: 'confirmation',
+      checkboxText: 'I agree to the terms and conditions',
+      buttonText: 'Continue',
+      ...data?.disclaimer
+    },
     basemaps: data?.basemaps || [{ label: 'Default', id: 'default', type: 'esri' }],
     data: {
       systemPrompt: '',
@@ -138,9 +158,13 @@ export default function AtlasSettingsEditor({
   const [expandedSections, setExpandedSections] = useState({
     ui: true,
     messages: true,
+    disclaimer: false,
     basemaps: false,
     data: false
   });
+
+  // State for disclaimer HTML preview
+  const [showDisclaimerPreview, setShowDisclaimerPreview] = useState(false);
   
   // Custom hex color input
   const [customHexInput, setCustomHexInput] = useState(
@@ -173,6 +197,14 @@ export default function AtlasSettingsEditor({
     setConfig(prev => ({
       ...prev,
       data: { ...prev.data, [field]: value }
+    }));
+  };
+
+  // Update disclaimer field
+  const updateDisclaimer = (field, value) => {
+    setConfig(prev => ({
+      ...prev,
+      disclaimer: { ...prev.disclaimer, [field]: value }
     }));
   };
 
@@ -657,6 +689,284 @@ export default function AtlasSettingsEditor({
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                 />
               </div>
+            </div>
+          </Section>
+
+          {/* Disclaimer Section */}
+          <Section
+            title="Disclaimer Popup"
+            icon={Shield}
+            expanded={expandedSections.disclaimer}
+            onToggle={() => toggleSection('disclaimer')}
+            accentColor={accentColor}
+          >
+            <div className="space-y-4">
+              {/* Enable Toggle */}
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <span className="font-medium text-slate-700">Enable Disclaimer Popup</span>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Show a disclaimer when users first visit the site
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateDisclaimer('enabled', !config.disclaimer.enabled)}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    config.disclaimer.enabled ? 'bg-emerald-500' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      config.disclaimer.enabled ? 'translate-x-7' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Show configuration options only when enabled */}
+              {config.disclaimer.enabled && (
+                <>
+                  {/* Size Configuration */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Width
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={config.disclaimer.width}
+                          onChange={(e) => updateDisclaimer('width', e.target.value)}
+                          placeholder="600"
+                          min="100"
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        />
+                        <select
+                          value={config.disclaimer.widthUnit}
+                          onChange={(e) => updateDisclaimer('widthUnit', e.target.value)}
+                          className="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        >
+                          <option value="px">px</option>
+                          <option value="%">%</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Height
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={config.disclaimer.height}
+                          onChange={(e) => updateDisclaimer('height', e.target.value)}
+                          placeholder="400"
+                          min="100"
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        />
+                        <select
+                          value={config.disclaimer.heightUnit}
+                          onChange={(e) => updateDisclaimer('heightUnit', e.target.value)}
+                          className="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        >
+                          <option value="px">px</option>
+                          <option value="%">%</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Content Mode Toggle */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Content Source
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateDisclaimer('contentMode', 'html')}
+                        className={`flex-1 p-3 border rounded-lg flex items-center justify-center gap-2 transition-colors ${
+                          config.disclaimer.contentMode === 'html'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <Code className="w-5 h-5" />
+                        <span className="font-medium">HTML Editor</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateDisclaimer('contentMode', 'embed')}
+                        className={`flex-1 p-3 border rounded-lg flex items-center justify-center gap-2 transition-colors ${
+                          config.disclaimer.contentMode === 'embed'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <Link className="w-5 h-5" />
+                        <span className="font-medium">Embed URL</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Content Input */}
+                  {config.disclaimer.contentMode === 'html' ? (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium text-slate-700">
+                          HTML Content
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowDisclaimerPreview(!showDisclaimerPreview)}
+                          className="text-xs text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                        >
+                          {showDisclaimerPreview ? (
+                            <>
+                              <Code className="w-3 h-3" /> Show Code
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-3 h-3" /> Preview
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      {showDisclaimerPreview ? (
+                        <div
+                          className="w-full min-h-[200px] max-h-[300px] overflow-auto px-3 py-2 border border-slate-300 rounded-lg bg-white prose prose-sm prose-slate max-w-none"
+                          dangerouslySetInnerHTML={{
+                            __html: config.disclaimer.htmlContent || '<p class="text-slate-400 italic">No content yet...</p>'
+                          }}
+                        />
+                      ) : (
+                        <textarea
+                          value={config.disclaimer.htmlContent}
+                          onChange={(e) => updateDisclaimer('htmlContent', e.target.value)}
+                          placeholder="<h2>Terms and Conditions</h2>\n<p>Enter your disclaimer content here...</p>"
+                          rows={8}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                        />
+                      )}
+                      <p className="mt-1 text-xs text-slate-500">
+                        Supports HTML formatting. Content will be styled automatically.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Embed URL
+                      </label>
+                      <input
+                        type="url"
+                        value={config.disclaimer.embedUrl}
+                        onChange={(e) => updateDisclaimer('embedUrl', e.target.value)}
+                        placeholder="https://example.com/disclaimer"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">
+                        The page will be embedded in an iframe. Ensure the URL allows embedding.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Confirmation Type */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Confirmation Type
+                    </label>
+                    <div className="space-y-2">
+                      <label
+                        className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                          config.disclaimer.confirmationType === 'confirmation'
+                            ? 'border-sky-500 bg-sky-50'
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="confirmationType"
+                          value="confirmation"
+                          checked={config.disclaimer.confirmationType === 'confirmation'}
+                          onChange={(e) => updateDisclaimer('confirmationType', e.target.value)}
+                          className="mt-1"
+                        />
+                        <div>
+                          <span className="font-medium text-slate-700">Require Confirmation</span>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            User must check the checkbox before the continue button is enabled
+                          </p>
+                        </div>
+                      </label>
+                      <label
+                        className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                          config.disclaimer.confirmationType === 'dontShowAgain'
+                            ? 'border-sky-500 bg-sky-50'
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="confirmationType"
+                          value="dontShowAgain"
+                          checked={config.disclaimer.confirmationType === 'dontShowAgain'}
+                          onChange={(e) => updateDisclaimer('confirmationType', e.target.value)}
+                          className="mt-1"
+                        />
+                        <div>
+                          <span className="font-medium text-slate-700">Don't Show Again Option</span>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Continue button is always enabled. If user checks the box, a cookie prevents future displays.
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Checkbox and Button Text */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Checkbox Text
+                      </label>
+                      <input
+                        type="text"
+                        value={config.disclaimer.checkboxText}
+                        onChange={(e) => updateDisclaimer('checkboxText', e.target.value)}
+                        placeholder={
+                          config.disclaimer.confirmationType === 'confirmation'
+                            ? 'I agree to the terms and conditions'
+                            : "Don't show this again"
+                        }
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Button Text
+                      </label>
+                      <input
+                        type="text"
+                        value={config.disclaimer.buttonText}
+                        onChange={(e) => updateDisclaimer('buttonText', e.target.value)}
+                        placeholder="Continue"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Theme Note */}
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <Palette className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-amber-800">
+                        <strong>Note:</strong> The disclaimer header and button colors will automatically match your theme color set in the User Interface section above.
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </Section>
 
