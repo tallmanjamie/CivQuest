@@ -3,7 +3,7 @@
 // Shows features with basemap and zoom controls only
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Loader2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
 
 // ArcGIS ES Modules
 import EsriMapView from '@arcgis/core/views/MapView';
@@ -29,7 +29,6 @@ export default function ChatMiniMap({
   features,
   themeColor = 'sky',
   height = 250,
-  onViewInMap,
   basemapId = 'streets-navigation-vector'
 }) {
   const containerRef = useRef(null);
@@ -215,8 +214,13 @@ export default function ChatMiniMap({
     }
   }, []);
 
+  // Handle height as number or percentage string
+  const containerStyle = typeof height === 'number'
+    ? { height }
+    : { height, minHeight: 200 };
+
   return (
-    <div className="relative rounded-lg overflow-hidden border border-slate-200" style={{ height }}>
+    <div className="relative rounded-lg overflow-hidden border border-slate-200" style={containerStyle}>
       {/* Map Container */}
       <div ref={containerRef} className="w-full h-full" />
 
@@ -255,17 +259,6 @@ export default function ChatMiniMap({
             <ZoomOut className="w-4 h-4" style={{ color: colors.bg600 }} />
           </button>
         </div>
-      )}
-
-      {/* Expand to full map button */}
-      {!isLoading && !error && onViewInMap && (
-        <button
-          onClick={onViewInMap}
-          className="absolute top-2 right-2 p-1.5 bg-white rounded-lg shadow-md hover:bg-slate-100 transition-colors"
-          title="View in full map"
-        >
-          <Maximize2 className="w-4 h-4" style={{ color: colors.bg600 }} />
-        </button>
       )}
     </div>
   );
