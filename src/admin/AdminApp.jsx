@@ -5,10 +5,9 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { initializeApp } from "firebase/app";
 import LicenseManagement from './components/LicenseManagement';
-import { 
-  getAuth, 
+import {
+  getAuth,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged
 } from "firebase/auth";
@@ -1897,23 +1896,41 @@ function OrgAdminManagement() {
 
   const handleAddAdmin = async (email, organizationId) => {
     try {
-      // Create Firebase Auth account
-      const tempPassword = Math.random().toString(36).slice(-12) + 'A1!';
-      const userCredential = await createUserWithEmailAndPassword(auth, email, tempPassword);
-      
-      // Create admin document
-      await setDoc(doc(db, PATHS.admins, userCredential.user.uid), {
+      // Search for existing user by email
+      const usersQuery = query(
+        collection(db, PATHS.users),
+        where('email', '==', email.toLowerCase())
+      );
+      const usersSnapshot = await getDocs(usersQuery);
+
+      if (usersSnapshot.empty) {
+        addToast(`No user found with email ${email}. The user must have an existing CivQuest account.`, 'error');
+        return;
+      }
+
+      const existingUser = usersSnapshot.docs[0];
+      const userId = existingUser.id;
+
+      // Check if user is already an admin
+      const existingAdminDoc = await getDoc(doc(db, PATHS.admins, userId));
+      if (existingAdminDoc.exists()) {
+        addToast(`User ${email} is already an admin.`, 'error');
+        return;
+      }
+
+      // Create admin document for existing user
+      await setDoc(doc(db, PATHS.admins, userId), {
         email: email.toLowerCase(),
         role: 'org_admin',
         organizationId,
         disabled: false,
         createdAt: serverTimestamp()
       });
-      
-      addToast(`Admin ${email} created. Temporary password: ${tempPassword}`, 'success');
+
+      addToast(`${email} has been added as an organization admin.`, 'success');
       setShowAddModal(false);
     } catch (err) {
-      addToast(`Error creating admin: ${err.message}`, 'error');
+      addToast(`Error adding admin: ${err.message}`, 'error');
     }
   };
 
@@ -2071,12 +2088,16 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-4">
+          <p className="text-sm text-slate-500 -mt-2 mb-2">
+            Add an existing CivQuest user as an organization admin.
+          </p>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter user's email address"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
               required
             />
@@ -2111,7 +2132,7 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
               className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center gap-2"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create Admin
+              Add Admin
             </button>
           </div>
         </form>
