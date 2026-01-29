@@ -99,6 +99,7 @@ const MapView = forwardRef(function MapView(props, ref) {
 
   // Tool Panel States
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
+  const [featurePanelWidth, setFeaturePanelWidth] = useState(400);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [showLayersPanel, setShowLayersPanel] = useState(false);
   const [showBasemapPicker, setShowBasemapPicker] = useState(false);
@@ -1725,7 +1726,10 @@ const MapView = forwardRef(function MapView(props, ref) {
 
       {/* ==================== BOTTOM RIGHT CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
-        <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20">
+        <div
+          className="absolute bottom-4 flex flex-col gap-2 z-20 transition-[right] duration-300"
+          style={{ right: showFeaturePanel && selectedFeature && !isMobile ? featurePanelWidth + 16 : 16 }}
+        >
           {/* GPS Button and Settings */}
           <div className="relative">
             <div className="flex flex-col bg-white rounded-lg shadow-lg overflow-hidden">
@@ -1884,6 +1888,7 @@ const MapView = forwardRef(function MapView(props, ref) {
           currentRelatedIndex={currentRelatedIndex}
           onNavigateRelated={setCurrentRelatedIndex}
           isMarkupFeature={isMarkupFeature}
+          onWidthChange={setFeaturePanelWidth}
         />
       )}
 
