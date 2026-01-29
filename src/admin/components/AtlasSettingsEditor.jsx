@@ -470,6 +470,7 @@ export default function AtlasSettingsEditor({
         <div className="flex-1 overflow-y-auto p-6">
           {/* UI Tab */}
           {activeTab === 'ui' && (
+            <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -687,6 +688,7 @@ export default function AtlasSettingsEditor({
                 </div>
               </div>
             </div>
+            </>
           )}
 
           {/* Messages Tab */}
