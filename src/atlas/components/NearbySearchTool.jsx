@@ -72,6 +72,7 @@ const ensureGeometry = (geom) => {
  * @param {function} onClose - Callback to close the tool
  * @param {string} themeColor - Theme color name
  * @param {string} sourceName - Name of the source feature/markup
+ * @param {string} sourceType - Where the tool was triggered from ('markup-popup', 'feature-info', or null for other)
  */
 export default function NearbySearchTool({
   geometry,
@@ -81,7 +82,8 @@ export default function NearbySearchTool({
   onSaveBufferAsMarkup,
   onClose,
   themeColor = 'sky',
-  sourceName = 'Feature'
+  sourceName = 'Feature',
+  sourceType = null
 }) {
   const colors = getThemeColors(themeColor);
 
@@ -204,7 +206,8 @@ export default function NearbySearchTool({
         onResults(features, bufferGeometry, {
           distance,
           unit,
-          sourceName
+          sourceName,
+          sourceType
         });
       }
     } catch (err) {
@@ -213,7 +216,7 @@ export default function NearbySearchTool({
     } finally {
       setIsSearching(false);
     }
-  }, [geometry, endpoint, distance, unit, sourceName, createBuffer, queryFeaturesInBuffer, onResults]);
+  }, [geometry, endpoint, distance, unit, sourceName, sourceType, createBuffer, queryFeaturesInBuffer, onResults]);
 
   /**
    * Handle saving buffer as markup

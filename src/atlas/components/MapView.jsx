@@ -1524,6 +1524,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     // Get theme color for rendering
     const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
     const hex500 = palette[500];
+    const hex700 = palette[700]; // Darker shade for popup buffer
     const hexToRgb = (hex) => {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
       return result ? [
@@ -1534,15 +1535,21 @@ const MapView = forwardRef(function MapView(props, ref) {
     };
     const [r, g, b] = hexToRgb(hex500);
 
+    // Check if this search was triggered from a popup (markup or feature info)
+    const isFromPopup = searchInfo?.sourceType === 'markup-popup' || searchInfo?.sourceType === 'feature-info';
+
     // Render buffer graphic on map (on top of results with dashed outline)
     if (nearbyBufferLayerRef.current && bufferGeometry) {
       nearbyBufferLayerRef.current.removeAll();
 
+      // If from popup: no fill, use darker shade (700) for outline to stand out
+      // Otherwise: light fill with standard color
+      const [bufferR, bufferG, bufferB] = isFromPopup ? hexToRgb(hex700) : [r, g, b];
       const bufferSymbol = new SimpleFillSymbol({
-        color: [r, g, b, 0.1], // Very light fill
+        color: isFromPopup ? [0, 0, 0, 0] : [r, g, b, 0.1], // No fill for popup, light fill otherwise
         outline: new SimpleLineSymbol({
-          color: [r, g, b, 0.8],
-          width: 2,
+          color: [bufferR, bufferG, bufferB, 1],
+          width: isFromPopup ? 3 : 2, // Thicker for popup to stand out more
           style: 'dash' // Dashed outline to distinguish from results
         })
       });
@@ -1559,7 +1566,52 @@ const MapView = forwardRef(function MapView(props, ref) {
       });
 
       nearbyBufferLayerRef.current.add(bufferGraphic);
-      console.log('[MapView] Buffer graphic added to map');
+      console.log('[MapView] Buffer graphic added to map', isFromPopup ? '(popup style)' : '');
+    }
+
+    // If from popup, automatically save buffer as markup
+    if (isFromPopup && bufferGeometry && markupLayerRef.current) {
+      const bufferName = `${searchInfo?.distance} ${searchInfo?.unit} buffer around ${searchInfo?.sourceName}`;
+      console.log('[MapView] Auto-saving buffer as markup from popup:', bufferName);
+
+      // Create polygon from buffer geometry
+      const graphicGeometry = new Polygon({
+        rings: bufferGeometry.rings,
+        spatialReference: bufferGeometry.spatialReference || { wkid: 4326 }
+      });
+
+      // Use the darker shade (700) with no fill for the markup
+      const [markupR, markupG, markupB] = hexToRgb(hex700);
+      const symbol = new SimpleFillSymbol({
+        color: [0, 0, 0, 0], // No fill
+        outline: new SimpleLineSymbol({
+          color: [markupR, markupG, markupB],
+          width: 3,
+          style: 'dash'
+        })
+      });
+
+      const markupGraphic = new Graphic({
+        geometry: graphicGeometry,
+        symbol,
+        attributes: {
+          id: `markup_${Date.now()}`,
+          name: bufferName,
+          tool: 'polygon',
+          symbolStyle: 'dash',
+          color: hex700,
+          lineColor: hex700,
+          lineType: 'dash',
+          lineWidth: 3,
+          fillOpacity: 0,
+          isMarkup: true,
+          timestamp: Date.now(),
+          savedFrom: 'nearby-search-popup'
+        }
+      });
+
+      markupLayerRef.current.add(markupGraphic);
+      console.log('[MapView] Buffer auto-saved as markup:', bufferName);
     }
 
     // Render results on map
