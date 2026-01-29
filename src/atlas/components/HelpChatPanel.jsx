@@ -46,9 +46,8 @@ export default function HelpChatPanel({
   const colors = getThemeColors(themeColor);
   const isBottom = position === 'bottom';
 
-  // Get help documentation and links from config
+  // Get help documentation from config (external links are now within each article)
   const helpDocs = config?.helpDocumentation || [];
-  const helpLinks = config?.helpLinks || [];
 
   // Filter articles based on search query
   const filteredDocs = searchQuery.trim()
@@ -269,7 +268,7 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
             {/* Articles List */}
             <div className="flex-1 overflow-y-auto">
               {/* Empty state - no content at all */}
-              {helpDocs.length === 0 && helpLinks.length === 0 && (
+              {helpDocs.length === 0 && (
                 <div className="p-6 text-center">
                   <BookOpen className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                   <p className="text-sm text-slate-500">No help content available</p>
@@ -320,41 +319,6 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                       <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 flex-shrink-0" />
                     </button>
                   ))}
-                </div>
-              )}
-
-              {/* External Resources */}
-              {helpLinks.length > 0 && !searchQuery.trim() && (
-                <div className={filteredDocs.length > 0 ? "border-t border-slate-100" : ""}>
-                  <div className="px-4 py-2 bg-slate-50">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                      External Resources
-                    </p>
-                  </div>
-                  <div className="divide-y divide-slate-50">
-                    {helpLinks.map((link, idx) => (
-                      <a
-                        key={link.id || idx}
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors flex items-center gap-3 group block"
-                      >
-                        <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-emerald-100"
-                        >
-                          <ExternalLink className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-700 truncate">{link.title}</p>
-                          {link.description && (
-                            <p className="text-xs text-slate-500 truncate mt-0.5">{link.description}</p>
-                          )}
-                        </div>
-                        <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-600 flex-shrink-0" />
-                      </a>
-                    ))}
-                  </div>
                 </div>
               )}
             </div>
@@ -424,6 +388,33 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                         </div>
                       ) : null}
                     </div>
+                  ))}
+                </div>
+              )}
+
+              {/* External Links */}
+              {selectedArticle.links && selectedArticle.links.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-slate-700">External Resources</h4>
+                  {selectedArticle.links.map((link, idx) => (
+                    <a
+                      key={link.id || idx}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors group"
+                    >
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-emerald-100">
+                        <ExternalLink className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-700 truncate">{link.title}</p>
+                        {link.description && (
+                          <p className="text-xs text-slate-500 truncate">{link.description}</p>
+                        )}
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-600 flex-shrink-0" />
+                    </a>
                   ))}
                 </div>
               )}
