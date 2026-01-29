@@ -16,3 +16,6 @@ export {
 export {
   useIntegrations  // Third-party integrations (EagleView/Pictometry, etc.)
 } from './useIntegrations';
+export {
+  useWebmapAccessibility  // Webmap accessibility check based on auth state
+} from './useWebmapAccessibility';
