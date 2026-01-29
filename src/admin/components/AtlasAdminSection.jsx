@@ -36,7 +36,8 @@ import {
   Globe,
   Save,
   RotateCcw,
-  FileOutput
+  FileOutput,
+  Puzzle
 } from 'lucide-react';
 import { doc, updateDoc, collection, onSnapshot } from 'firebase/firestore';
 import { PATHS } from '../../shared/services/paths';
@@ -49,6 +50,7 @@ import ExportTemplateConfiguration from './ExportTemplateConfiguration';
 import ExportTemplateEditor from './ExportTemplateEditor';
 import FeatureExportTemplateConfiguration from './FeatureExportTemplateConfiguration';
 import FeatureExportTemplateEditor from './FeatureExportTemplateEditor';
+import OrgIntegrationsConfig from './OrgIntegrationsConfig';
 
 /**
  * AtlasAdminSection Component
@@ -313,6 +315,18 @@ export default function AtlasAdminSection({
             confirm={confirm}
             accentColor={accentColor}
             adminEmail={adminEmail}
+          />
+        );
+
+      case 'integrations':
+        // Integrations configuration - only for org_admin
+        return (
+          <OrgIntegrationsConfig
+            db={db}
+            orgId={orgId}
+            orgData={orgData}
+            addToast={addToast}
+            accentColor={accentColor}
           />
         );
 
@@ -1359,11 +1373,12 @@ export function getAtlasNavItems(role) {
     ];
   }
 
-  // org_admin - includes combined Export Templates
+  // org_admin - includes combined Export Templates and Integrations
   return [
     { id: 'users', label: 'Users', icon: Users },
     { id: 'maps', label: 'Maps', icon: Layers },
     { id: 'export-templates', label: 'Export Templates', icon: Printer },
+    { id: 'integrations', label: 'Integrations', icon: Puzzle },
     { id: 'preview', label: 'Preview', icon: Eye }
   ];
 }
