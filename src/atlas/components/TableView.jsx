@@ -21,7 +21,8 @@ import {
   Map,
   Eye,
   MapPin,
-  BarChart3
+  BarChart3,
+  HelpCircle
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -45,7 +46,8 @@ const TableView = forwardRef(function TableView(props, ref) {
     highlightFeature,
     setMode,
     mode,
-    mapViewRef
+    mapViewRef,
+    setShowHelpPanel
   } = useAtlas();
 
   // Refs
@@ -551,6 +553,14 @@ const TableView = forwardRef(function TableView(props, ref) {
             title="Show/Hide columns"
           >
             <Columns className="w-4 h-4" />
+          </button>
+
+          <button
+            className="table-tool-btn"
+            onClick={() => setShowHelpPanel?.(true)}
+            title="Get Help"
+          >
+            <HelpCircle className="w-4 h-4" />
           </button>
 
           <button
