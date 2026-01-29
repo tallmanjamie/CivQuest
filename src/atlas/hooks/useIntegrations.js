@@ -10,12 +10,26 @@ import { doc, getDoc, onSnapshot } from 'firebase/firestore';
  * Hook to get integrations enabled for a specific organization
  *
  * @param {string} orgId - Organization ID
- * @returns {object} - { integrations, pictometryConfig, isLoading, openEagleView }
+ * @returns {object} - { integrations, pictometryConfig, isLoading, openEagleView, eagleViewModal, closeEagleView }
  */
 export function useIntegrations(orgId) {
   const [integrations, setIntegrations] = useState([]);
   const [orgIntegrations, setOrgIntegrations] = useState({});
   const [isLoading, setIsLoading] = useState(true);
+
+  // EagleView modal state
+  const [eagleViewModal, setEagleViewModal] = useState({
+    isOpen: false,
+    url: null,
+    title: '',
+    themeColor: '#0ea5e9',
+    windowConfig: {
+      width: 80,
+      widthUnit: '%',
+      height: 80,
+      heightUnit: '%'
+    }
+  });
 
   // Load system-level integrations
   useEffect(() => {
@@ -94,7 +108,17 @@ export function useIntegrations(orgId) {
   );
 
   /**
-   * Open EagleView in a new window with the given feature
+   * Close the EagleView modal
+   */
+  const closeEagleView = useCallback(() => {
+    setEagleViewModal((prev) => ({
+      ...prev,
+      isOpen: false
+    }));
+  }, []);
+
+  /**
+   * Open EagleView in an embedded modal within the Atlas application
    *
    * @param {object} params - Parameters for opening EagleView
    * @param {object} params.geometry - ArcGIS geometry object (point, polygon, polyline)
@@ -205,9 +229,22 @@ export function useIntegrations(orgId) {
 
       const url = `/eagleview.html?${params.toString()}`;
 
-      // Open in new window
-      const windowFeatures = 'width=1200,height=800,resizable=yes,scrollbars=yes';
-      window.open(url, 'eagleview', windowFeatures);
+      // Get window size configuration from org config, with defaults
+      const windowConfig = {
+        width: pictometryConfig.windowWidth ?? 80,
+        widthUnit: pictometryConfig.windowWidthUnit || '%',
+        height: pictometryConfig.windowHeight ?? 80,
+        heightUnit: pictometryConfig.windowHeightUnit || '%'
+      };
+
+      // Open in embedded modal instead of new window
+      setEagleViewModal({
+        isOpen: true,
+        url,
+        title: title || 'Feature',
+        themeColor: themeColor || '#0ea5e9',
+        windowConfig
+      });
     },
     [pictometryConfig]
   );
@@ -221,7 +258,9 @@ export function useIntegrations(orgId) {
     // Pictometry/EagleView specific
     isPictometryEnabled: !!pictometryIntegration && !!pictometryConfig?.apiKey,
     pictometryConfig,
-    openEagleView
+    openEagleView,
+    closeEagleView,
+    eagleViewModal
   };
 }
 
