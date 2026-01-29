@@ -1340,6 +1340,8 @@ export default function AtlasSettingsEditor({
                 </div>
               </div>
             </div>
+          </Section>
+            </div>
           )}
         </div>
 
