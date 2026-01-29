@@ -47,7 +47,8 @@ const DEFAULT_CONFIG = {
     welcomeText: '',   // Empty = hidden
     exampleQuestions: [],
     importantNote: '', // Empty = hidden
-    searchTip: ''      // Empty = hidden
+    searchTip: '',     // Empty = hidden
+    noResultsMessage: '' // Empty = use default message
   },
   disclaimer: {
     enabled: false,              // Off by default

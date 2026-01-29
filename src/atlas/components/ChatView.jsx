@@ -727,8 +727,12 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
       });
 
       if (features.length === 0) {
-        addMessage('ai', 'I couldn\'t find any properties matching your search. Try:\n• Checking the spelling\n• Using a different format (e.g., "306 Cedar Lane" or "306 CEDAR LN")\n• Searching by parcel ID instead', {
-          searchMetadata
+        // Use custom no results message from config, or fall back to default
+        const defaultNoResultsMessage = 'I couldn\'t find any properties matching your search. Try:\n• Checking the spelling\n• Using a different format (e.g., "306 Cedar Lane" or "306 CEDAR LN")\n• Searching by parcel ID instead';
+        const noResultsMessage = config?.messages?.noResultsMessage || defaultNoResultsMessage;
+        addMessage('ai', noResultsMessage, {
+          searchMetadata,
+          showNoResults: true  // Flag to show query details for no results
         });
       } else if (features.length === 1) {
         const feature = features[0];
@@ -1510,6 +1514,13 @@ function MessageBubble({
               {message.searchMetadata && (
                 <MetadataViewer metadata={message.searchMetadata} colors={colors} />
               )}
+            </div>
+          )}
+
+          {/* No results: show query details */}
+          {message.showNoResults && message.searchMetadata && (
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <MetadataViewer metadata={message.searchMetadata} colors={colors} />
             </div>
           )}
         </div>

@@ -1203,6 +1203,29 @@ export default function AtlasSettingsEditor({
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                 />
               </div>
+
+              {/* No Results Message */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
+                  <Search className="w-4 h-4 text-slate-500" />
+                  No Results Message
+                  {!config.messages.noResultsMessage && (
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      Using default message
+                    </span>
+                  )}
+                </label>
+                <textarea
+                  value={config.messages.noResultsMessage || ''}
+                  onChange={(e) => updateMessages('noResultsMessage', e.target.value)}
+                  placeholder="I couldn't find any properties matching your search. Try checking the spelling or using a different format."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Message shown when a search returns no results. Leave empty to use the default message.
+                </p>
+              </div>
             </div>
           )}
 
