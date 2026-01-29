@@ -158,7 +158,8 @@ export default function AtlasSettingsEditor({
       autocompleteMaxResults: 100,
       ...data?.data
     },
-    helpDocumentation: data?.helpDocumentation || []
+    helpDocumentation: data?.helpDocumentation || [],
+    useGlobalHelp: data?.useGlobalHelp !== false  // Default to true
   }));
 
   const [errors, setErrors] = useState({});
@@ -174,11 +175,19 @@ export default function AtlasSettingsEditor({
 
   // State for disclaimer HTML preview
   const [showDisclaimerPreview, setShowDisclaimerPreview] = useState(false);
-  
+
   // Custom hex color input
   const [customHexInput, setCustomHexInput] = useState(
     isValidHex(config.ui.themeColor) ? config.ui.themeColor : ''
   );
+
+  // Toggle section expansion
+  const toggleSection = (sectionId) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [sectionId]: !prev[sectionId]
+    }));
+  };
 
   // Tab definitions
   const tabs = [
@@ -186,7 +195,8 @@ export default function AtlasSettingsEditor({
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'disclaimer', label: 'Disclaimer', icon: Shield },
     { id: 'basemaps', label: 'Basemaps', icon: Globe },
-    { id: 'data', label: 'Advanced', icon: HelpCircle }
+    { id: 'help', label: 'Help', icon: BookOpen },
+    { id: 'advanced', label: 'Advanced', icon: HelpCircle }
   ];
 
   // Update UI field
@@ -1216,67 +1226,90 @@ export default function AtlasSettingsEditor({
             </div>
           )}
 
-          {/* Advanced Tab */}
-          {activeTab === 'data' && (
+          {/* Help Documentation Tab */}
+          {activeTab === 'help' && (
             <div className="space-y-6">
-          {/* Help Documentation Section */}
-          <Section
-            title="Help Documentation"
-            icon={BookOpen}
-            expanded={expandedSections.helpDocumentation}
-            onToggle={() => toggleSection('helpDocumentation')}
-            accentColor={accentColor}
-          >
-            <div className="space-y-4">
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-xs text-blue-800">
-                  <strong>Help Mode:</strong> Add documentation that users can access in chat mode.
-                  Include images and videos with tags to help the AI find relevant media when answering questions.
-                </p>
+              {/* Global Help Toggle */}
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <span className="font-medium text-slate-700">Use Global Atlas Help</span>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    When enabled, this organization uses the global help documentation configured by Atlas administrators.
+                    Disable to create custom help for this organization.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfig(prev => ({ ...prev, useGlobalHelp: !prev.useGlobalHelp }))}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    config.useGlobalHelp ? 'bg-emerald-500' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      config.useGlobalHelp ? 'translate-x-7' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
               </div>
 
-              {/* Help Articles */}
-              {config.helpDocumentation.map((doc, docIdx) => (
-                <HelpDocEditor
-                  key={doc.id || docIdx}
-                  doc={doc}
-                  docIndex={docIdx}
-                  onUpdate={updateHelpDoc}
-                  onRemove={removeHelpDoc}
-                  onAddTag={addHelpDocTag}
-                  onRemoveTag={removeHelpDocTag}
-                  onAddMedia={addHelpDocMedia}
-                  onUpdateMedia={updateHelpDocMedia}
-                  onRemoveMedia={removeHelpDocMedia}
-                  onAddMediaTag={addMediaTag}
-                  onRemoveMediaTag={removeMediaTag}
-                />
-              ))}
+              {/* Show custom help editor only when NOT using global help */}
+              {!config.useGlobalHelp ? (
+                <>
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-xs text-blue-800">
+                      <strong>Custom Help Mode:</strong> Add organization-specific documentation that users can access in chat mode.
+                      Include images and videos with tags to help the AI find relevant media when answering questions.
+                    </p>
+                  </div>
 
-              {config.helpDocumentation.length === 0 && (
-                <p className="text-sm text-slate-400 italic text-center py-4">
-                  No help documentation added yet. Click below to add your first article.
-                </p>
+                  {/* Help Articles */}
+                  {config.helpDocumentation.map((doc, docIdx) => (
+                    <HelpDocEditor
+                      key={doc.id || docIdx}
+                      doc={doc}
+                      docIndex={docIdx}
+                      onUpdate={updateHelpDoc}
+                      onRemove={removeHelpDoc}
+                      onAddTag={addHelpDocTag}
+                      onRemoveTag={removeHelpDocTag}
+                      onAddMedia={addHelpDocMedia}
+                      onUpdateMedia={updateHelpDocMedia}
+                      onRemoveMedia={removeHelpDocMedia}
+                      onAddMediaTag={addMediaTag}
+                      onRemoveMediaTag={removeMediaTag}
+                    />
+                  ))}
+
+                  {config.helpDocumentation.length === 0 && (
+                    <p className="text-sm text-slate-400 italic text-center py-4">
+                      No custom help documentation added yet. Click below to add your first article.
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={addHelpDoc}
+                    className="w-full py-2 border border-dashed border-slate-300 rounded-lg text-sm text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" /> Add Help Article
+                  </button>
+                </>
+              ) : (
+                <div className="p-6 bg-slate-50 border border-slate-200 rounded-lg text-center">
+                  <Globe className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                  <h3 className="font-medium text-slate-700 mb-1">Using Global Atlas Help</h3>
+                  <p className="text-sm text-slate-500">
+                    This organization is using the global help documentation configured by Atlas administrators.
+                    Turn off "Use Global Atlas Help" above to create custom help for this organization.
+                  </p>
+                </div>
               )}
-
-              <button
-                type="button"
-                onClick={addHelpDoc}
-                className="w-full py-2 border border-dashed border-slate-300 rounded-lg text-sm text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
-              >
-                <Plus className="w-4 h-4" /> Add Help Article
-              </button>
             </div>
-          </Section>
+          )}
 
-          {/* Advanced/Data Section */}
-          <Section
-            title="Advanced Settings"
-            icon={HelpCircle}
-            expanded={expandedSections.data}
-            onToggle={() => toggleSection('data')}
-            accentColor={accentColor}
-          >
+          {/* Advanced Settings Tab */}
+          {activeTab === 'advanced' && (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -1342,8 +1375,6 @@ export default function AtlasSettingsEditor({
                   />
                 </div>
               </div>
-            </div>
-          </Section>
             </div>
           )}
         </div>

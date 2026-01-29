@@ -27,18 +27,18 @@ import {
   query,
   where
 } from "firebase/firestore";
-import { 
-  Shield, 
-  Users, 
-  Settings, 
-  LogOut, 
-  Search, 
-  Edit2, 
-  Check, 
-  X, 
-  Plus, 
-  Trash2, 
-  Save, 
+import {
+  Shield,
+  Users,
+  Settings,
+  LogOut,
+  Search,
+  Edit2,
+  Check,
+  X,
+  Plus,
+  Trash2,
+  Save,
   Loader2,
   Building2,
   Bell,
@@ -60,7 +60,8 @@ import {
   PanelLeftClose,
   PanelLeft,
   Layers,
-  Printer
+  Printer,
+  BookOpen
 } from 'lucide-react';
 
 // Import admin components
@@ -70,6 +71,7 @@ import UserManagementPanel from './components/UserManagement';
 import ConfigurationPanel from './components/NotifyConfiguration';
 import NotificationWizard from './components/NotificationWizard';
 import AtlasAdminSection from './components/AtlasAdminSection';
+import SystemHelpEditor from './components/SystemHelpEditor';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
@@ -452,7 +454,8 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
   // System-level items (super_admin only)
   const systemItems = [
     { id: 'organizations', label: 'Organizations', icon: Building2 },
-	{ id: 'licensing', label: 'Licensing', icon: Shield },  // <-- Add this line
+    { id: 'licensing', label: 'Licensing', icon: Shield },
+    { id: 'globalhelp', label: 'Global Help', icon: BookOpen },
     { id: 'orgadmins', label: 'Org Admins', icon: UserPlus },
   ];
 
@@ -765,6 +768,16 @@ function SuperAdminDashboard({ user }) {
           return <OrganizationManagement />;
         case 'orgadmins':
           return <OrgAdminManagement />;
+        case 'globalhelp':
+          return (
+            <SystemHelpEditor
+              db={db}
+              addToast={addToast}
+              confirm={confirm}
+              adminEmail={user.email}
+              accentColor="#004E7C"
+            />
+          );
         case 'licensing':
           return (
             <LicenseManagement

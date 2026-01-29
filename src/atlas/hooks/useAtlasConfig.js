@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../shared/services/firebase';
 import { PATHS } from '../../shared/services/paths';
+import { subscribeToGlobalHelp } from '../../shared/services/systemConfig';
 
 /**
  * Default configuration structure when none is found
@@ -57,7 +58,10 @@ const DEFAULT_CONFIG = {
     maxRecordCount: 1000,
     timeZoneOffset: -5,
     defaultSort: ''
-  }
+  },
+  // Help configuration
+  helpDocumentation: [],     // Organization-specific help
+  useGlobalHelp: true        // Whether to use global Atlas help (default: true)
 };
 
 /**
@@ -120,16 +124,26 @@ export function useAtlasConfig(providedOrgId = null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [availableMaps, setAvailableMaps] = useState([]);
-  
+  const [globalHelp, setGlobalHelp] = useState([]);
+
   // Check if we're in draft preview mode
   const [isPreviewMode] = useState(() => isPreviewDraftMode());
-  
+
   // Allow manual org ID change
   const setOrgId = useCallback((newOrgId) => {
     setOrgIdState(newOrgId);
     if (newOrgId) {
       localStorage.setItem('atlas_last_org', newOrgId);
     }
+  }, []);
+
+  // Subscribe to global help documentation
+  useEffect(() => {
+    const unsubscribe = subscribeToGlobalHelp((help) => {
+      console.log('[useAtlasConfig] Global help loaded:', help?.length || 0, 'articles');
+      setGlobalHelp(help || []);
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -179,6 +193,22 @@ export function useAtlasConfig(providedOrgId = null) {
           
           // Merge with defaults - deep merge for nested objects
           // IMPORTANT: Explicitly preserve top-level arrays that aren't in DEFAULT_CONFIG
+
+          // Determine which help documentation to use
+          // If useGlobalHelp is true (default), use global help from system config
+          // If useGlobalHelp is false, use organization's custom help documentation
+          const useGlobalHelpSetting = atlasConfig.useGlobalHelp !== false; // Default to true
+          const orgHelpDocs = atlasConfig.helpDocumentation || [];
+
+          // Effective help: use org help if they opted out of global, otherwise use global
+          // If org has custom help AND useGlobalHelp is false, use org help
+          // If useGlobalHelp is true, use global help
+          const effectiveHelpDocumentation = useGlobalHelpSetting ? globalHelp : orgHelpDocs;
+
+          console.log('[useAtlasConfig] Help config - useGlobalHelp:', useGlobalHelpSetting,
+            'orgHelpDocs:', orgHelpDocs.length, 'globalHelp:', globalHelp.length,
+            'effective:', effectiveHelpDocumentation.length);
+
           const mergedConfig = {
             ...DEFAULT_CONFIG,
             ...atlasConfig,
@@ -190,7 +220,12 @@ export function useAtlasConfig(providedOrgId = null) {
             // Explicitly preserve arrays from atlasConfig
             basemaps: atlasConfig.basemaps || DEFAULT_CONFIG.basemaps || [],
             exportTemplates: atlasConfig.exportTemplates || [],
-            featureExportTemplates: atlasConfig.featureExportTemplates || []
+            featureExportTemplates: atlasConfig.featureExportTemplates || [],
+            // Help documentation - uses global or org-specific based on setting
+            helpDocumentation: effectiveHelpDocumentation,
+            useGlobalHelp: useGlobalHelpSetting,
+            // Also store the org's own help docs in case admin needs to edit them
+            orgHelpDocumentation: orgHelpDocs
           };
 
           // DEBUG: Log the merged config
@@ -222,7 +257,7 @@ export function useAtlasConfig(providedOrgId = null) {
     );
 
     return () => unsubscribe();
-  }, [orgId, isPreviewMode]);
+  }, [orgId, isPreviewMode, globalHelp]);
 
   return {
     config,
@@ -231,7 +266,8 @@ export function useAtlasConfig(providedOrgId = null) {
     orgId,
     setOrgId,
     availableMaps,
-    isPreviewMode  // NEW: Returns true if viewing draft preview
+    isPreviewMode,  // Returns true if viewing draft preview
+    globalHelp      // Global help documentation for admin reference
   };
 }
 
