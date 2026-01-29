@@ -1,0 +1,191 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================
+    // HELPER FUNCTIONS (EXISTING)
+    // ============================================
+
+    function isSystemAdmin() {
+      return request.auth != null && request.auth.token.email == "support@civicvanguard.com";
+    }
+
+    function isOrgAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/artifacts/civquest_notifications/org_admins/$(request.auth.token.email));
+    }
+
+    function getOrgAdminOrgId() {
+      return get(/databases/$(database)/documents/artifacts/civquest_notifications/org_admins/$(request.auth.token.email)).data.orgId;
+    }
+
+    // ============================================
+    // HELPER FUNCTIONS (NEW STRUCTURE)
+    // ============================================
+
+    function isSuperAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'super_admin';
+    }
+
+    function isAnyOrgAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'org_admin';
+    }
+
+    function isNewOrgAdmin(orgId) {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'org_admin' &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.organizationId == orgId;
+    }
+
+    function canManageOrg(orgId) {
+      return isSystemAdmin() || isSuperAdmin() || isNewOrgAdmin(orgId);
+    }
+
+    function isAnyAdmin() {
+      return isSystemAdmin() || isSuperAdmin() || isAnyOrgAdmin();
+    }
+
+    // ============================================
+    // SYSTEM CONFIGURATION (Global Help, etc.)
+    // ============================================
+    match /system/{document=**} {
+      // Anyone can read system config (needed to load global help)
+      allow read: if true;
+      // Only super admins and system admins can write system config
+      allow write: if isSystemAdmin() || isSuperAdmin();
+    }
+
+    // ============================================
+    // EXISTING: USER DATA (LEGACY PATH)
+    // ============================================
+    match /artifacts/civquest_notifications/users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isSystemAdmin();
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if isOrgAdmin();
+    }
+
+    // ============================================
+    // EXISTING: ORGANIZATION CONFIGURATION (LEGACY PATH)
+    // ============================================
+    match /artifacts/civquest_notifications/configuration/{orgId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if isSystemAdmin() ||
+        (isOrgAdmin() && getOrgAdminOrgId() == orgId);
+      allow delete: if isSystemAdmin();
+    }
+
+    // ============================================
+    // EXISTING: PUBLIC ARCHIVE LOGS (LEGACY PATH)
+    // ============================================
+    match /artifacts/civquest_notifications/public/data/logs/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // ============================================
+    // EXISTING: INVITATIONS (LEGACY PATH)
+    // ============================================
+    match /artifacts/civquest_notifications/invitations/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // ============================================
+    // EXISTING: FORCE QUEUE
+    // ============================================
+    match /artifacts/civquest_notifications/force_queue/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ============================================
+    // EXISTING: ORG ADMINS (LEGACY PATH)
+    // ============================================
+    match /artifacts/civquest_notifications/org_admins/{email} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && email == request.auth.token.email;
+      allow update: if isSystemAdmin() ||
+        (request.auth != null && email == request.auth.token.email);
+      allow delete: if isSystemAdmin();
+    }
+
+    // ============================================
+    // NEW: ORGANIZATIONS (UNIFIED PLATFORM)
+    // ============================================
+    match /organizations/{orgId} {
+      allow read: if true;
+      allow create, delete: if isSystemAdmin() || isSuperAdmin();
+      allow update: if canManageOrg(orgId);
+    }
+
+    // ============================================
+    // NEW: USERS (UNIFIED PLATFORM)
+    // ============================================
+    match /users/{userId} {
+      // Users can read/write their own document
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+
+      // Super admins and system admins have full access
+      allow read, write: if isSystemAdmin() || isSuperAdmin();
+
+      // Org admins can read all users (to view their subscribers)
+      // and update users (to manage subscriptions for their org)
+      allow read, update: if isAnyOrgAdmin();
+    }
+
+    // ============================================
+    // NEW: ADMINS (UNIFIED PLATFORM)
+    // ============================================
+    match /admins/{adminId} {
+      // Admins can read their own document
+      allow read: if request.auth != null && request.auth.uid == adminId;
+      // Super admins and system admins can manage all admins
+      allow read, write: if isSystemAdmin() || isSuperAdmin();
+    }
+
+    // ============================================
+    // NEW: LOGS (UNIFIED PLATFORM)
+    // ============================================
+    match /logs/{logId} {
+      // Any authenticated user can read logs (filtered client-side)
+      allow read: if request.auth != null;
+      // Any admin can write logs
+      allow write: if isAnyAdmin();
+      // Also allow the cloud function to write (it runs as admin)
+      allow write: if request.auth != null;
+    }
+
+    // ============================================
+    // NEW: INVITATIONS (UNIFIED PLATFORM)
+    // ============================================
+    match /invitations/{email} {
+      // Any admin can read/write invitations
+      allow read, write: if isAnyAdmin();
+      // Users can read their own invitation
+      allow read: if request.auth != null && request.auth.token.email == email;
+    }
+
+    // ============================================
+    // NEW: FORCE QUEUE (UNIFIED PLATFORM)
+    // ============================================
+    match /force_queue/{document=**} {
+      allow read, write: if isAnyAdmin();
+    }
+
+    // ============================================
+    // NEW: NOTIFICATION ARCHIVES (UNIFIED PLATFORM)
+    // ============================================
+    match /archives/{orgId}/notifications/{notificationId} {
+      allow read: if request.auth != null;
+      allow write: if canManageOrg(orgId);
+    }
+  }
+}
