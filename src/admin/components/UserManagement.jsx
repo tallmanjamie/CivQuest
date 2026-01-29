@@ -226,9 +226,9 @@ export default function UserManagementPanel({
       current: currentCount,
       remaining: result.remaining,
       licenseType: result.licenseType,
-      reason: result.allowed 
-        ? null 
-        : `${result.licenseType === LICENSE_TYPES.PERSONAL ? 'Personal' : 'Professional'} license limit reached (${result.limit} subscribers max)`
+      reason: result.allowed
+        ? null
+        : `${result.licenseType === LICENSE_TYPES.PILOT ? 'Pilot' : 'Production'} license limit reached (${result.limit} subscribers max)`
     };
   };
 
@@ -480,7 +480,7 @@ export default function UserManagementPanel({
         {/* License Badge for Org Admin */}
         {orgLicenseInfo && (
           <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
-            orgLicenseInfo.type === LICENSE_TYPES.PROFESSIONAL
+            orgLicenseInfo.type === LICENSE_TYPES.PRODUCTION
               ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
               : 'bg-amber-50 border-amber-200 text-amber-700'
           }`}>

@@ -15,10 +15,12 @@ import {
   LogOut,
   ChevronDown,
   User,
-  Settings
+  Settings,
+  Info
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
+import InfoPopup from './InfoPopup';
 
 /**
  * Header Component
@@ -42,6 +44,7 @@ export default function Header({
   } = useAtlas();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showInfoPopup, setShowInfoPopup] = useState(false);
 
   // Get theme colors from utility - this properly handles dynamic colors
   const themeColor = config?.ui?.themeColor || 'sky';
@@ -99,8 +102,36 @@ export default function Header({
           </div>
         </div>
 
-        {/* Right: User Menu (Desktop) */}
+        {/* Right: Links, Info Button, and User Menu (Desktop) */}
         <div className="hidden md:flex items-center gap-3">
+          {/* Header Links */}
+          {config?.ui?.links?.enabled && config?.ui?.links?.items?.length > 0 && (
+            <div className="flex items-center gap-4">
+              {config.ui.links.items.slice(0, 4).map((link, index) => (
+                <a
+                  key={index}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-white/90 hover:text-white hover:underline transition whitespace-nowrap"
+                >
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* Info Button */}
+          {config?.ui?.info?.enabled && (
+            <button
+              onClick={() => setShowInfoPopup(true)}
+              className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition"
+              title="Information"
+            >
+              <Info className="w-5 h-5" />
+            </button>
+          )}
+
           {/* User Menu */}
           <div className="relative">
             {user ? (
@@ -160,6 +191,13 @@ export default function Header({
           <Menu className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Info Popup */}
+      <InfoPopup
+        isOpen={showInfoPopup}
+        onClose={() => setShowInfoPopup(false)}
+        config={config}
+      />
     </header>
   );
 }

@@ -39,6 +39,7 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink
+  Info
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -125,6 +126,20 @@ export default function AtlasSettingsEditor({
       defaultMode: 'chat',
       searchBarPosition: 'top',
       searchPlaceholder: '',
+      // Info popup configuration
+      info: {
+        enabled: false,
+        text: '',
+        logo: '',
+        buttons: [],
+        ...data?.ui?.info
+      },
+      // Header links configuration
+      links: {
+        enabled: false,
+        items: [],
+        ...data?.ui?.links
+      },
       ...data?.ui
     },
     messages: {
@@ -232,6 +247,102 @@ export default function AtlasSettingsEditor({
     setConfig(prev => ({
       ...prev,
       disclaimer: { ...prev.disclaimer, [field]: value }
+    }));
+  };
+
+  // Update info popup field
+  const updateInfo = (field, value) => {
+    setConfig(prev => ({
+      ...prev,
+      ui: {
+        ...prev.ui,
+        info: { ...prev.ui.info, [field]: value }
+      }
+    }));
+  };
+
+  // Info popup button handlers
+  const addInfoButton = () => {
+    setConfig(prev => ({
+      ...prev,
+      ui: {
+        ...prev.ui,
+        info: {
+          ...prev.ui.info,
+          buttons: [...(prev.ui.info.buttons || []), { label: '', url: '' }]
+        }
+      }
+    }));
+  };
+
+  const updateInfoButton = (index, field, value) => {
+    const updated = [...(config.ui.info.buttons || [])];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig(prev => ({
+      ...prev,
+      ui: {
+        ...prev.ui,
+        info: { ...prev.ui.info, buttons: updated }
+      }
+    }));
+  };
+
+  const removeInfoButton = (index) => {
+    const updated = (config.ui.info.buttons || []).filter((_, i) => i !== index);
+    setConfig(prev => ({
+      ...prev,
+      ui: {
+        ...prev.ui,
+        info: { ...prev.ui.info, buttons: updated }
+      }
+    }));
+  };
+
+  // Update header links field
+  const updateLinks = (field, value) => {
+    setConfig(prev => ({
+      ...prev,
+      ui: {
+        ...prev.ui,
+        links: { ...prev.ui.links, [field]: value }
+      }
+    }));
+  };
+
+  // Header link handlers
+  const addHeaderLink = () => {
+    setConfig(prev => ({
+      ...prev,
+      ui: {
+        ...prev.ui,
+        links: {
+          ...prev.ui.links,
+          items: [...(prev.ui.links.items || []), { label: '', url: '' }]
+        }
+      }
+    }));
+  };
+
+  const updateHeaderLink = (index, field, value) => {
+    const updated = [...(config.ui.links.items || [])];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig(prev => ({
+      ...prev,
+      ui: {
+        ...prev.ui,
+        links: { ...prev.ui.links, items: updated }
+      }
+    }));
+  };
+
+  const removeHeaderLink = (index) => {
+    const updated = (config.ui.links.items || []).filter((_, i) => i !== index);
+    setConfig(prev => ({
+      ...prev,
+      ui: {
+        ...prev.ui,
+        links: { ...prev.ui.links, items: updated }
+      }
     }));
   };
 
@@ -689,8 +800,8 @@ export default function AtlasSettingsEditor({
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Bot Avatar (Chat)</label>
-                  <ImagePreview 
-                    url={config.ui.botAvatar} 
+                  <ImagePreview
+                    url={config.ui.botAvatar}
                     label="Bot Avatar"
                     onClear={() => updateUI('botAvatar', '')}
                   />
@@ -703,6 +814,179 @@ export default function AtlasSettingsEditor({
                   />
                 </div>
               </div>
+            </div>
+
+            {/* Header Links */}
+            <div className="mt-4 pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                  <Link className="w-4 h-4" /> Header Links
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => updateLinks('enabled', !config.ui.links?.enabled)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    config.ui.links?.enabled ? 'bg-emerald-500' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      config.ui.links?.enabled ? 'translate-x-5' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Display navigation links in the header bar (max 4 links)
+              </p>
+
+              {config.ui.links?.enabled && (
+                <div className="space-y-2">
+                  {(config.ui.links?.items || []).map((link, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={link.label}
+                        onChange={(e) => updateHeaderLink(idx, 'label', e.target.value)}
+                        placeholder="Label"
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                      />
+                      <input
+                        type="url"
+                        value={link.url}
+                        onChange={(e) => updateHeaderLink(idx, 'url', e.target.value)}
+                        placeholder="https://..."
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeHeaderLink(idx)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {(config.ui.links?.items || []).length === 0 && (
+                    <p className="text-sm text-slate-400 italic">No header links added</p>
+                  )}
+                  {(config.ui.links?.items || []).length < 4 && (
+                    <button
+                      type="button"
+                      onClick={addHeaderLink}
+                      className="text-sm text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" /> Add Link
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Info Popup */}
+            <div className="mt-4 pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                  <Info className="w-4 h-4" /> Info Popup
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => updateInfo('enabled', !config.ui.info?.enabled)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    config.ui.info?.enabled ? 'bg-emerald-500' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      config.ui.info?.enabled ? 'translate-x-5' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Display an info button in the header that opens a popup with organization info and links
+              </p>
+
+              {config.ui.info?.enabled && (
+                <div className="space-y-4">
+                  {/* Info Text */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      Popup Title Text
+                    </label>
+                    <input
+                      type="text"
+                      value={config.ui.info?.text || ''}
+                      onChange={(e) => updateInfo('text', e.target.value)}
+                      placeholder="e.g., City of Springfield GIS Portal"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                    />
+                  </div>
+
+                  {/* Info Logo */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      Popup Logo
+                    </label>
+                    <ImagePreview
+                      url={config.ui.info?.logo}
+                      label="Info Logo"
+                      onClear={() => updateInfo('logo', '')}
+                    />
+                    <input
+                      type="url"
+                      value={config.ui.info?.logo || ''}
+                      onChange={(e) => updateInfo('logo', e.target.value)}
+                      placeholder="https://..."
+                      className="w-full mt-2 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                    />
+                  </div>
+
+                  {/* Info Buttons */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-2">
+                      Popup Buttons
+                    </label>
+                    <div className="space-y-2">
+                      {(config.ui.info?.buttons || []).map((button, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={button.label}
+                            onChange={(e) => updateInfoButton(idx, 'label', e.target.value)}
+                            placeholder="Button Label"
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                          />
+                          <input
+                            type="url"
+                            value={button.url}
+                            onChange={(e) => updateInfoButton(idx, 'url', e.target.value)}
+                            placeholder="https://..."
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeInfoButton(idx)}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {(config.ui.info?.buttons || []).length === 0 && (
+                        <p className="text-sm text-slate-400 italic">No buttons added</p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={addInfoButton}
+                        className="text-sm text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                      >
+                        <Plus className="w-4 h-4" /> Add Button
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             </>
           )}
