@@ -13,6 +13,9 @@ export const USE_NEW_PATHS = true;
  * Collection path definitions
  */
 export const PATHS = {
+  // System configuration (global settings for Atlas)
+  systemConfig: 'system/config',
+
   // Organizations collection
   organizations: 'organizations',
   organization: (orgId) => `organizations/${orgId}`,
@@ -84,6 +87,8 @@ export function getPath(pathKey, ...args) {
   
   // Return new unified paths
   switch (pathKey) {
+    case 'systemConfig':
+      return PATHS.systemConfig;
     case 'organizations':
       return PATHS.organizations;
     case 'organization':
