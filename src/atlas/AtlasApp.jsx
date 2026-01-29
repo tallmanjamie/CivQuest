@@ -73,7 +73,6 @@ import ErrorScreen from './components/ErrorScreen';
 import OrgSelector from './components/OrgSelector';
 import AdvancedSearchModal from './components/AdvancedSearchModal';
 import AuthScreen from './components/AuthScreen';
-import DisclaimerPopup from './components/DisclaimerPopup';
 import AccountSettings from './components/AccountSettings';
 
 // Theme utility for proper dynamic theming
@@ -886,14 +885,6 @@ export default function AtlasApp() {
   const [showOrgSelector, setShowOrgSelector] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
-
-  // Auto-accept disclaimer if not enabled
-  useEffect(() => {
-    if (config && !config.disclaimer?.enabled) {
-      setDisclaimerAccepted(true);
-    }
-  }, [config]);
   const [showAccountSettings, setShowAccountSettings] = useState(false);
 
   // Search History State (shared across all views)
@@ -1217,17 +1208,7 @@ export default function AtlasApp() {
     <AtlasContext.Provider value={contextValue}>
       {/* Preview Mode Banner - shown when ?preview=draft is in URL */}
       {isPreviewMode && <PreviewBanner orgId={orgId} />}
-
-      {/* Disclaimer Popup - shown if enabled and not yet accepted */}
-      {config?.disclaimer?.enabled && !disclaimerAccepted && (
-        <DisclaimerPopup
-          config={config.disclaimer}
-          orgId={orgId}
-          themeColor={themeColor}
-          onAccept={() => setDisclaimerAccepted(true)}
-        />
-      )}
-
+      
       {/* Apply CSS variables for theme colors */}
       <div className="h-dvh flex flex-col bg-slate-100 font-sans" style={cssVars}>
         {/* Header */}
