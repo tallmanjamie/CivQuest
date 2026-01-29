@@ -256,7 +256,7 @@ export default function AtlasUserManagement({
         {/* License Badge for Org Admin */}
         {orgLicenseInfo && (
           <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
-            orgLicenseInfo.type === LICENSE_TYPES.PROFESSIONAL
+            orgLicenseInfo.type === LICENSE_TYPES.PRODUCTION
               ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
               : 'bg-amber-50 border-amber-200 text-amber-700'
           }`}>

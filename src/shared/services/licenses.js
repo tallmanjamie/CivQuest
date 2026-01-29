@@ -1,12 +1,12 @@
 // src/shared/services/licenses.js
 // License management service for CivQuest platform
 // Provides license types, limits, and validation helpers
-// 
+//
 // Supports separate licensing for Notify and Atlas products
 //
 // LICENSE TIERS:
-// - Personal: For individuals with limited secure users (max 3, no public)
-// - Professional: Full access for professionals and organizations (unlimited, public allowed)
+// - Pilot: Limited trial license for evaluation (max 3 users, no public access)
+// - Production: Full production license for live deployments (unlimited users, public access allowed)
 
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
@@ -22,14 +22,13 @@ export const PRODUCTS = {
 
 /**
  * License Types
- * 
- * UPDATED: Renamed from Professional/Organization to Personal/Professional
- * - personal: Basic tier for individuals (was "professional")
- * - professional: Full tier for teams/organizations (was "organization")
+ *
+ * - pilot: Limited trial license for evaluation
+ * - production: Full production license for live deployments
  */
 export const LICENSE_TYPES = {
-  PERSONAL: 'personal',
-  PROFESSIONAL: 'professional'
+  PILOT: 'pilot',
+  PRODUCTION: 'production'
 };
 
 /**
@@ -37,9 +36,10 @@ export const LICENSE_TYPES = {
  * Maps old license type values to new ones
  */
 const LEGACY_LICENSE_MAP = {
-  'professional': 'personal',      // Old "professional" is now "personal"
-  'organization': 'professional',  // Old "organization" is now "professional"
-  'team': 'personal'               // If "team" was ever used
+  'personal': 'pilot',             // Old "personal" is now "pilot"
+  'professional': 'production',    // Old "professional" is now "production"
+  'organization': 'production',    // Old "organization" is now "production"
+  'team': 'pilot'                  // If "team" was ever used
 };
 
 /**
@@ -47,9 +47,9 @@ const LEGACY_LICENSE_MAP = {
  * Defines the limits and restrictions for each license type per product
  */
 export const LICENSE_CONFIG = {
-  [LICENSE_TYPES.PERSONAL]: {
-    label: 'Personal',
-    description: 'For individuals with limited secure users',
+  [LICENSE_TYPES.PILOT]: {
+    label: 'Pilot',
+    description: 'Trial license for evaluation with limited users',
     color: 'amber',
     limits: {
       [PRODUCTS.NOTIFY]: {
@@ -62,9 +62,9 @@ export const LICENSE_CONFIG = {
       }
     }
   },
-  [LICENSE_TYPES.PROFESSIONAL]: {
-    label: 'Professional',
-    description: 'Full access for professionals and organizations',
+  [LICENSE_TYPES.PRODUCTION]: {
+    label: 'Production',
+    description: 'Full production license for live deployments',
     color: 'emerald',
     limits: {
       [PRODUCTS.NOTIFY]: {
@@ -82,7 +82,7 @@ export const LICENSE_CONFIG = {
 /**
  * Default license for new organizations (per product)
  */
-export const DEFAULT_LICENSE = LICENSE_TYPES.PERSONAL;
+export const DEFAULT_LICENSE = LICENSE_TYPES.PILOT;
 
 /**
  * Normalize license type (handles legacy values)
@@ -167,7 +167,7 @@ export async function getOrgLicense(orgId) {
  * Update license for a specific product (super admin only)
  * @param {string} orgId - Organization ID
  * @param {string} product - Product type ('notify' or 'atlas')
- * @param {string} licenseType - New license type ('personal' or 'professional')
+ * @param {string} licenseType - New license type ('pilot' or 'production')
  * @param {string} adminEmail - Email of admin making the change
  * @returns {Promise<boolean>} Success status
  */
@@ -317,23 +317,23 @@ export function getLicenseOptions() {
 }
 
 /**
- * Check if a license type is the premium/full tier
+ * Check if a license type is the full production tier
  * @param {string} licenseType - License type
  * @returns {boolean}
  */
-export function isProfessionalLicense(licenseType) {
+export function isProductionLicense(licenseType) {
   const normalized = normalizeLicenseType(licenseType) || licenseType;
-  return normalized === LICENSE_TYPES.PROFESSIONAL;
+  return normalized === LICENSE_TYPES.PRODUCTION;
 }
 
 /**
- * Check if a license type is the basic tier
+ * Check if a license type is the pilot/trial tier
  * @param {string} licenseType - License type
  * @returns {boolean}
  */
-export function isPersonalLicense(licenseType) {
+export function isPilotLicense(licenseType) {
   const normalized = normalizeLicenseType(licenseType) || licenseType;
-  return normalized === LICENSE_TYPES.PERSONAL;
+  return normalized === LICENSE_TYPES.PILOT;
 }
 
 export default {
@@ -354,6 +354,6 @@ export default {
   getLicenseLimits,
   getLicenseLabel,
   getLicenseOptions,
-  isProfessionalLicense,
-  isPersonalLicense
+  isProductionLicense,
+  isPilotLicense
 };
