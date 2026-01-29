@@ -77,6 +77,10 @@ import IntegrationsManagement from './components/IntegrationsManagement';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
+import {
+  subscribeToIntegrations,
+  AVAILABLE_INTEGRATIONS
+} from '../shared/services/integrations';
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -978,6 +982,7 @@ function OrganizationManagement() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(null); // org object or null
+  const [showIntegrationsModal, setShowIntegrationsModal] = useState(null); // org object or null
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -1211,6 +1216,13 @@ function OrganizationManagement() {
                 </div>
                 <div className="flex items-center gap-1">
                   <button
+                    onClick={() => setShowIntegrationsModal(org)}
+                    className="p-1.5 rounded text-slate-400 hover:text-purple-600 hover:bg-purple-50"
+                    title="Configure Integrations"
+                  >
+                    <Puzzle className="w-4 h-4" />
+                  </button>
+                  <button
                     onClick={() => setShowRenameModal(org)}
                     className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
                     title="Rename Organization"
@@ -1220,9 +1232,9 @@ function OrganizationManagement() {
                   <button
                     onClick={() => handleDeleteOrg(org)}
                     className={`p-1.5 rounded ${
-                      canDelete 
+                      canDelete
                         ? 'text-slate-400 hover:text-red-600 hover:bg-red-50'
-                        : 'text-slate-300 cursor-not-allowed' 
+                        : 'text-slate-300 cursor-not-allowed'
                     }`}
                     title={canDelete ? 'Delete Organization' : 'Delete notifications and maps first'}
                   >
@@ -1278,6 +1290,302 @@ function OrganizationManagement() {
           existingIds={organizations.filter(o => o.id !== showRenameModal.id).map(o => o.id)}
         />
       )}
+
+      {/* Organization Integrations Modal */}
+      {showIntegrationsModal && (
+        <OrgIntegrationsModal
+          db={db}
+          org={showIntegrationsModal}
+          onClose={() => setShowIntegrationsModal(null)}
+          addToast={addToast}
+          accentColor="#004E7C"
+        />
+      )}
+    </div>
+  );
+}
+
+// --- ORGANIZATION INTEGRATIONS MODAL (for Super Admin) ---
+function OrgIntegrationsModal({ db, org, onClose, addToast, accentColor = '#004E7C' }) {
+  const [systemIntegrations, setSystemIntegrations] = useState([]);
+  const [orgIntegrations, setOrgIntegrations] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState({});
+  const [configValues, setConfigValues] = useState({});
+  const [hasChanges, setHasChanges] = useState({});
+
+  // Subscribe to system integrations
+  useEffect(() => {
+    const unsubscribe = subscribeToIntegrations((data) => {
+      // Filter to only integrations assigned to this org and enabled
+      const orgAssigned = data.filter(
+        i => i.enabled && i.organizations?.includes(org.id)
+      );
+      setSystemIntegrations(orgAssigned);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [org.id]);
+
+  // Subscribe to org-level integration config
+  useEffect(() => {
+    if (!db || !org.id) return;
+
+    const orgRef = doc(db, PATHS.organizations, org.id);
+    const unsubscribe = onSnapshot(orgRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const integrations = data.integrations || {};
+        setOrgIntegrations(integrations);
+        // Initialize config values from saved data
+        setConfigValues(integrations);
+      }
+    });
+    return () => unsubscribe();
+  }, [db, org.id]);
+
+  const getIntegrationDefinition = (type) => {
+    return AVAILABLE_INTEGRATIONS[type] || null;
+  };
+
+  const handleFieldChange = (integrationTypeKey, field, value) => {
+    setConfigValues(prev => ({
+      ...prev,
+      [integrationTypeKey]: {
+        ...(prev[integrationTypeKey] || {}),
+        [field]: value
+      }
+    }));
+    setHasChanges(prev => ({
+      ...prev,
+      [integrationTypeKey]: true
+    }));
+  };
+
+  const handleSaveConfig = async (integrationTypeKey) => {
+    if (!db || !org.id) {
+      addToast?.('Unable to save: missing database connection', 'error');
+      return;
+    }
+
+    try {
+      setSaving(prev => ({ ...prev, [integrationTypeKey]: true }));
+
+      const orgRef = doc(db, PATHS.organizations, org.id);
+      await updateDoc(orgRef, {
+        [`integrations.${integrationTypeKey}`]: configValues[integrationTypeKey] || {},
+        updatedAt: serverTimestamp()
+      });
+
+      setHasChanges(prev => ({ ...prev, [integrationTypeKey]: false }));
+      addToast?.('Integration configuration saved', 'success');
+    } catch (error) {
+      console.error('Error saving integration config:', error);
+      addToast?.('Failed to save configuration', 'error');
+    } finally {
+      setSaving(prev => ({ ...prev, [integrationTypeKey]: false }));
+    }
+  };
+
+  const isConfigured = (integrationTypeKey) => {
+    const config = configValues[integrationTypeKey];
+    return config?.apiKey && config.apiKey.trim() !== '';
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex justify-between items-center p-4 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: `${accentColor}15` }}
+            >
+              <Puzzle className="w-5 h-5" style={{ color: accentColor }} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-800">Organization Integrations</h3>
+              <p className="text-sm text-slate-500">{org.name}</p>
+            </div>
+          </div>
+          <button onClick={onClose}>
+            <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor }} />
+            </div>
+          ) : systemIntegrations.length === 0 ? (
+            <div className="text-center py-12">
+              <Puzzle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-slate-700 mb-2">No Integrations Assigned</h3>
+              <p className="text-slate-500 mb-4">
+                This organization does not have any integrations assigned yet.
+              </p>
+              <p className="text-sm text-slate-400">
+                Go to <strong>System &gt; Integrations</strong> to assign integrations to this organization.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-blue-800">Configure Integration Settings</p>
+                    <p className="text-blue-700 mt-1">
+                      As a super admin, you can configure integration credentials for this organization.
+                      These settings will be used by the organization's Atlas application.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {systemIntegrations.map(integration => {
+                const definition = getIntegrationDefinition(integration.type);
+                const config = configValues[integration.type] || {};
+                const configured = isConfigured(integration.type);
+                const changed = hasChanges[integration.type];
+                const isSaving = saving[integration.type];
+
+                return (
+                  <div
+                    key={integration.id}
+                    className="bg-white border border-slate-200 rounded-xl overflow-hidden"
+                  >
+                    {/* Integration Header */}
+                    <div className="p-4 border-b border-slate-100">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                          style={{ backgroundColor: `${accentColor}15` }}
+                        >
+                          <Eye className="w-5 h-5" style={{ color: accentColor }} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-semibold text-slate-800">{integration.name}</h4>
+                            {configured ? (
+                              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                                <CheckCircle className="w-3 h-3" />
+                                Configured
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                <AlertTriangle className="w-3 h-3" />
+                                Setup Required
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-slate-500 mt-0.5">
+                            {definition?.description || 'Integration'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Configuration Fields */}
+                    <div className="p-4 space-y-4 bg-slate-50">
+                      {integration.type === 'pictometry' && (
+                        <>
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                              <div className="flex items-center gap-2">
+                                <Settings className="w-4 h-4 text-slate-400" />
+                                EagleView API Key
+                              </div>
+                            </label>
+                            <input
+                              type="text"
+                              value={config?.apiKey || ''}
+                              onChange={(e) => handleFieldChange(integration.type, 'apiKey', e.target.value)}
+                              placeholder="e.g., 3f513db9-95ae-4df3-b64b-b26267b95cce"
+                              className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent font-mono text-sm"
+                              style={{ '--tw-ring-color': accentColor }}
+                            />
+                            <p className="text-xs text-slate-500 mt-1">
+                              The API key must be configured for use with the domain where Atlas is deployed.
+                            </p>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Generic config schema fields for future integrations */}
+                      {integration.type !== 'pictometry' && definition?.configSchema && (
+                        Object.entries(definition.configSchema).map(([fieldKey, fieldDef]) => (
+                          <div key={fieldKey}>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                              {fieldDef.label}
+                              {fieldDef.required && <span className="text-red-500 ml-1">*</span>}
+                            </label>
+                            <input
+                              type={fieldDef.type === 'password' ? 'password' : 'text'}
+                              value={config?.[fieldKey] || ''}
+                              onChange={(e) => handleFieldChange(integration.type, fieldKey, e.target.value)}
+                              placeholder={fieldDef.placeholder || ''}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2"
+                              style={{ '--tw-ring-color': accentColor }}
+                            />
+                            {fieldDef.description && (
+                              <p className="text-xs text-slate-500 mt-1">{fieldDef.description}</p>
+                            )}
+                          </div>
+                        ))
+                      )}
+
+                      {/* Save Button */}
+                      <div className="flex items-center justify-between pt-2">
+                        <div className="text-sm text-slate-500">
+                          {changed ? (
+                            <span className="text-amber-600 font-medium">Unsaved changes</span>
+                          ) : configured ? (
+                            <span className="text-green-600">Configuration saved</span>
+                          ) : (
+                            <span>Enter credentials to configure</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleSaveConfig(integration.type)}
+                          disabled={isSaving || !changed}
+                          className="px-4 py-2 text-white rounded-lg font-medium disabled:opacity-50 flex items-center gap-2 transition-colors"
+                          style={{ backgroundColor: changed ? accentColor : '#94a3b8' }}
+                        >
+                          {isSaving ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4" />
+                              Save
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end p-4 border-t border-slate-200">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
