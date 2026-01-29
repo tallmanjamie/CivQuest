@@ -212,6 +212,56 @@ function getPopupElementsFromWebmap(feature, sourceLayer, customFeatureInfo = nu
 }
 
 /**
+ * Extract field values from an Arcade expression using the feature attributes
+ * This is used as a fallback when Arcade evaluation fails
+ * @param {string} expression - The Arcade expression
+ * @param {object} attributes - The feature attributes
+ * @returns {string} Extracted content from the expression
+ */
+function extractFieldValuesFromExpression(expression, attributes) {
+  if (!expression || !attributes) return '';
+
+  const results = [];
+
+  // Match $feature.FIELDNAME or $feature["FIELDNAME"] patterns
+  const dotPattern = /\$feature\.(\w+)/gi;
+  const bracketPattern = /\$feature\["([^"]+)"\]/gi;
+  const bracketPattern2 = /\$feature\['([^']+)'\]/gi;
+
+  let match;
+  const seenFields = new Set();
+
+  // Extract dot notation fields
+  while ((match = dotPattern.exec(expression)) !== null) {
+    const fieldName = match[1];
+    if (!seenFields.has(fieldName) && attributes[fieldName] != null) {
+      seenFields.add(fieldName);
+      results.push(String(attributes[fieldName]));
+    }
+  }
+
+  // Extract bracket notation fields (double quotes)
+  while ((match = bracketPattern.exec(expression)) !== null) {
+    const fieldName = match[1];
+    if (!seenFields.has(fieldName) && attributes[fieldName] != null) {
+      seenFields.add(fieldName);
+      results.push(String(attributes[fieldName]));
+    }
+  }
+
+  // Extract bracket notation fields (single quotes)
+  while ((match = bracketPattern2.exec(expression)) !== null) {
+    const fieldName = match[1];
+    if (!seenFields.has(fieldName) && attributes[fieldName] != null) {
+      seenFields.add(fieldName);
+      results.push(String(attributes[fieldName]));
+    }
+  }
+
+  return results.join(' - ');
+}
+
+/**
  * Evaluate arcade expression for a feature
  * @param {object} expressionInfo - The expression info from popup template
  * @param {object} feature - The feature with geometry and attributes
@@ -250,12 +300,24 @@ async function evaluateArcadeExpression(expressionInfo, feature, sourceLayer) {
       layer: sourceLayer
     });
 
-    // Create arcade profile for popup
+    // Create arcade profile for popup with all common variables
     const profile = {
       variables: [
         {
           name: '$feature',
           type: 'feature'
+        },
+        {
+          name: '$layer',
+          type: 'featureSet'
+        },
+        {
+          name: '$map',
+          type: 'map'
+        },
+        {
+          name: '$datastore',
+          type: 'featureSetCollection'
         }
       ]
     };
@@ -267,17 +329,21 @@ async function evaluateArcadeExpression(expressionInfo, feature, sourceLayer) {
     const result = await executor.executeAsync({
       '$feature': graphic,
       '$layer': sourceLayer,
-      '$map': sourceLayer?.parent
+      '$map': sourceLayer?.parent,
+      '$datastore': sourceLayer?.parent
     });
 
     return result != null ? String(result) : '';
   } catch (err) {
     console.warn('[FeatureExport] Could not evaluate arcade expression:', err);
-    // Try to return a simple string if the expression is just a field reference
-    if (expressionInfo.expression) {
-      const fieldMatch = expressionInfo.expression.match(/\$feature\.(\w+)/);
-      if (fieldMatch && feature.attributes?.[fieldMatch[1]]) {
-        return String(feature.attributes[fieldMatch[1]]);
+    // Try to extract field values from the expression as fallback
+    if (expressionInfo.expression && feature.attributes) {
+      const extractedContent = extractFieldValuesFromExpression(
+        expressionInfo.expression,
+        feature.attributes
+      );
+      if (extractedContent) {
+        return extractedContent;
       }
     }
     return '';
@@ -349,6 +415,38 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 
     if (section.content) {
       evaluatedContent.push(section);
+    }
+  }
+
+  // If no content was successfully evaluated, create fallback from feature attributes
+  if (evaluatedContent.length === 0 && feature.attributes) {
+    const attrs = feature.attributes;
+    const lines = [];
+
+    // Filter out internal/system fields and build formatted list
+    for (const [key, value] of Object.entries(attrs)) {
+      if (
+        value != null &&
+        !key.startsWith('_') &&
+        key !== 'OBJECTID' &&
+        key !== 'Shape__Area' &&
+        key !== 'Shape__Length' &&
+        key !== 'displayName' &&
+        key !== 'GlobalID'
+      ) {
+        const label = key.replace(/_/g, ' ');
+        lines.push(`<b>${label}:</b> ${formatValue(value)}`);
+      }
+    }
+
+    if (lines.length > 0) {
+      evaluatedContent.push({
+        name: 'Feature Attributes',
+        type: 'fields',
+        content: lines.join('<br/>'),
+        isHtml: true
+      });
+      console.log('[FeatureExport] Using fallback attribute content:', lines.length, 'fields');
     }
   }
 
