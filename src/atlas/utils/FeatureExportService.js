@@ -262,28 +262,29 @@ function extractFieldValuesFromExpression(expression, attributes) {
 }
 
 /**
- * Evaluate arcade expression for a feature
- * @param {object} expressionInfo - The expression info from popup template
+ * Render popup content using ArcGIS Feature widget and capture the HTML
+ * This properly evaluates Arcade expressions by using the full ArcGIS context
  * @param {object} feature - The feature with geometry and attributes
- * @param {object} sourceLayer - The source layer
- * @returns {Promise<string>} Evaluated expression result as string
+ * @param {object} sourceLayer - The source layer with popup template
+ * @param {Array} filterElements - Optional array of element names to filter to specific tabs
+ * @returns {Promise<string>} Rendered HTML content
  */
-async function evaluateArcadeExpression(expressionInfo, feature, sourceLayer) {
-  if (!expressionInfo?.expression) {
-    return '';
-  }
-
+async function renderPopupContentAsHtml(feature, sourceLayer, filterElements = null) {
   try {
     // Import ArcGIS modules dynamically
-    const [arcade, Graphic] = await Promise.all([
-      import('@arcgis/core/arcade').then(m => m),
+    const [Feature, Graphic] = await Promise.all([
+      import('@arcgis/core/widgets/Feature').then(m => m.default),
       import('@arcgis/core/Graphic').then(m => m.default)
     ]);
 
-    // Create a proper graphic from the feature
+    if (!Feature || !Graphic) {
+      console.warn('[FeatureExport] Could not load ArcGIS Feature widget modules');
+      return '';
+    }
+
+    // Create a proper graphic from the feature with geometry type
     let geometry = feature.geometry;
     if (geometry && typeof geometry === 'object' && !geometry.declaredClass) {
-      // Plain JSON geometry - needs type
       geometry = { ...geometry };
       if (!geometry.type) {
         if (geometry.rings) geometry.type = 'polygon';
@@ -300,59 +301,127 @@ async function evaluateArcadeExpression(expressionInfo, feature, sourceLayer) {
       layer: sourceLayer
     });
 
-    // Create arcade profile for popup with all common variables
-    const profile = {
-      variables: [
-        {
-          name: '$feature',
-          type: 'feature'
-        },
-        {
-          name: '$layer',
-          type: 'featureSet'
-        },
-        {
-          name: '$map',
-          type: 'map'
-        },
-        {
-          name: '$datastore',
-          type: 'featureSetCollection'
-        }
-      ]
-    };
+    // Get the popup template
+    const originalTemplate = sourceLayer?.popupTemplate || feature?.popupTemplate;
+    if (!originalTemplate) {
+      return '';
+    }
 
-    // Create executor
-    const executor = await arcade.createArcadeExecutor(expressionInfo.expression, profile);
+    // Filter content if specific elements requested (for tab-based export)
+    if (filterElements && filterElements.length > 0 && originalTemplate.content) {
+      const contentArray = Array.isArray(originalTemplate.content)
+        ? originalTemplate.content
+        : [originalTemplate.content];
 
-    // Execute with the feature
-    const result = await executor.executeAsync({
-      '$feature': graphic,
-      '$layer': sourceLayer,
-      '$map': sourceLayer?.parent,
-      '$datastore': sourceLayer?.parent
+      const filteredContent = contentArray.filter(el => {
+        const titleText = el.title || el.description || el.text || '';
+        const expr = el.expressionInfo?.name || el.expressionInfo?.title || '';
+        return filterElements.some(name =>
+          titleText.toLowerCase().includes(name.toLowerCase()) ||
+          expr.toLowerCase().includes(name.toLowerCase())
+        );
+      });
+
+      graphic.popupTemplate = {
+        title: originalTemplate.title,
+        content: filteredContent,
+        expressionInfos: originalTemplate.expressionInfos,
+        fieldInfos: originalTemplate.fieldInfos
+      };
+    }
+
+    // Create a temporary off-screen container
+    const tempContainer = document.createElement('div');
+    tempContainer.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:800px;';
+    document.body.appendChild(tempContainer);
+
+    // Create the Feature widget
+    const featureWidget = new Feature({
+      graphic,
+      container: tempContainer
     });
 
-    return result != null ? String(result) : '';
-  } catch (err) {
-    console.warn('[FeatureExport] Could not evaluate arcade expression:', err);
-    // Try to extract field values from the expression as fallback
-    if (expressionInfo.expression && feature.attributes) {
-      const extractedContent = extractFieldValuesFromExpression(
-        expressionInfo.expression,
-        feature.attributes
-      );
-      if (extractedContent) {
-        return extractedContent;
+    // Wait for the widget to render
+    // The Feature widget needs time to evaluate Arcade expressions and render content
+    await new Promise((resolve) => {
+      let attempts = 0;
+      const maxAttempts = 50; // 5 seconds max
+
+      const checkRendered = () => {
+        attempts++;
+        const content = tempContainer.querySelector('.esri-feature__content-element');
+        const hasContent = content && content.innerHTML.trim().length > 0;
+
+        if (hasContent || attempts >= maxAttempts) {
+          resolve();
+        } else {
+          setTimeout(checkRendered, 100);
+        }
+      };
+
+      setTimeout(checkRendered, 100);
+    });
+
+    // Extract the rendered HTML content
+    const contentElement = tempContainer.querySelector('.esri-feature__content-element');
+    let html = '';
+
+    if (contentElement) {
+      html = contentElement.innerHTML;
+    } else {
+      // Fallback: get all content from the feature widget
+      const featureContent = tempContainer.querySelector('.esri-feature');
+      if (featureContent) {
+        // Remove the title element if present
+        const titleEl = featureContent.querySelector('.esri-feature__title');
+        if (titleEl) titleEl.remove();
+        html = featureContent.innerHTML;
       }
     }
+
+    // Clean up
+    featureWidget.destroy();
+    tempContainer.remove();
+
+    return html;
+  } catch (err) {
+    console.warn('[FeatureExport] Error rendering popup content as HTML:', err);
     return '';
   }
 }
 
 /**
+ * Evaluate arcade expression for a feature (fallback method)
+ * Used when Feature widget rendering is not available
+ * @param {object} expressionInfo - The expression info from popup template
+ * @param {object} feature - The feature with geometry and attributes
+ * @param {object} sourceLayer - The source layer
+ * @returns {Promise<string>} Evaluated expression result as string
+ */
+async function evaluateArcadeExpression(expressionInfo, feature, sourceLayer) {
+  if (!expressionInfo?.expression) {
+    return '';
+  }
+
+  // Try to extract field values from the expression as the primary approach
+  // This is more reliable than trying to execute complex Arcade expressions
+  if (expressionInfo.expression && feature.attributes) {
+    const extractedContent = extractFieldValuesFromExpression(
+      expressionInfo.expression,
+      feature.attributes
+    );
+    if (extractedContent) {
+      return extractedContent;
+    }
+  }
+
+  return '';
+}
+
+/**
  * Get evaluated popup content for export
- * Extracts and evaluates all popup elements from webmap
+ * Uses the ArcGIS Feature widget to render Arcade expressions as HTML
+ * Then extracts the content organized by popup elements/tabs
  * @param {object} feature - The feature
  * @param {object} sourceLayer - The source layer with popup template
  * @param {object} customFeatureInfo - Custom feature info configuration
@@ -365,6 +434,102 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
     return [];
   }
 
+  // Check if we have any Arcade expression elements
+  const hasArcadeExpressions = popupElements.some(el => el.type === 'expression');
+
+  // If we have Arcade expressions, use the Feature widget to render them as HTML
+  if (hasArcadeExpressions) {
+    console.log('[FeatureExport] Using Feature widget to render Arcade expressions as HTML');
+
+    const evaluatedContent = [];
+
+    // Process each popup element - for expressions, render via Feature widget
+    // For other types (text, fields), process directly
+    for (const popupEl of popupElements) {
+      const section = {
+        name: popupEl.name,
+        type: popupEl.type,
+        content: '',
+        isHtml: false
+      };
+
+      if (popupEl.type === 'expression') {
+        // Use Feature widget to render this specific expression as HTML
+        const renderedHtml = await renderPopupContentAsHtml(feature, sourceLayer, [popupEl.name]);
+
+        if (renderedHtml) {
+          section.content = renderedHtml;
+          section.isHtml = true;
+          console.log(`[FeatureExport] Rendered expression "${popupEl.name}" as HTML:`, renderedHtml.length, 'chars');
+        } else {
+          // Fallback: try to extract field values from expression
+          if (popupEl.expressionInfo?.expression && feature.attributes) {
+            const extractedContent = extractFieldValuesFromExpression(
+              popupEl.expressionInfo.expression,
+              feature.attributes
+            );
+            if (extractedContent) {
+              section.content = extractedContent;
+              section.isHtml = false;
+            }
+          }
+        }
+      } else if (popupEl.type === 'text') {
+        // Text content - may have attribute placeholders
+        let text = popupEl.element.text || '';
+        const attrs = feature.attributes || {};
+
+        // Replace attribute placeholders {FIELD_NAME}
+        text = text.replace(/\{([^}]+)\}/g, (match, fieldName) => {
+          const value = attrs[fieldName];
+          return value != null ? String(value) : '';
+        });
+
+        section.content = text;
+        section.isHtml = /<[^>]+>/.test(text);
+      } else if (popupEl.type === 'fields') {
+        // Field list - convert to formatted content
+        const fieldInfos = popupEl.element.fieldInfos || [];
+        const attrs = feature.attributes || {};
+        const lines = [];
+
+        for (const fieldInfo of fieldInfos) {
+          const fieldName = fieldInfo.fieldName;
+          const label = fieldInfo.label || fieldName;
+          const value = attrs[fieldName];
+          if (value != null) {
+            lines.push(`<b>${label}:</b> ${formatValue(value)}`);
+          }
+        }
+
+        section.content = lines.join('<br/>');
+        section.isHtml = true;
+      }
+
+      if (section.content) {
+        evaluatedContent.push(section);
+      }
+    }
+
+    // If we got content, return it
+    if (evaluatedContent.length > 0) {
+      return evaluatedContent;
+    }
+
+    // If individual element rendering failed, try rendering all content at once
+    console.log('[FeatureExport] Individual expression rendering returned no content, trying full popup render');
+    const fullHtml = await renderPopupContentAsHtml(feature, sourceLayer);
+    if (fullHtml) {
+      return [{
+        name: 'Feature Information',
+        type: 'html',
+        content: fullHtml,
+        isHtml: true
+      }];
+    }
+  }
+
+  // No Arcade expressions or Feature widget rendering failed - process normally
   const evaluatedContent = [];
 
   for (const popupEl of popupElements) {
@@ -375,13 +540,7 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
       isHtml: false
     };
 
-    if (popupEl.type === 'expression' && popupEl.expressionInfo) {
-      // Evaluate arcade expression
-      const result = await evaluateArcadeExpression(popupEl.expressionInfo, feature, sourceLayer);
-      section.content = result;
-      // Check if result contains HTML
-      section.isHtml = /<[^>]+>/.test(result);
-    } else if (popupEl.type === 'text') {
+    if (popupEl.type === 'text') {
       // Text content - may have attribute placeholders
       let text = popupEl.element.text || '';
       const attrs = feature.attributes || {};
@@ -411,6 +570,11 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 
       section.content = lines.join('<br/>');
       section.isHtml = true;
+    } else if (popupEl.type === 'expression' && popupEl.expressionInfo) {
+      // Expression without Feature widget - try simple field extraction
+      const result = await evaluateArcadeExpression(popupEl.expressionInfo, feature, sourceLayer);
+      section.content = result;
+      section.isHtml = /<[^>]+>/.test(result);
     }
 
     if (section.content) {
@@ -456,6 +620,7 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 /**
  * Parse HTML content and extract text with line breaks
  * Handles common HTML elements and converts to structured text
+ * Enhanced to handle Feature widget HTML output (Esri-specific classes, tables, etc.)
  * @param {string} htmlContent - HTML string content
  * @returns {Array<{text: string, style: object}>} Array of text segments with styles
  */
@@ -464,8 +629,27 @@ function parseHtmlContent(htmlContent) {
 
   const segments = [];
 
-  // Simple HTML parsing - handle common patterns
-  let content = htmlContent
+  // Pre-process Esri-specific HTML structures
+  let content = htmlContent;
+
+  // Handle Esri field containers - convert to label: value format
+  // Pattern: <div class="esri-feature__fields-item">...<span class="esri-feature__field-header">Label</span>...<span class="esri-feature__field-data">Value</span>...</div>
+  content = content.replace(
+    /<div[^>]*class="[^"]*esri-feature__fields-item[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*esri-feature__field-header[^"]*"[^>]*>([\s\S]*?)<\/span>[\s\S]*?<span[^>]*class="[^"]*esri-feature__field-data[^"]*"[^>]*>([\s\S]*?)<\/span>[\s\S]*?<\/div>/gi,
+    '<b>$1:</b> $2\n'
+  );
+
+  // Handle table cells - add spacing between td/th
+  content = content.replace(/<\/td>\s*<td/gi, '</td> | <td');
+  content = content.replace(/<\/th>\s*<th/gi, '</th> | <th');
+  content = content.replace(/<\/td>/gi, ' ');
+  content = content.replace(/<\/th>/gi, ' ');
+
+  // Handle headers
+  content = content.replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n[[BOLD_START]]$1[[BOLD_END]]\n');
+
+  // Standard HTML parsing - handle common patterns
+  content = content
     // Normalize line endings
     .replace(/\r\n/g, '\n')
     // Handle block-level breaks
@@ -474,21 +658,18 @@ function parseHtmlContent(htmlContent) {
     .replace(/<\/div>/gi, '\n')
     .replace(/<\/li>/gi, '\n')
     .replace(/<\/tr>/gi, '\n')
-    .replace(/<hr\s*\/?>/gi, '\n---\n');
-
-  // Process bold text
-  const boldPattern = /<b>([^<]*)<\/b>|<strong>([^<]*)<\/strong>/gi;
-  let lastIndex = 0;
-  let match;
-  const parts = [];
-
-  // Split by bold tags
-  const tempContent = content;
-  let processedContent = tempContent;
+    .replace(/<hr\s*\/?>/gi, '\n---\n')
+    // Handle list items
+    .replace(/<li[^>]*>/gi, '• ');
 
   // Replace bold tags with markers
-  processedContent = processedContent.replace(/<b>|<strong>/gi, '[[BOLD_START]]');
+  let processedContent = content;
+  processedContent = processedContent.replace(/<b[^>]*>|<strong[^>]*>/gi, '[[BOLD_START]]');
   processedContent = processedContent.replace(/<\/b>|<\/strong>/gi, '[[BOLD_END]]');
+
+  // Handle italic/emphasis
+  processedContent = processedContent.replace(/<i[^>]*>|<em[^>]*>/gi, '[[ITALIC_START]]');
+  processedContent = processedContent.replace(/<\/i>|<\/em>/gi, '[[ITALIC_END]]');
 
   // Remove remaining HTML tags
   processedContent = processedContent.replace(/<[^>]+>/g, '');
@@ -506,7 +687,16 @@ function parseHtmlContent(htmlContent) {
     .replace(/&rdquo;/g, '"')
     .replace(/&ldquo;/g, '"')
     .replace(/&mdash;/g, '—')
-    .replace(/&ndash;/g, '–');
+    .replace(/&ndash;/g, '–')
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-f]+);/gi, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+
+  // Clean up multiple consecutive newlines and spaces
+  processedContent = processedContent.replace(/\n{3,}/g, '\n\n');
+  processedContent = processedContent.replace(/[ \t]{2,}/g, ' ');
+
+  // Remove italic markers for now (treat as normal text)
+  processedContent = processedContent.replace(/\[\[ITALIC_START\]\]|\[\[ITALIC_END\]\]/g, '');
 
   // Split into lines
   const lines = processedContent.split('\n');
