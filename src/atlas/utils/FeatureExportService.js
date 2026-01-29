@@ -640,45 +640,72 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 }
 
 /**
- * Extract fixed width from HTML content if specified in a root element's style
- * Looks for width or max-width styles like "width: 600px" or "max-width:600px" in the outermost container
+ * Extract fixed width from HTML content if specified in element styles
+ * Looks for width or max-width styles like "width: 600px" or "max-width:600px"
+ * Searches both root level and nested elements (tables, divs, etc.)
  * @param {string} htmlContent - HTML string content
  * @returns {number|null} Width in pixels if found, null otherwise
  */
 function extractFixedWidthFromHtml(htmlContent) {
   if (!htmlContent) return null;
 
+  // Helper to extract width value from a match
+  const extractWidth = (match) => {
+    if (match && match[1]) {
+      const widthPx = parseFloat(match[1]);
+      if (!isNaN(widthPx) && widthPx > 0) {
+        return widthPx;
+      }
+    }
+    return null;
+  };
+
+  // 1. First try root level (for backward compatibility)
   // Look for width in style attribute of the first/outermost element
-  // Match patterns like: <div style="width: 600px"> or <div style="...;width:600px;...">
-  // Use negative lookbehind to avoid matching max-width when looking for width
-  const styleMatch = htmlContent.match(/^[\s]*<[^>]+style\s*=\s*["'][^"']*(?<!max-)width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/i);
+  const rootStyleMatch = htmlContent.match(/^[\s]*<[^>]+style\s*=\s*["'][^"']*(?<!max-)width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/i);
+  let width = extractWidth(rootStyleMatch);
+  if (width) return width;
 
-  if (styleMatch && styleMatch[1]) {
-    const widthPx = parseFloat(styleMatch[1]);
-    if (!isNaN(widthPx) && widthPx > 0) {
-      return widthPx;
+  // Check for max-width at root level
+  const rootMaxWidthMatch = htmlContent.match(/^[\s]*<[^>]+style\s*=\s*["'][^"']*max-width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/i);
+  width = extractWidth(rootMaxWidthMatch);
+  if (width) return width;
+
+  // Check for width attribute at root level (e.g., <table width="600">)
+  const rootWidthAttrMatch = htmlContent.match(/^[\s]*<[^>]+width\s*=\s*["']?(\d+(?:\.\d+)?)(?:px)?["']?/i);
+  width = extractWidth(rootWidthAttrMatch);
+  if (width) return width;
+
+  // 2. Search for width/max-width in any element's style (including nested tables)
+  // This handles Arcade output where tables have max-width specified
+  // Match pattern: style="...max-width: 500px..." or style="...width: 400px..."
+  const allMaxWidthMatches = htmlContent.match(/style\s*=\s*["'][^"']*max-width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/gi);
+  if (allMaxWidthMatches && allMaxWidthMatches.length > 0) {
+    // Extract the value from the first match
+    const firstMatch = allMaxWidthMatches[0].match(/max-width\s*:\s*(\d+(?:\.\d+)?)\s*px/i);
+    width = extractWidth(firstMatch);
+    if (width) return width;
+  }
+
+  // Check for explicit width (not max-width) in any element
+  const allWidthMatches = htmlContent.match(/style\s*=\s*["'][^"']*(?<![a-z-])width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/gi);
+  if (allWidthMatches && allWidthMatches.length > 0) {
+    // Extract the value from the first match, ensuring it's not max-width
+    for (const match of allWidthMatches) {
+      // Skip if this is a max-width
+      if (/max-width/i.test(match)) continue;
+      const widthMatch = match.match(/(?<![a-z-])width\s*:\s*(\d+(?:\.\d+)?)\s*px/i);
+      width = extractWidth(widthMatch);
+      if (width) return width;
     }
   }
 
-  // Check for max-width in style attribute
-  // Match patterns like: <div style="max-width: 600px"> or <div style="...;max-width:600px;...">
-  const maxWidthMatch = htmlContent.match(/^[\s]*<[^>]+style\s*=\s*["'][^"']*max-width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/i);
-
-  if (maxWidthMatch && maxWidthMatch[1]) {
-    const widthPx = parseFloat(maxWidthMatch[1]);
-    if (!isNaN(widthPx) && widthPx > 0) {
-      return widthPx;
-    }
-  }
-
-  // Also check for width attribute directly (e.g., <table width="600">)
-  const widthAttrMatch = htmlContent.match(/^[\s]*<[^>]+width\s*=\s*["']?(\d+(?:\.\d+)?)(?:px)?["']?/i);
-
-  if (widthAttrMatch && widthAttrMatch[1]) {
-    const widthPx = parseFloat(widthAttrMatch[1]);
-    if (!isNaN(widthPx) && widthPx > 0) {
-      return widthPx;
-    }
+  // 3. Check for width attribute on any element (e.g., <table width="600">)
+  const allWidthAttrMatches = htmlContent.match(/<[^>]+width\s*=\s*["']?(\d+(?:\.\d+)?)(?:px)?["']?/gi);
+  if (allWidthAttrMatches && allWidthAttrMatches.length > 0) {
+    const firstMatch = allWidthAttrMatches[0].match(/width\s*=\s*["']?(\d+(?:\.\d+)?)(?:px)?["']?/i);
+    width = extractWidth(firstMatch);
+    if (width) return width;
   }
 
   return null;
@@ -1458,7 +1485,7 @@ export async function exportFeatureToPDF({
   // Get evaluated popup content if using popup elements
   let popupContent = [];
   if (usePopupElements) {
-    onProgress('Processing PDF...');
+    onProgress('Processing...');
     try {
       popupContent = await getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo, mapView);
       console.log('[FeatureExport] Got popup content:', popupContent.length, 'sections');
@@ -1643,8 +1670,19 @@ export async function exportFeatureToPDF({
         );
 
         if (mapScreenshot) {
-          // Add map export page
-          await addMapExportPage(pdf, mapExportTemplate, mapScreenshot, featureTitle, logoUrl, atlasConfig);
+          // Calculate map scale from the map view's current extent
+          // The scale is based on the ratio of map units to screen units
+          let mapScale = null;
+          if (mapView?.extent && mapView?.width) {
+            // Calculate feet per inch based on map extent and view dimensions
+            // For Web Mercator, extent is in meters, so convert to feet
+            const extentWidth = mapView.extent.width; // in map units (meters for Web Mercator)
+            const viewWidthInches = mapView.width / 96; // assuming 96 DPI screen
+            const metersPerInch = extentWidth / viewWidthInches;
+            mapScale = metersPerInch * 3.28084; // convert meters to feet
+          }
+          // Add map export page with legend and scalebar support
+          await addMapExportPage(pdf, mapExportTemplate, mapScreenshot, featureTitle, logoUrl, atlasConfig, mapView, mapScale);
         }
       } catch (err) {
         console.warn('[FeatureExport] Could not generate map page:', err);
@@ -1904,8 +1942,16 @@ function drawAttributeTable(pdf, element, pageDims, fields) {
 
 /**
  * Add a map export page to the PDF
+ * @param {object} pdf - jsPDF instance
+ * @param {object} mapExportTemplate - Export template configuration
+ * @param {string} mapScreenshot - Map screenshot data URL
+ * @param {string} title - Page title
+ * @param {string} logoUrl - Logo URL
+ * @param {object} atlasConfig - Atlas configuration
+ * @param {object} mapView - ArcGIS MapView instance (for legend/scalebar)
+ * @param {number} mapScale - Map scale in feet per inch
  */
-async function addMapExportPage(pdf, mapExportTemplate, mapScreenshot, title, logoUrl, atlasConfig) {
+async function addMapExportPage(pdf, mapExportTemplate, mapScreenshot, title, logoUrl, atlasConfig, mapView = null, mapScale = null) {
   // Get page dimensions for map export template
   const pageDims = mapExportTemplate.pageSize === 'custom'
     ? { width: mapExportTemplate.customWidth || 11, height: mapExportTemplate.customHeight || 8.5 }
@@ -1919,6 +1965,9 @@ async function addMapExportPage(pdf, mapExportTemplate, mapScreenshot, title, lo
   // Draw background
   pdf.setFillColor(mapExportTemplate.backgroundColor || '#ffffff');
   pdf.rect(0, 0, pageDims.width, pageDims.height, 'F');
+
+  // Get legend items from map view if available
+  const legendItems = mapView ? getLegendItemsFromMapView(mapView) : [];
 
   // Draw elements from map export template
   for (const element of (mapExportTemplate.elements || [])) {
@@ -2034,15 +2083,11 @@ async function addMapExportPage(pdf, mapExportTemplate, mapScreenshot, title, lo
         break;
 
       case 'scalebar':
-        // Simple scale bar placeholder
-        pdf.setDrawColor(0, 0, 0);
-        pdf.setLineWidth(0.02);
-        pdf.line(x, y + height / 2, x + width * 0.8, y + height / 2);
+        drawPdfScaleBar(pdf, x, y, width, height, mapScale, element.content?.units);
+        break;
 
-        pdf.setFontSize(8);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(0, 0, 0);
-        pdf.text('Scale', x + width * 0.4, y + height / 2 + 0.15, { align: 'center' });
+      case 'legend':
+        drawPdfLegend(pdf, x, y, width, height, legendItems, element);
         break;
     }
   }
@@ -2081,6 +2126,325 @@ function drawNorthArrow(pdf, x, y, width, height) {
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 0, 0);
   pdf.text('N', centerX, centerY - size - 0.05, { align: 'center' });
+}
+
+/**
+ * Draw a scale bar on PDF
+ * @param {object} pdf - jsPDF instance
+ * @param {number} x - X position in inches
+ * @param {number} y - Y position in inches
+ * @param {number} width - Width in inches
+ * @param {number} height - Height in inches
+ * @param {number} scale - Map scale in feet per inch
+ * @param {string} units - Units for display ('feet' or 'meters')
+ */
+function drawPdfScaleBar(pdf, x, y, width, height, scale, units = 'feet') {
+  if (!scale || scale <= 0) {
+    // No scale available, draw placeholder
+    pdf.setDrawColor(0, 0, 0);
+    pdf.setLineWidth(0.01);
+    pdf.line(x + 0.1, y + height / 2, x + width - 0.1, y + height / 2);
+    pdf.setFontSize(7);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(0, 0, 0);
+    pdf.text('Scale', x + width / 2, y + height / 2 + 0.12, { align: 'center' });
+    return;
+  }
+
+  const padding = 0.05;
+  const barHeight = Math.min(height * 0.2, 0.08);
+  const barY = y + height - padding - barHeight - 0.12;
+
+  // Calculate a nice round number for the scale bar
+  const maxWidthInches = width - padding * 2;
+  const maxFeet = scale * maxWidthInches;
+
+  // Find a nice round number
+  const niceNumbers = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000];
+  let scaleFeet = 100;
+  for (const n of niceNumbers) {
+    if (n <= maxFeet * 0.9) {
+      scaleFeet = n;
+    } else {
+      break;
+    }
+  }
+
+  // Calculate bar width in inches
+  const barWidthInches = scaleFeet / scale;
+  const barX = x + padding;
+
+  // Draw alternating black/white segments
+  const segments = 4;
+  const segWidth = barWidthInches / segments;
+
+  for (let i = 0; i < segments; i++) {
+    if (i % 2 === 0) {
+      pdf.setFillColor(0, 0, 0);
+    } else {
+      pdf.setFillColor(255, 255, 255);
+    }
+    pdf.rect(barX + i * segWidth, barY, segWidth, barHeight, 'F');
+  }
+
+  // Draw border around entire bar
+  pdf.setDrawColor(0, 0, 0);
+  pdf.setLineWidth(0.005);
+  pdf.rect(barX, barY, barWidthInches, barHeight, 'S');
+
+  // Draw end ticks
+  pdf.line(barX, barY - 0.02, barX, barY + barHeight + 0.02);
+  pdf.line(barX + barWidthInches, barY - 0.02, barX + barWidthInches, barY + barHeight + 0.02);
+
+  // Draw label
+  pdf.setFillColor(0, 0, 0);
+  pdf.setTextColor(0, 0, 0);
+  const fontSize = Math.min(height * 0.25, 8);
+  pdf.setFontSize(fontSize);
+  pdf.setFont('helvetica', 'normal');
+
+  let label = '';
+  if (units === 'feet' || units === 'ft') {
+    label = scaleFeet >= 5280 ? `${(scaleFeet / 5280).toFixed(1)} miles` : `${scaleFeet.toLocaleString()} feet`;
+  } else if (units === 'meters' || units === 'm') {
+    const meters = scaleFeet * 0.3048;
+    label = meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+  } else {
+    label = `${scaleFeet.toLocaleString()} ft`;
+  }
+
+  pdf.text(label, barX + barWidthInches / 2, barY + barHeight + 0.08, { align: 'center' });
+
+  // Draw 0 label
+  pdf.text('0', barX, barY + barHeight + 0.08, { align: 'left' });
+}
+
+/**
+ * Get legend items from a map view
+ * @param {object} mapView - ArcGIS MapView instance
+ * @returns {Array} Array of legend items with label and symbol info
+ */
+function getLegendItemsFromMapView(mapView) {
+  if (!mapView?.map) return [];
+
+  const items = [];
+
+  // Get basemap layer IDs to exclude them from the legend
+  const basemapLayerIds = new Set();
+  if (mapView.map.basemap) {
+    mapView.map.basemap.baseLayers?.forEach(layer => {
+      basemapLayerIds.add(layer.id);
+    });
+    mapView.map.basemap.referenceLayers?.forEach(layer => {
+      basemapLayerIds.add(layer.id);
+    });
+  }
+
+  // Helper function to convert ArcGIS color to hex
+  const colorToHex = (color) => {
+    if (!color) return '#888888';
+    if (color.r !== undefined) {
+      const r = color.r.toString(16).padStart(2, '0');
+      const g = color.g.toString(16).padStart(2, '0');
+      const b = color.b.toString(16).padStart(2, '0');
+      return `#${r}${g}${b}`;
+    }
+    if (Array.isArray(color)) {
+      const [r, g, b] = color;
+      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    }
+    if (typeof color === 'string') return color;
+    return '#888888';
+  };
+
+  // Helper function to extract symbol info
+  const extractSymbolInfo = (symbol) => {
+    if (!symbol) return null;
+    const symbolType = symbol.type || '';
+    const isLine = symbolType.includes('line') || symbolType === 'simple-line' || symbolType === 'esriSLS';
+
+    let symbolColor = symbol.color;
+    let outlineColor = null;
+    let hasTransparentFill = false;
+
+    if (!isLine && symbol.outline?.color) {
+      const fillColor = symbol.color;
+      if (!fillColor ||
+          (Array.isArray(fillColor) && (fillColor.length < 4 || fillColor[3] < 0.1)) ||
+          (fillColor?.a !== undefined && fillColor.a < 0.1)) {
+        hasTransparentFill = true;
+        outlineColor = colorToHex(symbol.outline.color);
+      }
+    }
+
+    return {
+      type: isLine ? 'line' : 'fill',
+      color: hasTransparentFill ? null : colorToHex(symbolColor),
+      outlineColor: outlineColor,
+      hasTransparentFill: hasTransparentFill
+    };
+  };
+
+  mapView.map.allLayers.forEach(layer => {
+    if (!layer.visible || layer.listMode === 'hide') return;
+    if (layer.type === 'graphics' || layer.id.startsWith('atlas-')) return;
+    if (layer.id === 'export-area-layer') return;
+    if (!layer.title) return;
+    if (basemapLayerIds.has(layer.id)) return;
+
+    const renderer = layer.renderer;
+
+    if (!renderer) {
+      items.push({ label: layer.title, symbol: null });
+      return;
+    }
+
+    if (renderer.type === 'simple' || renderer.symbol) {
+      items.push({
+        label: layer.title,
+        symbol: extractSymbolInfo(renderer.symbol)
+      });
+    } else if (renderer.type === 'unique-value' && renderer.uniqueValueInfos) {
+      items.push({
+        label: layer.title,
+        symbol: extractSymbolInfo(renderer.defaultSymbol),
+        isHeader: true
+      });
+      renderer.uniqueValueInfos.forEach(info => {
+        items.push({
+          label: info.label || info.value || 'Value',
+          symbol: extractSymbolInfo(info.symbol),
+          isSubItem: true
+        });
+      });
+    } else if (renderer.type === 'class-breaks' && renderer.classBreakInfos) {
+      items.push({
+        label: layer.title,
+        symbol: extractSymbolInfo(renderer.defaultSymbol),
+        isHeader: true
+      });
+      renderer.classBreakInfos.forEach(info => {
+        items.push({
+          label: info.label || `${info.minValue} - ${info.maxValue}`,
+          symbol: extractSymbolInfo(info.symbol),
+          isSubItem: true
+        });
+      });
+    } else {
+      items.push({ label: layer.title, symbol: null });
+    }
+  });
+
+  return items;
+}
+
+/**
+ * Draw legend on PDF
+ * @param {object} pdf - jsPDF instance
+ * @param {number} x - X position in inches
+ * @param {number} y - Y position in inches
+ * @param {number} width - Width in inches
+ * @param {number} height - Height in inches
+ * @param {Array} legendItems - Array of legend items
+ * @param {object} element - Element configuration with content options
+ */
+function drawPdfLegend(pdf, x, y, width, height, legendItems, element) {
+  if (!legendItems || legendItems.length === 0) return;
+
+  const showTitle = element?.content?.showTitle !== false;
+  const padding = 0.1;
+  const titleHeight = showTitle ? 0.25 : 0;
+  const itemHeight = 0.2;
+  const symbolSize = 0.12;
+  const symbolGap = 0.08;
+
+  // Background
+  pdf.setFillColor(255, 255, 255);
+  pdf.rect(x, y, width, height, 'F');
+
+  // Border
+  pdf.setDrawColor(153, 153, 153);
+  pdf.setLineWidth(0.005);
+  pdf.rect(x, y, width, height, 'S');
+
+  let currentY = y + padding;
+
+  // Title
+  if (showTitle) {
+    pdf.setFillColor(0, 0, 0);
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(element?.content?.title || 'Legend', x + padding, currentY + 0.1);
+    currentY += titleHeight;
+  }
+
+  // Calculate how many items fit
+  const availableHeight = height - padding * 2 - titleHeight;
+  const maxItems = Math.floor(availableHeight / itemHeight);
+
+  // Draw legend items
+  const itemsToDraw = legendItems.slice(0, maxItems);
+
+  for (const item of itemsToDraw) {
+    if (currentY + itemHeight > y + height - padding) break;
+
+    const itemX = x + padding + (item.isSubItem ? 0.1 : 0);
+    const actualSymbolSize = item.isSubItem ? symbolSize * 0.8 : symbolSize;
+    const symbolY = currentY + (itemHeight - actualSymbolSize) / 2;
+
+    // Set font
+    if (item.isHeader) {
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+    } else {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7);
+    }
+
+    // Draw symbol
+    if (item.symbol && !item.isHeader) {
+      if (item.symbol.type === 'line') {
+        const lineColor = hexToRgb(item.symbol.color || '#888888');
+        pdf.setDrawColor(lineColor.r, lineColor.g, lineColor.b);
+        pdf.setLineWidth(0.015);
+        const lineY = currentY + itemHeight / 2;
+        pdf.line(itemX, lineY, itemX + actualSymbolSize, lineY);
+      } else if (item.symbol.hasTransparentFill && item.symbol.outlineColor) {
+        const outlineRgb = hexToRgb(item.symbol.outlineColor);
+        pdf.setDrawColor(outlineRgb.r, outlineRgb.g, outlineRgb.b);
+        pdf.setLineWidth(0.01);
+        pdf.rect(itemX, symbolY, actualSymbolSize, actualSymbolSize, 'S');
+      } else if (item.symbol.color) {
+        const fillRgb = hexToRgb(item.symbol.color);
+        pdf.setFillColor(fillRgb.r, fillRgb.g, fillRgb.b);
+        pdf.rect(itemX, symbolY, actualSymbolSize, actualSymbolSize, 'F');
+        pdf.setDrawColor(51, 51, 51);
+        pdf.setLineWidth(0.003);
+        pdf.rect(itemX, symbolY, actualSymbolSize, actualSymbolSize, 'S');
+      } else {
+        pdf.setFillColor(204, 204, 204);
+        pdf.rect(itemX, symbolY, actualSymbolSize, actualSymbolSize, 'F');
+        pdf.setDrawColor(153, 153, 153);
+        pdf.setLineWidth(0.003);
+        pdf.rect(itemX, symbolY, actualSymbolSize, actualSymbolSize, 'S');
+      }
+    } else if (!item.isHeader) {
+      // Default gray square
+      pdf.setFillColor(204, 204, 204);
+      pdf.rect(itemX, symbolY, actualSymbolSize, actualSymbolSize, 'F');
+      pdf.setDrawColor(153, 153, 153);
+      pdf.setLineWidth(0.003);
+      pdf.rect(itemX, symbolY, actualSymbolSize, actualSymbolSize, 'S');
+    }
+
+    // Draw label
+    pdf.setTextColor(item.isHeader ? 0 : 51, item.isHeader ? 0 : 51, item.isHeader ? 0 : 51);
+    const labelX = item.isHeader && !item.symbol ? itemX : itemX + actualSymbolSize + symbolGap;
+    pdf.text(item.label, labelX, currentY + itemHeight / 2 + 0.02);
+
+    currentY += itemHeight;
+  }
 }
 
 /**
