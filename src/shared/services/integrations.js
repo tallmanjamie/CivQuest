@@ -31,6 +31,7 @@ export const AVAILABLE_INTEGRATIONS = {
     description: 'Aerial imagery viewer integration. Adds an EagleView button to feature popups that opens the location in EagleView with the feature geometry highlighted.',
     type: INTEGRATION_TYPES.ATLAS,
     icon: 'eye', // lucide icon name
+    // Config schema for org-level settings (API key and window dimensions configured per-org)
     configSchema: {
       apiKey: {
         type: 'string',
@@ -38,38 +39,6 @@ export const AVAILABLE_INTEGRATIONS = {
         description: 'Your EagleView/Pictometry API key',
         required: true,
         placeholder: 'e.g., 3f513db9-95ae-4df3-b64b-b26267b95cce'
-      },
-      windowWidth: {
-        type: 'number',
-        label: 'Window Width',
-        description: 'Width of the EagleView popup window',
-        required: false,
-        default: 80,
-        placeholder: '80'
-      },
-      windowWidthUnit: {
-        type: 'select',
-        label: 'Width Unit',
-        description: 'Unit for window width (pixels or percentage)',
-        required: false,
-        default: '%',
-        options: ['px', '%']
-      },
-      windowHeight: {
-        type: 'number',
-        label: 'Window Height',
-        description: 'Height of the EagleView popup window',
-        required: false,
-        default: 80,
-        placeholder: '80'
-      },
-      windowHeightUnit: {
-        type: 'select',
-        label: 'Height Unit',
-        description: 'Unit for window height (pixels or percentage)',
-        required: false,
-        default: '%',
-        options: ['px', '%']
       }
     }
   },
@@ -79,47 +48,9 @@ export const AVAILABLE_INTEGRATIONS = {
     description: 'High-resolution aerial imagery integration. Adds a Nearmap button to feature popups that opens the location in the Nearmap viewer with the feature geometry highlighted.',
     type: INTEGRATION_TYPES.ATLAS,
     icon: 'map-pin', // lucide icon name
-    configSchema: {
-      apiKey: {
-        type: 'string',
-        label: 'API Key',
-        description: 'Your Nearmap API key',
-        required: true,
-        placeholder: 'e.g., your-nearmap-api-key'
-      },
-      windowWidth: {
-        type: 'number',
-        label: 'Window Width',
-        description: 'Width of the Nearmap popup window',
-        required: false,
-        default: 80,
-        placeholder: '80'
-      },
-      windowWidthUnit: {
-        type: 'select',
-        label: 'Width Unit',
-        description: 'Unit for window width (pixels or percentage)',
-        required: false,
-        default: '%',
-        options: ['px', '%']
-      },
-      windowHeight: {
-        type: 'number',
-        label: 'Window Height',
-        description: 'Height of the Nearmap popup window',
-        required: false,
-        default: 80,
-        placeholder: '80'
-      },
-      windowHeightUnit: {
-        type: 'select',
-        label: 'Height Unit',
-        description: 'Unit for window height (pixels or percentage)',
-        required: false,
-        default: '%',
-        options: ['px', '%']
-      }
-    }
+    // No API key required - authentication is handled in the Nearmap embed widget
+    // Window dimensions configured per-org in OrgIntegrationsConfig
+    configSchema: {}
   }
   // Future integrations can be added here:
   // googleStreetView: { ... },

@@ -296,8 +296,8 @@ function IntegrationConfigCard({
                     type="number"
                     value={config?.windowWidth ?? 80}
                     onChange={(e) => handleFieldChange('windowWidth', parseInt(e.target.value) || 80)}
-                    min="100"
-                    max="100"
+                    min="1"
+                    max={config?.windowWidthUnit === 'px' ? 3000 : 100}
                     placeholder="80"
                     className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
                     style={{ '--tw-ring-color': accentColor }}
@@ -321,8 +321,8 @@ function IntegrationConfigCard({
                     type="number"
                     value={config?.windowHeight ?? 80}
                     onChange={(e) => handleFieldChange('windowHeight', parseInt(e.target.value) || 80)}
-                    min="100"
-                    max="100"
+                    min="1"
+                    max={config?.windowHeightUnit === 'px' ? 3000 : 100}
                     placeholder="80"
                     className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
                     style={{ '--tw-ring-color': accentColor }}
@@ -415,7 +415,12 @@ function IntegrationConfigCard({
   }
 
   // Render Nearmap-specific configuration
+  // Note: Nearmap doesn't require an API key - authentication is handled in the embed widget
   if (integration.type === 'nearmap') {
+    // For Nearmap, it's always "configured" since no API key is needed
+    // We just need to track if window dimensions have been customized
+    const nearmapConfigured = true;
+
     return (
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         {/* Header */}
@@ -430,17 +435,10 @@ function IntegrationConfigCard({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3">
                 <h3 className="font-semibold text-slate-800 text-lg">{integration.name}</h3>
-                {isConfigured ? (
-                  <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
-                    <CheckCircle className="w-3 h-3" />
-                    Configured
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700">
-                    <AlertCircle className="w-3 h-3" />
-                    Setup Required
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                  <CheckCircle className="w-3 h-3" />
+                  Ready
+                </span>
               </div>
               <p className="text-sm text-slate-500 mt-1">
                 {definition?.description || 'High-resolution aerial imagery integration'}
@@ -451,22 +449,17 @@ function IntegrationConfigCard({
 
         {/* Configuration Form */}
         <div className="p-5 space-y-4">
-          {/* API Key Field */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-slate-400" />
-                Nearmap API Key
+          {/* Info about no API key needed */}
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-green-800 mb-1">No API Key Required</p>
+                <p className="text-green-700">
+                  Nearmap authentication is handled directly in the embedded viewer. No API key configuration is needed here.
+                </p>
               </div>
-            </label>
-            <input
-              type="text"
-              value={config?.apiKey || ''}
-              onChange={(e) => handleFieldChange('apiKey', e.target.value)}
-              placeholder="e.g., your-nearmap-api-key"
-              className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent font-mono text-sm"
-              style={{ '--tw-ring-color': accentColor }}
-            />
+            </div>
           </div>
 
           {/* Window Size Configuration */}
@@ -487,8 +480,8 @@ function IntegrationConfigCard({
                     type="number"
                     value={config?.windowWidth ?? 80}
                     onChange={(e) => handleFieldChange('windowWidth', parseInt(e.target.value) || 80)}
-                    min="100"
-                    max="100"
+                    min="1"
+                    max={config?.windowWidthUnit === 'px' ? 3000 : 100}
                     placeholder="80"
                     className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
                     style={{ '--tw-ring-color': accentColor }}
@@ -512,8 +505,8 @@ function IntegrationConfigCard({
                     type="number"
                     value={config?.windowHeight ?? 80}
                     onChange={(e) => handleFieldChange('windowHeight', parseInt(e.target.value) || 80)}
-                    min="100"
-                    max="100"
+                    min="1"
+                    max={config?.windowHeightUnit === 'px' ? 3000 : 100}
                     placeholder="80"
                     className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
                     style={{ '--tw-ring-color': accentColor }}
@@ -535,27 +528,6 @@ function IntegrationConfigCard({
             </p>
           </div>
 
-          {/* Domain Requirement Note */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm">
-                <p className="font-medium text-blue-800 mb-1">API Key Configuration</p>
-                <p className="text-blue-700">
-                  Your Nearmap API Key must be configured for use with the domain where your Atlas application is deployed.
-                  For hosted deployments, ensure the key is authorized for:
-                </p>
-                <div className="mt-2 p-2 bg-blue-100 rounded font-mono text-xs text-blue-800">
-                  https://atlas.civ.quest/
-                </div>
-                <p className="text-blue-600 text-xs mt-2">
-                  If you are using a custom domain, ensure your API key is authorized for that domain instead.
-                  Contact Nearmap support if you need assistance configuring domain access for your API key.
-                </p>
-              </div>
-            </div>
-          </div>
-
           {/* Nearmap Documentation Link */}
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <ExternalLink className="w-4 h-4" />
@@ -566,7 +538,7 @@ function IntegrationConfigCard({
               className="hover:underline"
               style={{ color: accentColor }}
             >
-              Learn more about Nearmap API
+              Learn more about Nearmap
             </a>
           </div>
         </div>
@@ -576,10 +548,8 @@ function IntegrationConfigCard({
           <div className="text-sm text-slate-500">
             {hasChanges ? (
               <span className="text-amber-600 font-medium">You have unsaved changes</span>
-            ) : isConfigured ? (
-              <span className="text-green-600">Configuration saved</span>
             ) : (
-              <span>Enter your API key to enable Nearmap integration</span>
+              <span className="text-green-600">Configuration saved</span>
             )}
           </div>
           <button
