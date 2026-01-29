@@ -74,6 +74,7 @@ import OrgSelector from './components/OrgSelector';
 import AdvancedSearchModal from './components/AdvancedSearchModal';
 import AuthScreen from './components/AuthScreen';
 import AccountSettings from './components/AccountSettings';
+import DisclaimerPopup from './components/DisclaimerPopup';
 
 // Theme utility for proper dynamic theming
 import { getThemeColors, getThemeCssVars } from './utils/themeColors';
@@ -886,6 +887,7 @@ export default function AtlasApp() {
   const [showHistory, setShowHistory] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAccountSettings, setShowAccountSettings] = useState(false);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
 
   // Search History State (shared across all views)
   const [searchHistory, setSearchHistory] = useState([]);
@@ -1299,6 +1301,15 @@ export default function AtlasApp() {
           isOpen={showAccountSettings}
           onClose={() => setShowAccountSettings(false)}
         />
+
+        {/* Disclaimer Popup - shown when enabled and not yet accepted */}
+        {config?.disclaimer?.enabled && !disclaimerAccepted && (
+          <DisclaimerPopup
+            config={config}
+            orgId={orgId}
+            onAccept={() => setDisclaimerAccepted(true)}
+          />
+        )}
       </div>
     </AtlasContext.Provider>
   );

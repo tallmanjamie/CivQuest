@@ -35,6 +35,19 @@ const DEFAULT_CONFIG = {
     importantNote: '', // Empty = hidden
     searchTip: ''      // Empty = hidden
   },
+  disclaimer: {
+    enabled: false,              // Off by default
+    width: '600',                // Width value
+    widthUnit: 'px',             // 'px' or '%'
+    height: '400',               // Height value
+    heightUnit: 'px',            // 'px' or '%'
+    contentMode: 'html',         // 'html' or 'embed'
+    htmlContent: '',             // HTML content for the disclaimer
+    embedUrl: '',                // URL to embed in iframe
+    confirmationType: 'confirmation', // 'confirmation' or 'dontShowAgain'
+    checkboxText: 'I agree to the terms and conditions',
+    buttonText: 'Continue'
+  },
   basemaps: [],
   data: {
     maps: [],
@@ -170,6 +183,7 @@ export function useAtlasConfig(providedOrgId = null) {
             id: orgId,
             ui: { ...DEFAULT_CONFIG.ui, ...atlasConfig.ui },
             messages: { ...DEFAULT_CONFIG.messages, ...atlasConfig.messages },
+            disclaimer: { ...DEFAULT_CONFIG.disclaimer, ...atlasConfig.disclaimer },
             data: { ...DEFAULT_CONFIG.data, ...atlasConfig.data },
             // Explicitly preserve arrays from atlasConfig
             basemaps: atlasConfig.basemaps || DEFAULT_CONFIG.basemaps || [],
