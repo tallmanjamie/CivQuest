@@ -47,7 +47,7 @@ export default function Header({
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
-  // Get display name from user data - prefer firstName/lastName, then arcgisProfile.fullName, then email
+  // Get full display name from user data - prefer firstName/lastName, then arcgisProfile.fullName, then email
   const getDisplayName = () => {
     if (userData?.firstName || userData?.lastName) {
       return [userData.firstName, userData.lastName].filter(Boolean).join(' ');
@@ -55,6 +55,21 @@ export default function Header({
     return userData?.arcgisProfile?.fullName || user?.email || 'User';
   };
   const displayName = getDisplayName();
+
+  // Get first name only for the dropdown button
+  const getFirstName = () => {
+    if (userData?.firstName) {
+      return userData.firstName;
+    }
+    if (userData?.arcgisProfile?.fullName) {
+      return userData.arcgisProfile.fullName.split(' ')[0];
+    }
+    if (user?.email) {
+      return user.email.split('@')[0];
+    }
+    return 'User';
+  };
+  const firstName = getFirstName();
   const displayEmail = user?.email || '';
 
   return (
@@ -97,8 +112,8 @@ export default function Header({
                   <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
                     <User className="w-4 h-4" />
                   </div>
-                  <span className="text-sm font-medium hidden lg:inline truncate max-w-[100px]">
-                    {displayName}
+                  <span className="text-sm font-medium hidden lg:inline truncate max-w-[180px]">
+                    {firstName}
                   </span>
                   <ChevronDown className={`w-4 h-4 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
                 </button>
