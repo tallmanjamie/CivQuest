@@ -6,11 +6,12 @@
 // - Removed map picker dropdown (moved to MapView top-left controls)
 // - Header now only contains branding and user menu
 // - Uses themeColors utility for proper dynamic theming
+// - Added account settings option in user menu
 
 import React, { useState } from 'react';
-import { 
-  Menu, 
-  LogIn, 
+import {
+  Menu,
+  LogIn,
   LogOut,
   ChevronDown,
   User,
@@ -30,7 +31,8 @@ export default function Header({
   onModeChange,
   enabledModes,
   onMenuToggle,
-  showMobileMenu
+  showMobileMenu,
+  onOpenSettings
 }) {
   const {
     user,
@@ -45,8 +47,14 @@ export default function Header({
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
-  // Get display name from user data
-  const displayName = userData?.arcgisProfile?.fullName || user?.email || 'User';
+  // Get display name from user data - prefer firstName/lastName, then arcgisProfile.fullName, then email
+  const getDisplayName = () => {
+    if (userData?.firstName || userData?.lastName) {
+      return [userData.firstName, userData.lastName].filter(Boolean).join(' ');
+    }
+    return userData?.arcgisProfile?.fullName || user?.email || 'User';
+  };
+  const displayName = getDisplayName();
   const displayEmail = user?.email || '';
 
   return (
@@ -105,6 +113,13 @@ export default function Header({
                         </p>
                         <p className="text-xs text-slate-500 truncate">{displayEmail}</p>
                       </div>
+                      <button
+                        onClick={() => { onOpenSettings?.(); setShowUserMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+                      >
+                        <Settings className="w-4 h-4" />
+                        Settings
+                      </button>
                       <button
                         onClick={() => { signOut(); setShowUserMenu(false); }}
                         className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2"

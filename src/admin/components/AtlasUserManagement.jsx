@@ -336,7 +336,7 @@ export default function AtlasUserManagement({
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Email
+                  User
                 </th>
                 {role === 'admin' && filterOrg === 'all' && (
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
@@ -364,6 +364,11 @@ export default function AtlasUserManagement({
                   const hasAccess = targetOrg ? hasAtlasAccess(user, targetOrg) : false;
                   const isSuspended = user.suspended === true;
 
+                  // Get display name - prefer firstName/lastName, then email
+                  const displayName = (user.firstName || user.lastName)
+                    ? [user.firstName, user.lastName].filter(Boolean).join(' ')
+                    : null;
+
                   // Count orgs with Atlas access (for super admin all view)
                   const atlasOrgCount = Object.values(user.atlasAccess || {})
                     .filter(a => a.enabled).length;
@@ -373,14 +378,21 @@ export default function AtlasUserManagement({
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <Mail className="w-4 h-4 text-slate-400" />
-                          <span className={`text-sm ${isSuspended ? 'text-slate-500' : 'text-slate-800'}`}>
-                            {user.email}
-                          </span>
-                          {user.arcgisProfile?.username && (
-                            <span className="text-xs text-slate-400">
-                              (ArcGIS: {user.arcgisProfile.username})
+                          <div>
+                            {displayName && (
+                              <span className={`text-sm font-medium block ${isSuspended ? 'text-slate-500' : 'text-slate-800'}`}>
+                                {displayName}
+                              </span>
+                            )}
+                            <span className={`text-sm ${displayName ? 'text-slate-500' : (isSuspended ? 'text-slate-500' : 'text-slate-800')}`}>
+                              {user.email}
                             </span>
-                          )}
+                            {user.arcgisProfile?.username && (
+                              <span className="text-xs text-slate-400 block">
+                                ArcGIS: {user.arcgisProfile.username}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
 

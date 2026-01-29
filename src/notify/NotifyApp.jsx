@@ -2,22 +2,23 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from '@shared/services/firebase';
 import { PATHS } from '@shared/services/paths';
-import { 
-  onAuthStateChanged, 
+import {
+  onAuthStateChanged,
   signOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword
 } from 'firebase/auth';
-import { 
-  collection, 
-  getDocs, 
-  doc, 
-  setDoc, 
-  getDoc, 
+import {
+  collection,
+  getDocs,
+  doc,
+  setDoc,
+  getDoc,
   updateDoc,
-  serverTimestamp 
+  onSnapshot,
+  serverTimestamp
 } from 'firebase/firestore';
-import { Loader2, LogOut } from 'lucide-react';
+import { Loader2, LogOut, Settings } from 'lucide-react';
 import { ToastProvider } from '@shared/components/Toast';
 import {
   parseOAuthCallback,
@@ -47,6 +48,7 @@ const getQueryParams = () => {
 
 export default function NotifyApp() {
   const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('auth'); // auth, dashboard
   const [availableSubscriptions, setAvailableSubscriptions] = useState([]);
@@ -54,10 +56,19 @@ export default function NotifyApp() {
   const [targetOrganization, setTargetOrganization] = useState(null);
   const [oauthProcessing, setOauthProcessing] = useState(false);
   const [oauthError, setOauthError] = useState(null);
+  const [activeTab, setActiveTab] = useState('feeds');
 
   // Check for embed parameters to conditionally hide header and adjust spacing
   const { organizationId, notificationId } = getQueryParams();
   const isEmbed = !!organizationId;
+
+  // Get display name - prefer firstName/lastName, then email
+  const getDisplayName = () => {
+    if (userData?.firstName || userData?.lastName) {
+      return [userData.firstName, userData.lastName].filter(Boolean).join(' ');
+    }
+    return user?.email || 'User';
+  };
 
   // Handle OAuth callback on mount
   useEffect(() => {
@@ -249,13 +260,39 @@ export default function NotifyApp() {
 
   // Auth Listener
   useEffect(() => {
+    let userDataUnsubscribe = null;
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
-      if (currentUser) setView('dashboard');
-      else setView('auth');
+
+      // Clean up previous userData listener
+      if (userDataUnsubscribe) {
+        userDataUnsubscribe();
+        userDataUnsubscribe = null;
+      }
+
+      if (currentUser) {
+        setView('dashboard');
+        // Subscribe to user data changes
+        const userRef = doc(db, PATHS.user(currentUser.uid));
+        userDataUnsubscribe = onSnapshot(userRef, (docSnap) => {
+          if (docSnap.exists()) {
+            setUserData(docSnap.data());
+          } else {
+            setUserData(null);
+          }
+        });
+      } else {
+        setView('auth');
+        setUserData(null);
+      }
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      if (userDataUnsubscribe) userDataUnsubscribe();
+    };
   }, []);
 
   if (loading || oauthProcessing) {
@@ -285,8 +322,14 @@ export default function NotifyApp() {
             </div>
             {user && (
               <div className="flex items-center gap-4">
-                <span className="text-sm text-slate-500 hidden sm:inline">{user.email}</span>
-                <button 
+                <span className="text-sm text-slate-500 hidden sm:inline">{getDisplayName()}</span>
+                <button
+                  onClick={() => setActiveTab('account')}
+                  className="text-sm font-medium text-slate-600 hover:text-[#004E7C] flex items-center gap-1"
+                >
+                  <Settings className="w-4 h-4" /> Settings
+                </button>
+                <button
                   onClick={() => signOut(auth)}
                   className="text-sm font-medium text-slate-600 hover:text-red-600 flex items-center gap-1"
                 >
@@ -300,19 +343,21 @@ export default function NotifyApp() {
         {/* Main Content */}
         <main className={`max-w-4xl mx-auto ${isEmbed && !user ? 'p-2' : 'p-6'}`}>
           {view === 'auth' ? (
-            <AuthScreen 
-              targetSubscription={targetSubscription} 
+            <AuthScreen
+              targetSubscription={targetSubscription}
               targetOrganization={targetOrganization}
               isEmbed={isEmbed}
               oauthError={oauthError}
               setOauthError={setOauthError}
             />
           ) : (
-            <Dashboard 
-              user={user} 
-              targetSubscription={targetSubscription} 
+            <Dashboard
+              user={user}
+              targetSubscription={targetSubscription}
               targetOrganization={targetOrganization}
-              availableSubscriptions={availableSubscriptions} 
+              availableSubscriptions={availableSubscriptions}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
             />
           )}
         </main>
