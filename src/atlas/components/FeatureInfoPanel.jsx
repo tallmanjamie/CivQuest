@@ -41,7 +41,7 @@ export default function FeatureInfoPanel({
   isExportingPDF = false,
   exportPDFProgress = ''
 }) {
-  const { config: atlasConfig, orgId, isPictometryEnabled, openEagleView } = useAtlas();
+  const { config: atlasConfig, orgId, isPictometryEnabled, openEagleView, isNearmapEnabled, openNearmap } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
@@ -350,6 +350,17 @@ export default function FeatureInfoPanel({
     });
   }, [feature, displayTitle, colors.bg500, openEagleView]);
 
+  // Handle Nearmap button click
+  const handleOpenNearmap = useCallback(() => {
+    if (!feature?.geometry) return;
+
+    openNearmap({
+      geometry: feature.geometry,
+      title: displayTitle,
+      themeColor: colors.bg500
+    });
+  }, [feature, displayTitle, colors.bg500, openNearmap]);
+
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
       <ActionButton icon={Bookmark} label="Markup" onClick={() => onSaveAsMarkup?.(feature, displayTitle)} />
@@ -366,6 +377,13 @@ export default function FeatureInfoPanel({
           icon={Eye}
           label="EagleView"
           onClick={handleOpenEagleView}
+        />
+      )}
+      {isNearmapEnabled && (
+        <ActionButton
+          icon={MapPin}
+          label="Nearmap"
+          onClick={handleOpenNearmap}
         />
       )}
     </div>
