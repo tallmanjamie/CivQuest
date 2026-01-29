@@ -557,10 +557,11 @@ const TableView = forwardRef(function TableView(props, ref) {
 
           <button
             className="table-tool-btn"
-            onClick={() => setShowHelpPanel?.(true)}
-            title="Get Help"
+            onClick={exportCSV}
+            disabled={!hasResults}
+            title="Export to CSV"
           >
-            <HelpCircle className="w-4 h-4" />
+            <Download className="w-4 h-4" />
           </button>
 
           <button
@@ -574,20 +575,19 @@ const TableView = forwardRef(function TableView(props, ref) {
 
           <button
             className="table-tool-btn"
-            onClick={exportCSV}
-            disabled={!hasResults}
-            title="Export to CSV"
-          >
-            <Download className="w-4 h-4" />
-          </button>
-
-          <button
-            className="table-tool-btn"
             onClick={clearTable}
             disabled={!hasResults}
             title="Clear table"
           >
             <X className="w-4 h-4" />
+          </button>
+
+          <button
+            className="table-tool-btn"
+            onClick={() => setShowHelpPanel?.(true)}
+            title="Get Help"
+          >
+            <HelpCircle className="w-4 h-4" />
           </button>
         </div>
       </div>

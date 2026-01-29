@@ -1855,6 +1855,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                 title="Get Help"
               >
                 <HelpCircle className="w-4 h-4" style={{ color: colors.bg600 }} />
+                <span className="text-sm font-medium text-slate-700">Help</span>
               </button>
             </>
           )}
