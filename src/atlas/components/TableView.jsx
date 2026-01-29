@@ -587,7 +587,7 @@ const TableView = forwardRef(function TableView(props, ref) {
             onClick={() => setShowHelpPanel?.(true)}
             title="Get Help"
           >
-            <HelpCircle className="w-4 h-4" />
+            <HelpCircle className="w-4 h-4" style={{ color: colors.text600 }} />
           </button>
         </div>
       </div>
