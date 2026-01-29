@@ -95,6 +95,36 @@ body {
   }
 }
 
+/* Rich Text Editor (Quill) customizations for disclaimer editor */
+.disclaimer-rich-editor .ql-container {
+  min-height: 200px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.disclaimer-rich-editor .ql-editor {
+  min-height: 200px;
+  padding: 12px 15px;
+}
+
+.disclaimer-rich-editor .ql-editor.ql-blank::before {
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.disclaimer-rich-editor .ql-toolbar {
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.disclaimer-rich-editor .ql-container {
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
+  border-color: #e2e8f0;
+}
+
 /* Animation utilities */
 @layer utilities {
   .animate-in {
