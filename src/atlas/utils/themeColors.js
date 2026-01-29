@@ -247,22 +247,20 @@ export function getThemeColors(themeColor = 'sky') {
     bg50: palette[50],
     bg100: palette[100],
     bg200: palette[200],
-    bg300: palette[300],
-    bg400: palette[400],
     bg500: palette[500],
     bg600: palette[600],
     bg700: palette[700],
-
+    
     // Text colors
     text500: palette[500],
     text600: palette[600],
     text700: palette[700],
-
+    
     // Border colors
     border200: palette[200],
     border300: palette[300],
     border500: palette[500],
-
+    
     // For RGB values (useful for rgba())
     rgb500: hexToRgbString(palette[500]),
     rgb600: hexToRgbString(palette[600]),
