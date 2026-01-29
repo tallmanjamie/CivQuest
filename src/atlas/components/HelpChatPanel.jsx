@@ -46,9 +46,8 @@ export default function HelpChatPanel({
   const colors = getThemeColors(themeColor);
   const isBottom = position === 'bottom';
 
-  // Get help documentation and links from config
+  // Get help documentation from config
   const helpDocs = config?.helpDocumentation || [];
-  const helpLinks = config?.helpLinks || [];
 
   // Filter articles based on search query
   const filteredDocs = searchQuery.trim()
@@ -269,7 +268,7 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
             {/* Articles List */}
             <div className="flex-1 overflow-y-auto">
               {/* Empty state - no content at all */}
-              {helpDocs.length === 0 && helpLinks.length === 0 && (
+              {helpDocs.length === 0 && (
                 <div className="p-6 text-center">
                   <BookOpen className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                   <p className="text-sm text-slate-500">No help content available</p>
@@ -322,41 +321,6 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                   ))}
                 </div>
               )}
-
-              {/* External Resources */}
-              {helpLinks.length > 0 && !searchQuery.trim() && (
-                <div className={filteredDocs.length > 0 ? "border-t border-slate-100" : ""}>
-                  <div className="px-4 py-2 bg-slate-50">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                      External Resources
-                    </p>
-                  </div>
-                  <div className="divide-y divide-slate-50">
-                    {helpLinks.map((link, idx) => (
-                      <a
-                        key={link.id || idx}
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors flex items-center gap-3 group block"
-                      >
-                        <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-emerald-100"
-                        >
-                          <ExternalLink className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-700 truncate">{link.title}</p>
-                          {link.description && (
-                            <p className="text-xs text-slate-500 truncate mt-0.5">{link.description}</p>
-                          )}
-                        </div>
-                        <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-600 flex-shrink-0" />
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </>
         )}
@@ -389,10 +353,10 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                 </div>
               )}
 
-              {/* Media */}
+              {/* Media & Links */}
               {selectedArticle.media && selectedArticle.media.length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-slate-700">Related Media</h4>
+                  <h4 className="text-sm font-medium text-slate-700">Resources</h4>
                   {selectedArticle.media.map((item, idx) => (
                     <div key={idx} className="rounded-lg overflow-hidden border border-slate-200">
                       {item.type === 'image' ? (
@@ -422,6 +386,26 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                             </div>
                           )}
                         </div>
+                      ) : item.type === 'link' ? (
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 p-3 hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-emerald-100">
+                            <ExternalLink className="w-5 h-5 text-emerald-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-700 group-hover:text-emerald-600 truncate">
+                              {item.title || 'External Link'}
+                            </p>
+                            {item.description && (
+                              <p className="text-xs text-slate-500 truncate mt-0.5">{item.description}</p>
+                            )}
+                          </div>
+                          <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 flex-shrink-0" />
+                        </a>
                       ) : null}
                     </div>
                   ))}
@@ -503,7 +487,7 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                                   alt={item.title || 'Help image'}
                                   className="w-full max-h-32 object-contain bg-slate-100"
                                 />
-                              ) : item.type === 'video' && (
+                              ) : item.type === 'video' ? (
                                 <div className="relative">
                                   <img
                                     src={item.thumbnail || item.url}
@@ -512,6 +496,22 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                                   />
                                   <PlayCircle className="absolute inset-0 m-auto w-10 h-10 text-white opacity-80" />
                                 </div>
+                              ) : item.type === 'link' && (
+                                <a
+                                  href={item.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 p-2 hover:bg-slate-50 transition-colors group"
+                                >
+                                  <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 bg-emerald-100">
+                                    <ExternalLink className="w-4 h-4 text-emerald-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-slate-700 group-hover:text-emerald-600 truncate">
+                                      {item.title || 'External Link'}
+                                    </p>
+                                  </div>
+                                </a>
                               )}
                             </div>
                           ))}

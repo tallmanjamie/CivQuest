@@ -14,10 +14,11 @@ import {
 
 /**
  * Default system configuration structure
+ * Note: globalHelpLinks has been deprecated - links are now stored as media items
+ * within help articles (type: 'link')
  */
 export const DEFAULT_SYSTEM_CONFIG = {
   globalHelpDocumentation: [],
-  globalHelpLinks: [],
   updatedAt: null,
   updatedBy: null
 };
@@ -101,12 +102,11 @@ export async function updateSystemConfig(data, userId = null) {
 
 /**
  * Update global help documentation
+ * Note: Links are now stored as media items within articles (type: 'link')
+ * instead of as a separate globalHelpLinks array
  */
-export async function updateGlobalHelpDocumentation(helpDocs, userId = null, helpLinks = null) {
+export async function updateGlobalHelpDocumentation(helpDocs, userId = null) {
   const updateData = { globalHelpDocumentation: helpDocs };
-  if (helpLinks !== null) {
-    updateData.globalHelpLinks = helpLinks;
-  }
   await updateSystemConfig(updateData, userId);
 }
 
