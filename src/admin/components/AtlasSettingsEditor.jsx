@@ -35,6 +35,10 @@ import {
   CheckSquare,
   ToggleLeft,
   ToggleRight,
+  BookOpen,
+  Video,
+  FileImage,
+  Tag
   Type
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
@@ -154,7 +158,8 @@ export default function AtlasSettingsEditor({
       defaultSort: '',
       autocompleteMaxResults: 100,
       ...data?.data
-    }
+    },
+    helpDocumentation: data?.helpDocumentation || []
   }));
 
   const [errors, setErrors] = useState({});
@@ -163,6 +168,7 @@ export default function AtlasSettingsEditor({
     messages: true,
     disclaimer: false,
     basemaps: false,
+    helpDocumentation: false,
     data: false
   });
 
@@ -261,6 +267,92 @@ export default function AtlasSettingsEditor({
     if (config.basemaps.length <= 1) return;
     const updated = config.basemaps.filter((_, i) => i !== index);
     setConfig(prev => ({ ...prev, basemaps: updated }));
+  };
+
+  // Help Documentation handlers
+  const addHelpDoc = () => {
+    setConfig(prev => ({
+      ...prev,
+      helpDocumentation: [...prev.helpDocumentation, {
+        id: `help_${Date.now()}`,
+        title: '',
+        content: '',
+        tags: [],
+        media: []
+      }]
+    }));
+  };
+
+  const updateHelpDoc = (index, field, value) => {
+    const updated = [...config.helpDocumentation];
+    updated[index] = { ...updated[index], [field]: value };
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  const removeHelpDoc = (index) => {
+    const updated = config.helpDocumentation.filter((_, i) => i !== index);
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  const addHelpDocTag = (docIndex, tag) => {
+    if (!tag.trim()) return;
+    const updated = [...config.helpDocumentation];
+    const currentTags = updated[docIndex].tags || [];
+    if (!currentTags.includes(tag.trim())) {
+      updated[docIndex] = { ...updated[docIndex], tags: [...currentTags, tag.trim()] };
+      setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+    }
+  };
+
+  const removeHelpDocTag = (docIndex, tagIndex) => {
+    const updated = [...config.helpDocumentation];
+    updated[docIndex].tags = updated[docIndex].tags.filter((_, i) => i !== tagIndex);
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  const addHelpDocMedia = (docIndex) => {
+    const updated = [...config.helpDocumentation];
+    const currentMedia = updated[docIndex].media || [];
+    updated[docIndex] = {
+      ...updated[docIndex],
+      media: [...currentMedia, {
+        id: `media_${Date.now()}`,
+        type: 'image',
+        url: '',
+        title: '',
+        thumbnail: '',
+        tags: []
+      }]
+    };
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  const updateHelpDocMedia = (docIndex, mediaIndex, field, value) => {
+    const updated = [...config.helpDocumentation];
+    updated[docIndex].media[mediaIndex] = { ...updated[docIndex].media[mediaIndex], [field]: value };
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  const removeHelpDocMedia = (docIndex, mediaIndex) => {
+    const updated = [...config.helpDocumentation];
+    updated[docIndex].media = updated[docIndex].media.filter((_, i) => i !== mediaIndex);
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  const addMediaTag = (docIndex, mediaIndex, tag) => {
+    if (!tag.trim()) return;
+    const updated = [...config.helpDocumentation];
+    const currentTags = updated[docIndex].media[mediaIndex].tags || [];
+    if (!currentTags.includes(tag.trim())) {
+      updated[docIndex].media[mediaIndex].tags = [...currentTags, tag.trim()];
+      setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+    }
+  };
+
+  const removeMediaTag = (docIndex, mediaIndex, tagIndex) => {
+    const updated = [...config.helpDocumentation];
+    updated[docIndex].media[mediaIndex].tags = updated[docIndex].media[mediaIndex].tags.filter((_, i) => i !== tagIndex);
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
   };
 
   // Handle custom hex color
@@ -1092,6 +1184,56 @@ export default function AtlasSettingsEditor({
             </div>
           </Section>
 
+          {/* Help Documentation Section */}
+          <Section
+            title="Help Documentation"
+            icon={BookOpen}
+            expanded={expandedSections.helpDocumentation}
+            onToggle={() => toggleSection('helpDocumentation')}
+            accentColor={accentColor}
+          >
+            <div className="space-y-4">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-800">
+                  <strong>Help Mode:</strong> Add documentation that users can access in chat mode.
+                  Include images and videos with tags to help the AI find relevant media when answering questions.
+                </p>
+              </div>
+
+              {/* Help Articles */}
+              {config.helpDocumentation.map((doc, docIdx) => (
+                <HelpDocEditor
+                  key={doc.id || docIdx}
+                  doc={doc}
+                  docIndex={docIdx}
+                  onUpdate={updateHelpDoc}
+                  onRemove={removeHelpDoc}
+                  onAddTag={addHelpDocTag}
+                  onRemoveTag={removeHelpDocTag}
+                  onAddMedia={addHelpDocMedia}
+                  onUpdateMedia={updateHelpDocMedia}
+                  onRemoveMedia={removeHelpDocMedia}
+                  onAddMediaTag={addMediaTag}
+                  onRemoveMediaTag={removeMediaTag}
+                />
+              ))}
+
+              {config.helpDocumentation.length === 0 && (
+                <p className="text-sm text-slate-400 italic text-center py-4">
+                  No help documentation added yet. Click below to add your first article.
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={addHelpDoc}
+                className="w-full py-2 border border-dashed border-slate-300 rounded-lg text-sm text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
+              >
+                <Plus className="w-4 h-4" /> Add Help Article
+              </button>
+            </div>
+          </Section>
+
           {/* Advanced/Data Section */}
           <Section
             title="Advanced Settings"
@@ -1217,6 +1359,294 @@ function Section({ title, icon: Icon, expanded, onToggle, children, accentColor 
           {children}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Help Documentation Editor Component
+ * Handles individual help article editing with media attachments
+ */
+function HelpDocEditor({
+  doc,
+  docIndex,
+  onUpdate,
+  onRemove,
+  onAddTag,
+  onRemoveTag,
+  onAddMedia,
+  onUpdateMedia,
+  onRemoveMedia,
+  onAddMediaTag,
+  onRemoveMediaTag
+}) {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [newTag, setNewTag] = useState('');
+
+  const handleAddTag = () => {
+    if (newTag.trim()) {
+      onAddTag(docIndex, newTag.trim());
+      setNewTag('');
+    }
+  };
+
+  return (
+    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+      {/* Header */}
+      <div
+        className="p-3 bg-slate-50 flex items-center justify-between cursor-pointer"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-2">
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4 text-slate-400" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-slate-400" />
+          )}
+          <BookOpen className="w-4 h-4 text-sky-600" />
+          <span className="font-medium text-slate-700">
+            {doc.title || 'Untitled Article'}
+          </span>
+          {doc.tags && doc.tags.length > 0 && (
+            <span className="text-xs text-slate-400">
+              ({doc.tags.length} tags)
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemove(docIndex); }}
+          className="p-1 text-red-500 hover:bg-red-50 rounded"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Content */}
+      {isExpanded && (
+        <div className="p-4 space-y-4 border-t border-slate-200">
+          {/* Title */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Article Title
+            </label>
+            <input
+              type="text"
+              value={doc.title}
+              onChange={(e) => onUpdate(docIndex, 'title', e.target.value)}
+              placeholder="e.g., How to Search by Address"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+            />
+          </div>
+
+          {/* Content */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Content
+            </label>
+            <textarea
+              value={doc.content}
+              onChange={(e) => onUpdate(docIndex, 'content', e.target.value)}
+              placeholder="Write the help content here. This text will be used by the AI to answer user questions."
+              rows={4}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+            />
+          </div>
+
+          {/* Tags */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1">
+              <Tag className="w-4 h-4" />
+              Tags
+              <span className="text-xs text-slate-400 font-normal">(helps match queries)</span>
+            </label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {(doc.tags || []).map((tag, tagIdx) => (
+                <span
+                  key={tagIdx}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-sky-100 text-sky-800 rounded-full text-xs"
+                >
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => onRemoveTag(docIndex, tagIdx)}
+                    className="hover:text-sky-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                placeholder="Add a tag..."
+                className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+              />
+              <button
+                type="button"
+                onClick={handleAddTag}
+                className="px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg text-sm hover:bg-sky-200"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          {/* Media Section */}
+          <div className="pt-3 border-t border-slate-100">
+            <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
+              <FileImage className="w-4 h-4" />
+              Media (Screenshots & Videos)
+            </label>
+
+            {/* Media Items */}
+            {(doc.media || []).map((media, mediaIdx) => (
+              <MediaEditor
+                key={media.id || mediaIdx}
+                media={media}
+                docIndex={docIndex}
+                mediaIndex={mediaIdx}
+                onUpdate={onUpdateMedia}
+                onRemove={onRemoveMedia}
+                onAddTag={onAddMediaTag}
+                onRemoveTag={onRemoveMediaTag}
+              />
+            ))}
+
+            <button
+              type="button"
+              onClick={() => onAddMedia(docIndex)}
+              className="mt-2 w-full py-1.5 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
+            >
+              <Plus className="w-3 h-3" /> Add Image or Video
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Media Editor Component
+ * Handles individual media items (images/videos) with tags
+ */
+function MediaEditor({
+  media,
+  docIndex,
+  mediaIndex,
+  onUpdate,
+  onRemove,
+  onAddTag,
+  onRemoveTag
+}) {
+  const [newTag, setNewTag] = useState('');
+
+  const handleAddTag = () => {
+    if (newTag.trim()) {
+      onAddTag(docIndex, mediaIndex, newTag.trim());
+      setNewTag('');
+    }
+  };
+
+  return (
+    <div className="p-3 bg-slate-50 rounded-lg mb-2">
+      <div className="flex items-start gap-3">
+        {/* Media Preview */}
+        <div className="w-24 h-16 bg-slate-200 rounded flex-shrink-0 flex items-center justify-center overflow-hidden">
+          {media.url ? (
+            media.type === 'video' ? (
+              <Video className="w-8 h-8 text-slate-400" />
+            ) : (
+              <img
+                src={media.url}
+                alt={media.title || 'Media'}
+                className="w-full h-full object-cover"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+            )
+          ) : (
+            <FileImage className="w-8 h-8 text-slate-400" />
+          )}
+        </div>
+
+        {/* Media Fields */}
+        <div className="flex-1 space-y-2">
+          <div className="flex gap-2">
+            <select
+              value={media.type}
+              onChange={(e) => onUpdate(docIndex, mediaIndex, 'type', e.target.value)}
+              className="px-2 py-1 border border-slate-300 rounded text-xs"
+            >
+              <option value="image">Image</option>
+              <option value="video">Video</option>
+            </select>
+            <input
+              type="text"
+              value={media.title}
+              onChange={(e) => onUpdate(docIndex, mediaIndex, 'title', e.target.value)}
+              placeholder="Title"
+              className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
+            />
+            <button
+              type="button"
+              onClick={() => onRemove(docIndex, mediaIndex)}
+              className="p-1 text-red-500 hover:bg-red-50 rounded"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+          <input
+            type="url"
+            value={media.url}
+            onChange={(e) => onUpdate(docIndex, mediaIndex, 'url', e.target.value)}
+            placeholder="URL (https://...)"
+            className="w-full px-2 py-1 border border-slate-300 rounded text-xs"
+          />
+
+          {/* Media Tags */}
+          <div>
+            <div className="flex flex-wrap gap-1 mb-1">
+              {(media.tags || []).map((tag, tagIdx) => (
+                <span
+                  key={tagIdx}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs"
+                >
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => onRemoveTag(docIndex, mediaIndex, tagIdx)}
+                    className="hover:text-emerald-600"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                placeholder="Add tag for matching..."
+                className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
+              />
+              <button
+                type="button"
+                onClick={handleAddTag}
+                className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs hover:bg-emerald-200"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
