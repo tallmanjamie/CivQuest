@@ -925,28 +925,28 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
             </div>
           )}
 
-          {/* Help Mode Toggle - if help docs available */}
-          {hasHelpDocs && (
-            <div className="ml-12 md:ml-14">
-              <button
-                onClick={() => setHelpModeEnabled(!helpModeEnabled)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  helpModeEnabled
-                    ? 'text-white'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-                style={helpModeEnabled ? { backgroundColor: colors.bg600 } : {}}
-              >
-                <BookOpen className="w-4 h-4" />
-                {helpModeEnabled ? 'Help Mode Active' : 'Need Help?'}
-              </button>
-              {helpModeEnabled && (
-                <p className="text-xs text-slate-500 mt-1">
-                  Ask questions about how to use Atlas. Click again to return to property search.
-                </p>
-              )}
-            </div>
-          )}
+          {/* Help Mode Toggle - always visible */}
+          <div className="ml-12 md:ml-14">
+            <button
+              onClick={() => setHelpModeEnabled(!helpModeEnabled)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                helpModeEnabled
+                  ? 'text-white'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              style={helpModeEnabled ? { backgroundColor: colors.bg600 } : {}}
+            >
+              <BookOpen className="w-4 h-4" />
+              {helpModeEnabled ? 'Help Mode Active' : 'Need Help?'}
+            </button>
+            {helpModeEnabled && (
+              <p className="text-xs text-slate-500 mt-1">
+                {hasHelpDocs
+                  ? 'Ask questions about how to use Atlas. Click again to return to property search.'
+                  : 'Help documentation is not configured yet. Contact your administrator to add help content.'}
+              </p>
+            )}
+          </div>
 
           {/* Important Note / Disclaimer - ALWAYS VISIBLE */}
           {importantNote && (
