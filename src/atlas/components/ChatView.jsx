@@ -1048,23 +1048,23 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
 
 /**
  * Results Table Component - shows preview of multiple results
- * Uses searchFields with chatResults: true, or falls back to tableColumns
+ * Uses tableColumns with chatResults: true, displaying headerName instead of field name
  */
 function ResultsTable({ features, tableColumns, searchFields, colors }) {
-  // Priority: searchFields with chatResults: true > tableColumns > auto-generate
+  // Priority: tableColumns with chatResults: true > all tableColumns > auto-generate
   let columns;
 
-  // First, check for searchFields with chatResults enabled
-  const chatResultsFields = searchFields?.filter(sf => sf.chatResults === true) || [];
+  // First, check for tableColumns with chatResults enabled
+  const chatResultsColumns = tableColumns?.filter(col => col.chatResults === true) || [];
 
-  if (chatResultsFields.length > 0) {
-    // Use fields marked for chat results (limit to 5 for table preview)
-    columns = chatResultsFields.slice(0, 5).map(sf => ({
-      field: sf.field,
-      headerName: sf.label || sf.field
+  if (chatResultsColumns.length > 0) {
+    // Use columns marked for chat results (limit to 5 for table preview)
+    columns = chatResultsColumns.slice(0, 5).map(col => ({
+      field: col.field,
+      headerName: col.headerName || col.field
     }));
   } else if (tableColumns && tableColumns.length > 0) {
-    // Fall back to tableColumns if no chatResults fields configured
+    // Fall back to all tableColumns if no chatResults columns configured
     columns = tableColumns.slice(0, 5).map(col => ({
       field: col.field,
       headerName: col.headerName || col.field
@@ -1370,23 +1370,22 @@ function MessageBubble({
                       features={[message.feature]}
                       themeColor={themeColor}
                       height={200}
-                      onViewInMap={() => onViewMap(message.feature)}
                     />
                   )}
                 </>
               ) : (
-                /* Desktop: Side by side layout */
+                /* Desktop: Side by side layout - map matches details height */
                 <div className={`${showMap ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}`}>
                   <div>
                     <FeatureDetails feature={message.feature} colors={colors} tableColumns={tableColumns} searchFields={searchFields} />
                   </div>
                   {showMap && (
-                    <div>
+                    <div className="min-h-[200px]">
                       <ChatMiniMap
                         features={[message.feature]}
                         themeColor={themeColor}
-                        height={180}
-                        onViewInMap={() => onViewMap(message.feature)}
+                        height="100%"
+                        onViewInMap={null}
                       />
                     </div>
                   )}
@@ -1407,7 +1406,10 @@ function MessageBubble({
                 </button>
                 <button
                   onClick={() => onExportPDF?.(message.feature)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                  style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
                 >
                   <FileText className="w-4 h-4" />
                   Export PDF
@@ -1458,23 +1460,22 @@ function MessageBubble({
                       features={message.features}
                       themeColor={themeColor}
                       height={200}
-                      onViewInMap={() => onViewMap(message.features)}
                     />
                   )}
                 </>
               ) : (
-                /* Desktop: Side by side layout */
+                /* Desktop: Side by side layout - map matches results height */
                 <div className={`${showMap ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}`}>
                   <div>
                     <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} />
                   </div>
                   {showMap && (
-                    <div>
+                    <div className="min-h-[200px]">
                       <ChatMiniMap
                         features={message.features}
                         themeColor={themeColor}
-                        height={180}
-                        onViewInMap={() => onViewMap(message.features)}
+                        height="100%"
+                        onViewInMap={null}
                       />
                     </div>
                   )}
@@ -1495,14 +1496,20 @@ function MessageBubble({
                 </button>
                 <button
                   onClick={() => onViewTable(message.features)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                  style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
                 >
                   <Table2 className="w-4 h-4" />
                   View in Table
                 </button>
                 <button
                   onClick={onExportCSV}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                  style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
                 >
                   <Download className="w-4 h-4" />
                   Export CSV
@@ -1522,28 +1529,28 @@ function MessageBubble({
 }
 
 /**
- * Feature Details Component - uses searchFields with chatResults: true, or falls back to tableColumns
+ * Feature Details Component - uses tableColumns with chatResults: true, displaying headerName instead of field name
  */
 function FeatureDetails({ feature, colors, tableColumns, searchFields }) {
   const attrs = feature.attributes || {};
 
-  // Priority: searchFields with chatResults: true > tableColumns > auto-generated
+  // Priority: tableColumns with chatResults: true > all tableColumns > auto-generated
   let displayFields;
 
-  // First, check for searchFields with chatResults enabled
-  const chatResultsFields = searchFields?.filter(sf => sf.chatResults === true) || [];
+  // First, check for tableColumns with chatResults enabled
+  const chatResultsColumns = tableColumns?.filter(col => col.chatResults === true) || [];
 
-  if (chatResultsFields.length > 0) {
-    // Use fields marked for chat results
-    displayFields = chatResultsFields
-      .filter(sf => attrs[sf.field] != null)
-      .map(sf => ({
-        key: sf.field,
-        label: sf.label || sf.field,
-        value: attrs[sf.field]
+  if (chatResultsColumns.length > 0) {
+    // Use columns marked for chat results
+    displayFields = chatResultsColumns
+      .filter(col => attrs[col.field] != null)
+      .map(col => ({
+        key: col.field,
+        label: col.headerName || col.field,
+        value: attrs[col.field]
       }));
   } else if (tableColumns && tableColumns.length > 0) {
-    // Fall back to tableColumns if no chatResults fields configured
+    // Fall back to all tableColumns if no chatResults columns configured
     displayFields = tableColumns
       .filter(col => attrs[col.field] != null)
       .map(col => ({
