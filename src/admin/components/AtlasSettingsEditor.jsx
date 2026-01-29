@@ -34,7 +34,10 @@ import {
   Video,
   FileImage,
   Tag,
-  Type
+  Type,
+  Search,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
