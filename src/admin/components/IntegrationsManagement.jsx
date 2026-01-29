@@ -313,6 +313,35 @@ export default function IntegrationsManagement({ db, addToast, confirm, adminEma
                         )}
                       </div>
                     </div>
+
+                    {/* Window Dimension Settings (Pictometry only) */}
+                    {integration.type === 'pictometry' && (
+                      <div className="mt-4 pt-4 border-t border-slate-200">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Maximize2 className="w-4 h-4 text-slate-400" />
+                          <h4 className="text-xs font-bold uppercase text-slate-500">Default Popup Window Size</h4>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-slate-600">Width:</span>
+                            <span className="text-sm font-medium text-slate-800">
+                              {integration.defaultWindowConfig?.windowWidth ?? 80}
+                              {integration.defaultWindowConfig?.windowWidthUnit || '%'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-slate-600">Height:</span>
+                            <span className="text-sm font-medium text-slate-800">
+                              {integration.defaultWindowConfig?.windowHeight ?? 80}
+                              {integration.defaultWindowConfig?.windowHeightUnit || '%'}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">
+                          Click Edit to modify window dimensions. Organizations can override these defaults.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
