@@ -20,7 +20,8 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  Info
+  Info,
+  Maximize2
 } from 'lucide-react';
 import {
   collection,
@@ -351,6 +352,11 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
   const [integrationType, setIntegrationType] = useState(INTEGRATION_TYPES.ATLAS);
   const [selectedOrgs, setSelectedOrgs] = useState([]);
   const [saving, setSaving] = useState(false);
+  // Window dimension defaults for pictometry
+  const [windowWidth, setWindowWidth] = useState(80);
+  const [windowWidthUnit, setWindowWidthUnit] = useState('%');
+  const [windowHeight, setWindowHeight] = useState(80);
+  const [windowHeightUnit, setWindowHeightUnit] = useState('%');
 
   const integrationOptions = Object.values(AVAILABLE_INTEGRATIONS);
 
@@ -376,13 +382,25 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
     if (!selectedType || !name) return;
 
     setSaving(true);
-    await onSave({
+    const integrationData = {
       type: selectedType,
       name,
       integrationType,
       organizations: selectedOrgs,
       enabled: true
-    });
+    };
+
+    // Add window dimension defaults for pictometry
+    if (selectedType === 'pictometry') {
+      integrationData.defaultWindowConfig = {
+        windowWidth,
+        windowWidthUnit,
+        windowHeight,
+        windowHeightUnit
+      };
+    }
+
+    await onSave(integrationData);
     setSaving(false);
   };
 
@@ -520,6 +538,74 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
                   )}
                 </div>
               </div>
+
+              {/* Window Size Configuration (Pictometry only) */}
+              {selectedType === 'pictometry' && (
+                <div className="border border-slate-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Maximize2 className="w-4 h-4 text-slate-400" />
+                    <span className="text-sm font-medium text-slate-700">Default Popup Window Size</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Configure the default size of the EagleView popup window. Organizations can override these defaults in their own configuration. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Width */}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Width</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={windowWidth}
+                          onChange={(e) => setWindowWidth(parseInt(e.target.value) || 80)}
+                          min="1"
+                          max={windowWidthUnit === '%' ? 100 : 3000}
+                          placeholder="80"
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                          style={{ '--tw-ring-color': accentColor }}
+                        />
+                        <select
+                          value={windowWidthUnit}
+                          onChange={(e) => setWindowWidthUnit(e.target.value)}
+                          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
+                          style={{ '--tw-ring-color': accentColor }}
+                        >
+                          <option value="%">%</option>
+                          <option value="px">px</option>
+                        </select>
+                      </div>
+                    </div>
+                    {/* Height */}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Height</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={windowHeight}
+                          onChange={(e) => setWindowHeight(parseInt(e.target.value) || 80)}
+                          min="1"
+                          max={windowHeightUnit === '%' ? 100 : 3000}
+                          placeholder="80"
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                          style={{ '--tw-ring-color': accentColor }}
+                        />
+                        <select
+                          value={windowHeightUnit}
+                          onChange={(e) => setWindowHeightUnit(e.target.value)}
+                          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
+                          style={{ '--tw-ring-color': accentColor }}
+                        >
+                          <option value="%">%</option>
+                          <option value="px">px</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">
+                    Default: 80% width x 80% height. For percentage values, the popup will be sized relative to the browser viewport.
+                  </p>
+                </div>
+              )}
             </>
           )}
         </form>
@@ -552,6 +638,11 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
   const [name, setName] = useState(integration.name || '');
   const [selectedOrgs, setSelectedOrgs] = useState(integration.organizations || []);
   const [saving, setSaving] = useState(false);
+  // Window dimension defaults for pictometry
+  const [windowWidth, setWindowWidth] = useState(integration.defaultWindowConfig?.windowWidth ?? 80);
+  const [windowWidthUnit, setWindowWidthUnit] = useState(integration.defaultWindowConfig?.windowWidthUnit || '%');
+  const [windowHeight, setWindowHeight] = useState(integration.defaultWindowConfig?.windowHeight ?? 80);
+  const [windowHeightUnit, setWindowHeightUnit] = useState(integration.defaultWindowConfig?.windowHeightUnit || '%');
 
   const definition = AVAILABLE_INTEGRATIONS[integration.type];
 
@@ -568,10 +659,22 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
     if (!name) return;
 
     setSaving(true);
-    await onSave({
+    const updates = {
       name,
       organizations: selectedOrgs
-    });
+    };
+
+    // Add window dimension defaults for pictometry
+    if (integration.type === 'pictometry') {
+      updates.defaultWindowConfig = {
+        windowWidth,
+        windowWidthUnit,
+        windowHeight,
+        windowHeightUnit
+      };
+    }
+
+    await onSave(updates);
     setSaving(false);
   };
 
@@ -653,6 +756,74 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
               )}
             </div>
           </div>
+
+          {/* Window Size Configuration (Pictometry only) */}
+          {integration.type === 'pictometry' && (
+            <div className="border border-slate-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Maximize2 className="w-4 h-4 text-slate-400" />
+                <span className="text-sm font-medium text-slate-700">Default Popup Window Size</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Configure the default size of the EagleView popup window. Organizations can override these defaults in their own configuration. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                {/* Width */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Width</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      value={windowWidth}
+                      onChange={(e) => setWindowWidth(parseInt(e.target.value) || 80)}
+                      min="1"
+                      max={windowWidthUnit === '%' ? 100 : 3000}
+                      placeholder="80"
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                      style={{ '--tw-ring-color': accentColor }}
+                    />
+                    <select
+                      value={windowWidthUnit}
+                      onChange={(e) => setWindowWidthUnit(e.target.value)}
+                      className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
+                      style={{ '--tw-ring-color': accentColor }}
+                    >
+                      <option value="%">%</option>
+                      <option value="px">px</option>
+                    </select>
+                  </div>
+                </div>
+                {/* Height */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Height</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      value={windowHeight}
+                      onChange={(e) => setWindowHeight(parseInt(e.target.value) || 80)}
+                      min="1"
+                      max={windowHeightUnit === '%' ? 100 : 3000}
+                      placeholder="80"
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                      style={{ '--tw-ring-color': accentColor }}
+                    />
+                    <select
+                      value={windowHeightUnit}
+                      onChange={(e) => setWindowHeightUnit(e.target.value)}
+                      className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
+                      style={{ '--tw-ring-color': accentColor }}
+                    >
+                      <option value="%">%</option>
+                      <option value="px">px</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Default: 80% width x 80% height. For percentage values, the popup will be sized relative to the browser viewport.
+              </p>
+            </div>
+          )}
         </form>
 
         <div className="flex justify-end gap-3 p-4 border-t border-slate-200">
