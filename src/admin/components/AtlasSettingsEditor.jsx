@@ -168,7 +168,7 @@ export default function AtlasSettingsEditor({
     messages: true,
     disclaimer: false,
     basemaps: false,
-    helpDocumentation: false,
+    helpDocumentation: true,  // Expanded by default so users can see the new feature
     data: false
   });
 
