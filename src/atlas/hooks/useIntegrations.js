@@ -113,13 +113,24 @@ export function useIntegrations(orgId) {
         return;
       }
 
+      // Infer geometry type if not present
+      let geometryType = geometry.type;
+      if (!geometryType) {
+        if (geometry.rings) geometryType = 'polygon';
+        else if (geometry.paths) geometryType = 'polyline';
+        else if (geometry.x !== undefined && geometry.y !== undefined) geometryType = 'point';
+        else if (geometry.latitude !== undefined && geometry.longitude !== undefined) geometryType = 'point';
+        else if (geometry.xmin !== undefined) geometryType = 'extent';
+        else if (geometry.points) geometryType = 'multipoint';
+      }
+
       // Calculate center coordinates from geometry
       let lat, lon;
 
-      if (geometry.type === 'point') {
+      if (geometryType === 'point') {
         lat = geometry.y || geometry.latitude;
         lon = geometry.x || geometry.longitude;
-      } else if (geometry.type === 'polygon' && geometry.rings?.[0]) {
+      } else if (geometryType === 'polygon' && geometry.rings?.[0]) {
         // Calculate centroid of first ring
         const ring = geometry.rings[0];
         let sumLon = 0,
@@ -130,16 +141,21 @@ export function useIntegrations(orgId) {
         }
         lon = sumLon / ring.length;
         lat = sumLat / ring.length;
-      } else if (geometry.type === 'polyline' && geometry.paths?.[0]) {
+      } else if (geometryType === 'polyline' && geometry.paths?.[0]) {
         // Use midpoint of first path
         const path = geometry.paths[0];
         const midIndex = Math.floor(path.length / 2);
         lon = path[midIndex][0];
         lat = path[midIndex][1];
-      } else if (geometry.extent) {
+      } else if (geometryType === 'extent' || geometry.extent) {
         // Use center of extent
-        lat = (geometry.extent.ymin + geometry.extent.ymax) / 2;
-        lon = (geometry.extent.xmin + geometry.extent.xmax) / 2;
+        const ext = geometryType === 'extent' ? geometry : geometry.extent;
+        lat = (ext.ymin + ext.ymax) / 2;
+        lon = (ext.xmin + ext.xmax) / 2;
+      } else if (geometryType === 'multipoint' && geometry.points?.[0]) {
+        // Use first point of multipoint
+        lon = geometry.points[0][0];
+        lat = geometry.points[0][1];
       }
 
       if (!lat || !lon) {
@@ -152,17 +168,24 @@ export function useIntegrations(orgId) {
       try {
         // Serialize geometry properly
         const geoData = {
-          type: geometry.type,
+          type: geometryType,
           spatialReference: geometry.spatialReference || { wkid: 4326 }
         };
 
-        if (geometry.type === 'point') {
+        if (geometryType === 'point') {
           geoData.x = geometry.x || geometry.longitude;
           geoData.y = geometry.y || geometry.latitude;
-        } else if (geometry.type === 'polygon') {
+        } else if (geometryType === 'polygon') {
           geoData.rings = geometry.rings;
-        } else if (geometry.type === 'polyline') {
+        } else if (geometryType === 'polyline') {
           geoData.paths = geometry.paths;
+        } else if (geometryType === 'multipoint') {
+          geoData.points = geometry.points;
+        } else if (geometryType === 'extent') {
+          geoData.xmin = geometry.xmin;
+          geoData.ymin = geometry.ymin;
+          geoData.xmax = geometry.xmax;
+          geoData.ymax = geometry.ymax;
         }
 
         sessionStorage.setItem(geometryKey, JSON.stringify(geoData));
@@ -177,7 +200,7 @@ export function useIntegrations(orgId) {
         lon: lon.toString(),
         themeColor: themeColor || '#0ea5e9',
         title: title || 'Feature',
-        geometryType: geometry.type || 'unknown'
+        geometryType: geometryType || 'unknown'
       });
 
       const url = `/eagleview.html?${params.toString()}`;
