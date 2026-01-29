@@ -31,6 +31,20 @@ export function useIntegrations(orgId) {
     }
   });
 
+  // Nearmap modal state
+  const [nearmapModal, setNearmapModal] = useState({
+    isOpen: false,
+    url: null,
+    title: '',
+    themeColor: '#0ea5e9',
+    windowConfig: {
+      width: 80,
+      widthUnit: '%',
+      height: 80,
+      heightUnit: '%'
+    }
+  });
+
   // Load system-level integrations
   useEffect(() => {
     if (!orgId) {
@@ -91,6 +105,10 @@ export function useIntegrations(orgId) {
   const pictometryIntegration = integrations.find((i) => i.type === 'pictometry');
   const pictometryConfig = orgIntegrations.pictometry || null;
 
+  // Check if Nearmap is enabled
+  const nearmapIntegration = integrations.find((i) => i.type === 'nearmap');
+  const nearmapConfig = orgIntegrations.nearmap || null;
+
   // Helper to check if a specific integration type is enabled
   const isIntegrationEnabled = useCallback(
     (integrationType) => {
@@ -112,6 +130,16 @@ export function useIntegrations(orgId) {
    */
   const closeEagleView = useCallback(() => {
     setEagleViewModal((prev) => ({
+      ...prev,
+      isOpen: false
+    }));
+  }, []);
+
+  /**
+   * Close the Nearmap modal
+   */
+  const closeNearmap = useCallback(() => {
+    setNearmapModal((prev) => ({
       ...prev,
       isOpen: false
     }));
@@ -249,6 +277,108 @@ export function useIntegrations(orgId) {
     [pictometryConfig]
   );
 
+  /**
+   * Open Nearmap in an embedded modal within the Atlas application
+   *
+   * @param {object} params - Parameters for opening Nearmap
+   * @param {object} params.geometry - ArcGIS geometry object (point, polygon, polyline)
+   * @param {string} params.title - Feature title to display
+   * @param {string} params.themeColor - Theme color for highlighting (hex code)
+   */
+  const openNearmap = useCallback(
+    ({ geometry, title, themeColor }) => {
+      if (!geometry) {
+        console.warn('[useIntegrations] No geometry provided for Nearmap');
+        return;
+      }
+
+      // Infer geometry type if not present
+      let geometryType = geometry.type;
+      if (!geometryType) {
+        if (geometry.rings) geometryType = 'polygon';
+        else if (geometry.paths) geometryType = 'polyline';
+        else if (geometry.x !== undefined && geometry.y !== undefined) geometryType = 'point';
+        else if (geometry.latitude !== undefined && geometry.longitude !== undefined) geometryType = 'point';
+        else if (geometry.xmin !== undefined) geometryType = 'extent';
+        else if (geometry.points) geometryType = 'multipoint';
+      }
+
+      // Calculate center coordinates from geometry
+      let lat, lon;
+
+      if (geometryType === 'point') {
+        lat = geometry.y || geometry.latitude;
+        lon = geometry.x || geometry.longitude;
+      } else if (geometryType === 'polygon' && geometry.rings?.[0]) {
+        // Calculate centroid of first ring
+        const ring = geometry.rings[0];
+        let sumLon = 0,
+          sumLat = 0;
+        for (const pt of ring) {
+          sumLon += pt[0];
+          sumLat += pt[1];
+        }
+        lon = sumLon / ring.length;
+        lat = sumLat / ring.length;
+      } else if (geometryType === 'polyline' && geometry.paths?.[0]) {
+        // Use midpoint of first path
+        const path = geometry.paths[0];
+        const midIndex = Math.floor(path.length / 2);
+        lon = path[midIndex][0];
+        lat = path[midIndex][1];
+      } else if (geometryType === 'extent' || geometry.extent) {
+        // Use center of extent
+        const ext = geometryType === 'extent' ? geometry : geometry.extent;
+        lat = (ext.ymin + ext.ymax) / 2;
+        lon = (ext.xmin + ext.xmax) / 2;
+      } else if (geometryType === 'multipoint' && geometry.points?.[0]) {
+        // Use first point of multipoint
+        lon = geometry.points[0][0];
+        lat = geometry.points[0][1];
+      }
+
+      if (!lat || !lon) {
+        console.warn('[useIntegrations] Could not calculate coordinates from geometry for Nearmap');
+        return;
+      }
+
+      // Get window size configuration from org config, with defaults
+      const windowConfig = {
+        width: nearmapConfig?.windowWidth ?? 80,
+        widthUnit: nearmapConfig?.windowWidthUnit || '%',
+        height: nearmapConfig?.windowHeight ?? 80,
+        heightUnit: nearmapConfig?.windowHeightUnit || '%'
+      };
+
+      // Calculate pixel dimensions for the embed URL
+      // For percentage values, calculate based on viewport size
+      let embedWidth, embedHeight;
+      if (windowConfig.widthUnit === '%') {
+        embedWidth = Math.round((window.innerWidth * windowConfig.width) / 100);
+      } else {
+        embedWidth = windowConfig.width;
+      }
+      if (windowConfig.heightUnit === '%') {
+        embedHeight = Math.round((window.innerHeight * windowConfig.height) / 100);
+      } else {
+        embedHeight = windowConfig.height;
+      }
+
+      // Build Nearmap URL with parameters
+      const url = `https://chesapeake.civ.quest/ChesapeakeNM/NM/index.html?lat=${lat}&lon=${lon}&w=${embedWidth}&h=${embedHeight}`;
+
+      // Open in embedded modal
+      setNearmapModal({
+        isOpen: true,
+        url,
+        title: title || 'Feature',
+        themeColor: themeColor || '#0ea5e9',
+        windowConfig
+      });
+    },
+    [nearmapConfig]
+  );
+
   return {
     integrations,
     isLoading,
@@ -260,7 +390,14 @@ export function useIntegrations(orgId) {
     pictometryConfig,
     openEagleView,
     closeEagleView,
-    eagleViewModal
+    eagleViewModal,
+
+    // Nearmap specific
+    isNearmapEnabled: !!nearmapIntegration,
+    nearmapConfig,
+    openNearmap,
+    closeNearmap,
+    nearmapModal
   };
 }
 

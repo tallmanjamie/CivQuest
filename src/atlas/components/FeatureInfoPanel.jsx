@@ -45,7 +45,7 @@ export default function FeatureInfoPanel({
   isExportingPDF = false,
   exportPDFProgress = ''
 }) {
-  const { config: atlasConfig, orgId, activeMap, isPictometryEnabled, openEagleView } = useAtlas();
+  const { config: atlasConfig, orgId, isPictometryEnabled, openEagleView, isNearmapEnabled, openNearmap } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
@@ -401,6 +401,13 @@ export default function FeatureInfoPanel({
           icon={Eye}
           label="EagleView"
           onClick={handleOpenEagleView}
+        />
+      )}
+      {isNearmapEnabled && (
+        <ActionButton
+          icon={MapPin}
+          label="Nearmap"
+          onClick={handleOpenNearmap}
         />
       )}
     </div>
