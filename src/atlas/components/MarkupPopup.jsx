@@ -473,6 +473,7 @@ export default function MarkupPopup({
             onClose={() => setShowNearbyTool(false)}
             themeColor={themeColor}
             sourceName={name || 'Markup'}
+            sourceType="markup-popup"
           />
         </div>
       )}

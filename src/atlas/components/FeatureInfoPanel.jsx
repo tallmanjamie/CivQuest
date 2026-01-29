@@ -463,6 +463,7 @@ export default function FeatureInfoPanel({
               onClose={() => setShowNearbyTool(false)}
               themeColor={themeColor}
               sourceName={displayTitle}
+              sourceType="feature-info"
             />
           </div>
         )}
@@ -537,6 +538,7 @@ export default function FeatureInfoPanel({
             onClose={() => setShowNearbyTool(false)}
             themeColor={themeColor}
             sourceName={displayTitle}
+            sourceType="feature-info"
           />
         </div>
       )}
