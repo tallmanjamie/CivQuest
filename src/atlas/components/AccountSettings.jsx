@@ -1,22 +1,28 @@
-// src/notify/components/AccountTab.jsx
+// src/atlas/components/AccountSettings.jsx
+// Account Settings modal for Atlas users
+// Allows users to update their profile (first/last name) and manage ArcGIS account linking
+
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '@shared/services/firebase';
-import { PATHS } from '@shared/services/paths';
-import { signOut } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
+import {
+  X,
+  Settings,
+  User,
+  Globe,
+  Loader2,
+  Check,
+  Unlink,
+  AlertTriangle
+} from 'lucide-react';
+import { useAtlas } from '../AtlasApp';
+import { updateUserProfile, unlinkArcGISAccount } from '@shared/services/users';
 import {
   initiateArcGISLogin,
   getOAuthRedirectUri
 } from '@shared/services/arcgis-auth';
-import {
-  updateUserProfile,
-  unlinkArcGISAccount
-} from '@shared/services/users';
-import { Settings, Ban, Globe, Loader2, User, Check, Unlink, AlertTriangle } from 'lucide-react';
 
-export default function AccountTab({ user, userData }) {
-  const [disabling, setDisabling] = useState(false);
-  const [showDisableConfirm, setShowDisableConfirm] = useState(false);
+export default function AccountSettings({ isOpen, onClose }) {
+  const { user, userData, colors } = useAtlas();
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -40,20 +46,7 @@ export default function AccountTab({ user, userData }) {
     }
   }, [saved]);
 
-  const handleDisableAccount = async () => {
-    setDisabling(true);
-    try {
-      await updateDoc(doc(db, PATHS.user(user.uid)), {
-        disabled: true,
-        subscriptions: {}
-      });
-      await signOut(auth);
-    } catch (error) {
-      console.error("Disable account error", error);
-      alert("Failed to disable account. Please try again.");
-      setDisabling(false);
-    }
-  };
+  const hasLinkedArcGIS = userData?.linkedArcGISUsername;
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -66,7 +59,7 @@ export default function AccountTab({ user, userData }) {
       });
       setSaved(true);
     } catch (error) {
-      console.error('[AccountTab] Save error:', error);
+      console.error('[AccountSettings] Save error:', error);
       alert('Failed to save profile. Please try again.');
     } finally {
       setSaving(false);
@@ -81,37 +74,60 @@ export default function AccountTab({ user, userData }) {
       await unlinkArcGISAccount(user.uid);
       setShowUnlinkConfirm(false);
     } catch (error) {
-      console.error('[AccountTab] Unlink error:', error);
+      console.error('[AccountSettings] Unlink error:', error);
       alert('Failed to unlink ArcGIS account. Please try again.');
     } finally {
       setUnlinking(false);
     }
   };
 
-  const hasLinkedArcGIS = userData?.linkedArcGISUsername;
+  const handleLinkArcGIS = () => {
+    const redirectUri = getOAuthRedirectUri();
+    // Store that we want to link (not create new account)
+    sessionStorage.setItem('arcgis_oauth_action', 'link');
+    initiateArcGISLogin(redirectUri, 'signin');
+  };
+
+  if (!isOpen) return null;
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-          <Settings className="w-5 h-5 text-slate-600" />
-          Account Settings
-        </h3>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div
+        className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="px-6 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0"
+          style={{ backgroundColor: colors.bg50 }}
+        >
+          <div className="flex items-center gap-3">
+            <Settings className="w-5 h-5" style={{ color: colors.text600 }} />
+            <h2 className="text-lg font-semibold text-slate-800">Account Settings</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
-        <div className="space-y-6">
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Profile Section */}
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
               <User className="w-4 h-4" />
               Profile Information
-            </h4>
+            </h3>
 
             <div className="p-4 bg-slate-50 rounded-lg">
-              <p className="text-sm text-slate-500 font-medium uppercase tracking-wider mb-1">Email Address</p>
-              <p className="text-slate-900 font-semibold">{user.email}</p>
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Email Address</p>
+              <p className="text-slate-900 font-medium">{user?.email}</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   First Name
@@ -121,7 +137,8 @@ export default function AccountTab({ user, userData }) {
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                   placeholder="Enter first name"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2"
+                  style={{ '--tw-ring-color': colors.bg500 }}
                 />
               </div>
               <div>
@@ -133,7 +150,8 @@ export default function AccountTab({ user, userData }) {
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
                   placeholder="Enter last name"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2"
+                  style={{ '--tw-ring-color': colors.bg500 }}
                 />
               </div>
             </div>
@@ -142,7 +160,8 @@ export default function AccountTab({ user, userData }) {
               <button
                 onClick={handleSaveProfile}
                 disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium text-sm transition hover:bg-[#003d5f] disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium text-sm transition disabled:opacity-50"
+                style={{ backgroundColor: colors.bg600 }}
               >
                 {saving ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -155,24 +174,31 @@ export default function AccountTab({ user, userData }) {
           </div>
 
           {/* ArcGIS Account Section */}
-          <div className="border-t border-slate-200 pt-6 space-y-4">
-            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+          <div className="space-y-4 border-t border-slate-200 pt-6">
+            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
               <Globe className="w-4 h-4" />
               ArcGIS Online Account
-            </h4>
+            </h3>
 
             {hasLinkedArcGIS ? (
               <>
+                {/* Linked Account Display */}
                 <div className="p-4 bg-[#E6F0F6] rounded-lg border border-[#004E7C]/20">
                   <div className="flex items-start gap-3">
                     <div className="p-2 bg-[#004E7C]/10 rounded-lg">
                       <Globe className="w-5 h-5 text-[#004E7C]" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm text-[#004E7C] font-medium uppercase tracking-wider mb-1">Linked ArcGIS Account</p>
-                      <p className="text-slate-900 font-semibold">{userData.linkedArcGISUsername}</p>
+                      <p className="text-sm text-[#004E7C] font-medium uppercase tracking-wider mb-1">
+                        Linked Account
+                      </p>
+                      <p className="text-slate-900 font-semibold">
+                        {userData.linkedArcGISUsername}
+                      </p>
                       {userData.arcgisProfile?.fullName && (
-                        <p className="text-sm text-slate-600">{userData.arcgisProfile.fullName}</p>
+                        <p className="text-sm text-slate-600">
+                          {userData.arcgisProfile.fullName}
+                        </p>
                       )}
                       {userData.arcgisOrganization?.name && (
                         <p className="text-xs text-slate-500 mt-1">
@@ -225,20 +251,18 @@ export default function AccountTab({ user, userData }) {
                 )}
               </>
             ) : (
+              /* Link Account Button */
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="font-medium text-slate-900">Link ArcGIS Account</h4>
                     <p className="text-sm text-slate-600 mt-1">
-                      Connect your ArcGIS account for seamless authentication.
+                      Connect your ArcGIS account for enhanced features.
                     </p>
                   </div>
                   <button
-                    onClick={() => {
-                      const redirectUri = getOAuthRedirectUri();
-                      initiateArcGISLogin(redirectUri, 'signin');
-                    }}
-                    className="px-4 py-2 bg-[#0079C1] text-white rounded-lg font-medium hover:bg-[#006699] transition-colors flex items-center gap-2"
+                    onClick={handleLinkArcGIS}
+                    className="px-4 py-2 bg-[#0079C1] text-white rounded-lg font-medium text-sm hover:bg-[#006699] transition flex items-center gap-2"
                   >
                     <Globe className="w-4 h-4" />
                     Link Account
@@ -246,44 +270,6 @@ export default function AccountTab({ user, userData }) {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Pause Feeds Section */}
-          <div className="border-t border-slate-200 pt-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h4 className="font-medium text-slate-900">Pause Feeds</h4>
-                <p className="text-sm text-slate-600 mt-1">Temporarily disable your account to stop receiving all updates.</p>
-              </div>
-              
-              {!showDisableConfirm ? (
-                <button 
-                  onClick={() => setShowDisableConfirm(true)}
-                  className="px-4 py-2 bg-white border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-2 shadow-sm shrink-0"
-                >
-                  <Ban className="w-4 h-4" />
-                  Disable Account
-                </button>
-              ) : (
-                <div className="flex items-center gap-3 shrink-0 animate-in fade-in slide-in-from-right-4 duration-200">
-                  <span className="text-sm font-medium text-slate-700 hidden sm:inline">Are you sure?</span>
-                  <button 
-                    onClick={() => setShowDisableConfirm(false)}
-                    className="px-3 py-1.5 text-slate-600 hover:text-slate-800 text-sm font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleDisableAccount}
-                    disabled={disabling}
-                    className="px-4 py-2 bg-slate-800 text-white font-medium rounded-lg hover:bg-slate-900 transition-colors flex items-center gap-2 shadow-sm"
-                  >
-                    {disabling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
-                    Yes, Pause
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>
