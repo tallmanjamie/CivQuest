@@ -106,14 +106,22 @@ export default function Header({
         <div className="hidden md:flex items-center gap-3">
           {/* Header Links */}
           {config?.ui?.links?.enabled && config?.ui?.links?.items?.length > 0 && (
-            <div className="flex items-center gap-4">
+            <div className={
+              config.ui.links.layout === 'stacked'
+                ? "flex flex-col items-end gap-0.5"
+                : "flex items-center gap-4"
+            }>
               {config.ui.links.items.slice(0, 4).map((link, index) => (
                 <a
                   key={index}
                   href={link.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-white/90 hover:text-white hover:underline transition whitespace-nowrap"
+                  className={
+                    config.ui.links.layout === 'stacked'
+                      ? "text-xs text-white/90 hover:text-white hover:underline transition whitespace-nowrap leading-tight"
+                      : "text-sm text-white/90 hover:text-white hover:underline transition whitespace-nowrap"
+                  }
                 >
                   {link.label}
                 </a>

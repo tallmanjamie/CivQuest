@@ -136,6 +136,7 @@ export default function AtlasSettingsEditor({
       // Header links configuration
       links: {
         enabled: false,
+        layout: 'horizontal',
         items: [],
         ...data?.ui?.links
       },
@@ -840,6 +841,53 @@ export default function AtlasSettingsEditor({
               </p>
 
               {config.ui.links?.enabled && (
+                <>
+                {/* Layout Selector */}
+                <div className="mb-4">
+                  <label className="block text-xs font-medium text-slate-500 mb-2">
+                    Layout Style
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateLinks('layout', 'horizontal')}
+                      className={`flex-1 p-2 border rounded-lg flex flex-col items-center gap-1 transition-colors text-xs ${
+                        config.ui.links?.layout !== 'stacked'
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span className="w-6 h-0.5 bg-current rounded"></span>
+                        <span className="w-6 h-0.5 bg-current rounded"></span>
+                        <span className="w-6 h-0.5 bg-current rounded"></span>
+                      </div>
+                      <span className="font-medium">Horizontal</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateLinks('layout', 'stacked')}
+                      className={`flex-1 p-2 border rounded-lg flex flex-col items-center gap-1 transition-colors text-xs ${
+                        config.ui.links?.layout === 'stacked'
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span className="w-8 h-0.5 bg-current rounded"></span>
+                        <span className="w-6 h-0.5 bg-current rounded"></span>
+                        <span className="w-7 h-0.5 bg-current rounded"></span>
+                      </div>
+                      <span className="font-medium">Stacked</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {config.ui.links?.layout === 'stacked'
+                      ? 'Links displayed vertically, right-aligned with smaller text'
+                      : 'Links displayed in a row across the header'}
+                  </p>
+                </div>
+
                 <div className="space-y-2">
                   {(config.ui.links?.items || []).map((link, idx) => (
                     <div key={idx} className="flex items-center gap-2">
@@ -879,6 +927,7 @@ export default function AtlasSettingsEditor({
                     </button>
                   )}
                 </div>
+                </>
               )}
             </div>
 
