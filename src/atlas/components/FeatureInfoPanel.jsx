@@ -381,20 +381,24 @@ export default function FeatureInfoPanel({
   if (isMobile) {
     // Mobile view: 1/3 height by default, full height when maximized
     // When not maximized, show panel covering approximately 1/3 of the map area above search tools
-    // Bottom offset of 70px to avoid covering the search bar
     const mobileStyle = isMaximized
-      ? { top: '64px', bottom: 0 } // Full height from header to bottom
-      : { height: '33vh', maxHeight: 'calc(100vh - 180px)', bottom: '70px' }; // Position above search bar
+      ? { top: '64px' } // Full height from header to bottom
+      : { height: '33vh', maxHeight: 'calc(100vh - 180px)' }; // 1/3 of viewport, accounting for header and search bar
 
     return (
       <div
-        className={`fixed inset-x-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 ${
+        className={`fixed inset-x-0 bottom-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 ${
           isMaximized ? '' : 'rounded-t-2xl'
         }`}
         style={mobileStyle}
       >
-        {/* No resize handle on mobile - only maximize or close */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20">
+        {/* Drag handle for visual affordance when not maximized */}
+        {!isMaximized && (
+          <div className="flex justify-center pt-2 pb-1">
+            <div className="w-10 h-1 bg-slate-300 rounded-full" />
+          </div>
+        )}
+        <div className={`flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20 ${!isMaximized ? 'pt-1' : ''}`}>
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-white shadow-sm border border-slate-100">
               <MapPin className="w-3 h-3" style={{ color: colors.bg500 }} />
@@ -427,83 +431,30 @@ export default function FeatureInfoPanel({
     );
   }
 
-  // Desktop view: resizable sidebar by default, centered modal when maximized
-  // When maximized, display as a centered modal that sizes based on content
-  if (isMaximized) {
-    return (
-      <>
-        {/* Modal backdrop */}
-        <div
-          className="absolute inset-0 bg-black/30 z-40 animate-in fade-in duration-200"
-          onClick={() => setIsMaximized(false)}
-        />
-        {/* Centered modal */}
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center p-8 pointer-events-none"
-        >
-          <div
-            className="bg-white rounded-xl shadow-2xl flex flex-col pointer-events-auto animate-in zoom-in-95 fade-in duration-200"
-            style={{
-              width: 'auto',
-              minWidth: '500px',
-              maxWidth: 'min(900px, calc(100% - 64px))',
-              maxHeight: 'calc(100% - 64px)'
-            }}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50/50 rounded-t-xl">
-              <div className="flex items-center gap-2 min-w-0">
-                <MapPin className="w-4 h-4 flex-shrink-0" style={{ color: colors.bg500 }} />
-                <h3 className="font-semibold text-slate-800 truncate text-sm">{displayTitle}</h3>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setIsMaximized(false)}
-                  className="p-1.5 hover:bg-white rounded-lg transition"
-                  title="Minimize"
-                >
-                  <Minimize2 className="w-4 h-4 text-slate-500" />
-                </button>
-                <button onClick={onClose} className="p-1.5 hover:bg-white rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>
-              </div>
-            </div>
+  // Desktop view: resizable sidebar by default, full map area when maximized
+  const desktopStyle = isMaximized
+    ? { left: 0, right: 0, width: 'auto' } // Full width of map container
+    : { width: desktopWidth };
 
-            <ActionButtons />
-            {renderTabsList()}
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              <div className="p-6">
-                <div ref={featureContainerRef} className="feature-widget-container" />
-              </div>
-            </div>
-
-            <style>{`
-              .feature-widget-container .esri-feature { background: transparent !important; padding: 0 !important; }
-              .feature-widget-container .esri-feature__title { display: none !important; }
-              .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-              .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-            `}</style>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  // Desktop non-maximized: resizable sidebar
   return (
     <div
-      className="absolute right-0 top-0 bottom-0 bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.05)] z-40 flex flex-col border-l border-slate-200"
-      style={{ width: desktopWidth }}
+      className={`absolute right-0 top-0 bottom-0 bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.05)] z-40 flex flex-col border-l border-slate-200 ${
+        isMaximized ? 'transition-all duration-300' : ''
+      }`}
+      style={desktopStyle}
     >
-      {/* Resize handle */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize transition-colors z-50 flex items-center justify-center group"
-        style={{ '--hover-bg': `${colors.bg500}4D` }}
-        onMouseDown={startResizingDesktop}
-        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${colors.bg500}4D`}
-        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-      >
-        <div className="hidden group-hover:block"><GripVertical className="w-3 h-3" style={{ color: colors.text600 }} /></div>
-      </div>
+      {/* Resize handle - only show when not maximized */}
+      {!isMaximized && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize transition-colors z-50 flex items-center justify-center group"
+          style={{ '--hover-bg': `${colors.bg500}4D` }}
+          onMouseDown={startResizingDesktop}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${colors.bg500}4D`}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+        >
+          <div className="hidden group-hover:block"><GripVertical className="w-3 h-3" style={{ color: colors.text600 }} /></div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50/50">
         <div className="flex items-center gap-2 min-w-0">
@@ -512,11 +463,15 @@ export default function FeatureInfoPanel({
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setIsMaximized(true)}
+            onClick={() => setIsMaximized(!isMaximized)}
             className="p-1.5 hover:bg-white rounded-lg transition"
-            title="Maximize"
+            title={isMaximized ? 'Minimize' : 'Maximize'}
           >
-            <Maximize2 className="w-4 h-4 text-slate-500" />
+            {isMaximized ? (
+              <Minimize2 className="w-4 h-4 text-slate-500" />
+            ) : (
+              <Maximize2 className="w-4 h-4 text-slate-500" />
+            )}
           </button>
           <button onClick={onClose} className="p-1.5 hover:bg-white rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>
         </div>
