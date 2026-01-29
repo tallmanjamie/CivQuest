@@ -45,8 +45,7 @@ export default function FeatureInfoPanel({
   isExportingPDF = false,
   exportPDFProgress = ''
 }) {
-  const { config: atlasConfig, orgId, activeMap } = useAtlas();
-  const { config: atlasConfig, orgId, isPictometryEnabled, openEagleView } = useAtlas();
+  const { config: atlasConfig, orgId, activeMap, isPictometryEnabled, openEagleView } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
