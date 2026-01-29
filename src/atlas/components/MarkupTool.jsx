@@ -530,12 +530,17 @@ const MarkupTool = forwardRef(function MarkupTool({
 
     sketchVMRef.current = sketchVM;
 
-    // Watch for graphics added directly to the layer (e.g., from "Save to Markup" in FeatureInfoPanel)
+    // Watch for graphics added directly to the layer (e.g., from "Save to Markup" in FeatureInfoPanel or nearby buffer)
     const layerChangeHandle = layer.graphics.on('change', (event) => {
       if (event.added && event.added.length > 0) {
         event.added.forEach(graphic => {
           // Only add if it's a markup graphic not already in our list
-          if (graphic.attributes?.isMarkup && graphic.attributes?.savedFrom === 'feature-info-panel') {
+          // Include graphics from feature-info-panel, nearby-search, and nearby-search-popup sources
+          const savedFrom = graphic.attributes?.savedFrom;
+          const isExternalMarkup = savedFrom === 'feature-info-panel' ||
+                                   savedFrom === 'nearby-search' ||
+                                   savedFrom === 'nearby-search-popup';
+          if (graphic.attributes?.isMarkup && isExternalMarkup) {
             setMarkups(prev => {
               const exists = prev.some(m => m.attributes?.id === graphic.attributes?.id);
               if (!exists) {
