@@ -79,6 +79,7 @@ import AccountSettings from './components/AccountSettings';
 import DisclaimerPopup from './components/DisclaimerPopup';
 import HelpChatPanel from './components/HelpChatPanel';
 import EagleViewModal from './components/EagleViewModal';
+import NearmapModal from './components/NearmapModal';
 
 // Theme utility for proper dynamic theming
 import { getThemeColors, getThemeCssVars } from './utils/themeColors';
@@ -715,12 +716,16 @@ export default function AtlasApp() {
   // Add padding to body when preview banner is shown
   usePreviewBannerPadding(isPreviewMode);
 
-  // Integrations (EagleView, etc.)
+  // Integrations (EagleView, Nearmap, etc.)
   const {
     isPictometryEnabled,
     openEagleView,
     closeEagleView,
-    eagleViewModal
+    eagleViewModal,
+    isNearmapEnabled,
+    openNearmap,
+    closeNearmap,
+    nearmapModal
   } = useIntegrations(orgId);
 
   // Handle OAuth callback on mount
@@ -1203,7 +1208,13 @@ export default function AtlasApp() {
     isPictometryEnabled,
     openEagleView,
     closeEagleView,
-    eagleViewModal
+    eagleViewModal,
+
+    // Nearmap
+    isNearmapEnabled,
+    openNearmap,
+    closeNearmap,
+    nearmapModal
   };
   
   // Loading state - wait for config, auth, OAuth processing, and webmap access check
@@ -1459,6 +1470,16 @@ export default function AtlasApp() {
           title={eagleViewModal.title}
           themeColor={eagleViewModal.themeColor}
           windowConfig={eagleViewModal.windowConfig}
+        />
+
+        {/* Nearmap Modal - embedded aerial imagery viewer */}
+        <NearmapModal
+          isOpen={nearmapModal.isOpen}
+          onClose={closeNearmap}
+          url={nearmapModal.url}
+          title={nearmapModal.title}
+          themeColor={nearmapModal.themeColor}
+          windowConfig={nearmapModal.windowConfig}
         />
       </div>
     </AtlasContext.Provider>

@@ -113,7 +113,7 @@ export default function MarkupPopup({
   onWidthChange,
   refreshKey = 0
 }) {
-  const { config: atlasConfig, orgId, activeMap, isPictometryEnabled, openEagleView } = useAtlas();
+  const { config: atlasConfig, orgId, activeMap, isPictometryEnabled, openEagleView, isNearmapEnabled, openNearmap } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
@@ -291,6 +291,17 @@ export default function MarkupPopup({
     });
   }, [markup, name, colors.bg500, openEagleView]);
 
+  // Handle Nearmap button click
+  const handleOpenNearmap = useCallback(() => {
+    if (!markup?.geometry) return;
+
+    openNearmap({
+      geometry: markup.geometry,
+      title: name || 'Markup',
+      themeColor: colors.bg500
+    });
+  }, [markup, name, colors.bg500, openNearmap]);
+
   // Handle Nearby button click
   const handleNearbyClick = useCallback(() => {
     setShowNearbyTool(true);
@@ -455,6 +466,15 @@ export default function MarkupPopup({
               >
                 <Eye className="w-4 h-4 text-slate-400" />
                 <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">EagleView</span>
+              </button>
+            )}
+            {isNearmapEnabled && (
+              <button
+                onClick={handleOpenNearmap}
+                className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
+              >
+                <MapPin className="w-4 h-4 text-slate-400" />
+                <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">Nearmap</span>
               </button>
             )}
           </>
