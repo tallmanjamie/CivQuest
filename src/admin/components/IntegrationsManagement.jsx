@@ -20,8 +20,7 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  Info,
-  Maximize2
+  Info
 } from 'lucide-react';
 import {
   collection,
@@ -314,34 +313,6 @@ export default function IntegrationsManagement({ db, addToast, confirm, adminEma
                       </div>
                     </div>
 
-                    {/* Window Dimension Settings (Pictometry only) */}
-                    {integration.type === 'pictometry' && (
-                      <div className="mt-4 pt-4 border-t border-slate-200">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Maximize2 className="w-4 h-4 text-slate-400" />
-                          <h4 className="text-xs font-bold uppercase text-slate-500">Default Popup Window Size</h4>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-slate-600">Width:</span>
-                            <span className="text-sm font-medium text-slate-800">
-                              {integration.defaultWindowConfig?.windowWidth ?? 80}
-                              {integration.defaultWindowConfig?.windowWidthUnit || '%'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-slate-600">Height:</span>
-                            <span className="text-sm font-medium text-slate-800">
-                              {integration.defaultWindowConfig?.windowHeight ?? 80}
-                              {integration.defaultWindowConfig?.windowHeightUnit || '%'}
-                            </span>
-                          </div>
-                        </div>
-                        <p className="text-xs text-slate-400 mt-2">
-                          Click Edit to modify window dimensions. Organizations can override these defaults.
-                        </p>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -381,14 +352,6 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
   const [integrationType, setIntegrationType] = useState(INTEGRATION_TYPES.ATLAS);
   const [selectedOrgs, setSelectedOrgs] = useState([]);
   const [saving, setSaving] = useState(false);
-  // Window dimension defaults for pictometry/nearmap
-  const [windowWidth, setWindowWidth] = useState(80);
-  const [windowWidthUnit, setWindowWidthUnit] = useState('%');
-  const [windowHeight, setWindowHeight] = useState(80);
-  const [windowHeightUnit, setWindowHeightUnit] = useState('%');
-
-  // Helper to check if integration type supports window configuration
-  const supportsWindowConfig = (type) => ['pictometry', 'nearmap'].includes(type);
 
   const integrationOptions = Object.values(AVAILABLE_INTEGRATIONS);
 
@@ -421,16 +384,6 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
       organizations: selectedOrgs,
       enabled: true
     };
-
-    // Add window dimension defaults for integrations that support it
-    if (supportsWindowConfig(selectedType)) {
-      integrationData.defaultWindowConfig = {
-        windowWidth,
-        windowWidthUnit,
-        windowHeight,
-        windowHeightUnit
-      };
-    }
 
     await onSave(integrationData);
     setSaving(false);
@@ -571,73 +524,20 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
                 </div>
               </div>
 
-              {/* Window Size Configuration (Pictometry/Nearmap) */}
-              {supportsWindowConfig(selectedType) && (
-                <div className="border border-slate-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Maximize2 className="w-4 h-4 text-slate-400" />
-                    <span className="text-sm font-medium text-slate-700">Default Popup Window Size</span>
+              {/* Note about org-level configuration */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-blue-800 mb-1">Organization Configuration</p>
+                    <p className="text-blue-700">
+                      {selectedType === 'pictometry' && 'API key and popup window dimensions are configured by each organization in their own admin settings.'}
+                      {selectedType === 'nearmap' && 'Popup window dimensions are configured by each organization in their own admin settings. No API key is required as authentication is handled in the Nearmap embed widget.'}
+                      {!['pictometry', 'nearmap'].includes(selectedType) && 'Additional configuration options are available in each organization\'s admin settings.'}
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-500 mb-3">
-                    Configure the default size of the {selectedType === 'pictometry' ? 'EagleView' : 'Nearmap'} popup window. Organizations can override these defaults in their own configuration. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
-                  </p>
-                  <div className="grid grid-cols-2 gap-4">
-                    {/* Width */}
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Width</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          value={windowWidth}
-                          onChange={(e) => setWindowWidth(parseInt(e.target.value) || 80)}
-                          min="1"
-                          max={windowWidthUnit === '%' ? 100 : 3000}
-                          placeholder="80"
-                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
-                          style={{ '--tw-ring-color': accentColor }}
-                        />
-                        <select
-                          value={windowWidthUnit}
-                          onChange={(e) => setWindowWidthUnit(e.target.value)}
-                          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
-                          style={{ '--tw-ring-color': accentColor }}
-                        >
-                          <option value="%">%</option>
-                          <option value="px">px</option>
-                        </select>
-                      </div>
-                    </div>
-                    {/* Height */}
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Height</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          value={windowHeight}
-                          onChange={(e) => setWindowHeight(parseInt(e.target.value) || 80)}
-                          min="1"
-                          max={windowHeightUnit === '%' ? 100 : 3000}
-                          placeholder="80"
-                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
-                          style={{ '--tw-ring-color': accentColor }}
-                        />
-                        <select
-                          value={windowHeightUnit}
-                          onChange={(e) => setWindowHeightUnit(e.target.value)}
-                          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
-                          style={{ '--tw-ring-color': accentColor }}
-                        >
-                          <option value="%">%</option>
-                          <option value="px">px</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    Default: 80% width x 80% height. For percentage values, the popup will be sized relative to the browser viewport.
-                  </p>
                 </div>
-              )}
+              </div>
             </>
           )}
         </form>
@@ -670,16 +570,8 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
   const [name, setName] = useState(integration.name || '');
   const [selectedOrgs, setSelectedOrgs] = useState(integration.organizations || []);
   const [saving, setSaving] = useState(false);
-  // Window dimension defaults for pictometry/nearmap
-  const [windowWidth, setWindowWidth] = useState(integration.defaultWindowConfig?.windowWidth ?? 80);
-  const [windowWidthUnit, setWindowWidthUnit] = useState(integration.defaultWindowConfig?.windowWidthUnit || '%');
-  const [windowHeight, setWindowHeight] = useState(integration.defaultWindowConfig?.windowHeight ?? 80);
-  const [windowHeightUnit, setWindowHeightUnit] = useState(integration.defaultWindowConfig?.windowHeightUnit || '%');
 
   const definition = AVAILABLE_INTEGRATIONS[integration.type];
-
-  // Helper to check if integration type supports window configuration
-  const supportsWindowConfig = (type) => ['pictometry', 'nearmap'].includes(type);
 
   const toggleOrg = (orgId) => {
     setSelectedOrgs(prev =>
@@ -698,16 +590,6 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
       name,
       organizations: selectedOrgs
     };
-
-    // Add window dimension defaults for integrations that support it
-    if (supportsWindowConfig(integration.type)) {
-      updates.defaultWindowConfig = {
-        windowWidth,
-        windowWidthUnit,
-        windowHeight,
-        windowHeightUnit
-      };
-    }
 
     await onSave(updates);
     setSaving(false);
@@ -792,71 +674,19 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
             </div>
           </div>
 
-          {/* Window Size Configuration (Pictometry/Nearmap) */}
-          {supportsWindowConfig(integration.type) && (
-            <div className="border border-slate-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Maximize2 className="w-4 h-4 text-slate-400" />
-                <span className="text-sm font-medium text-slate-700">Default Popup Window Size</span>
-              </div>
-              <p className="text-xs text-slate-500 mb-3">
-                Configure the default size of the {integration.type === 'pictometry' ? 'EagleView' : 'Nearmap'} popup window. Organizations can override these defaults in their own configuration. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
-              </p>
-              <div className="grid grid-cols-2 gap-4">
-                {/* Width */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Width</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      value={windowWidth}
-                      onChange={(e) => setWindowWidth(parseInt(e.target.value) || 80)}
-                      min="1"
-                      max={windowWidthUnit === '%' ? 100 : 3000}
-                      placeholder="80"
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
-                      style={{ '--tw-ring-color': accentColor }}
-                    />
-                    <select
-                      value={windowWidthUnit}
-                      onChange={(e) => setWindowWidthUnit(e.target.value)}
-                      className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
-                      style={{ '--tw-ring-color': accentColor }}
-                    >
-                      <option value="%">%</option>
-                      <option value="px">px</option>
-                    </select>
-                  </div>
-                </div>
-                {/* Height */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Height</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      value={windowHeight}
-                      onChange={(e) => setWindowHeight(parseInt(e.target.value) || 80)}
-                      min="1"
-                      max={windowHeightUnit === '%' ? 100 : 3000}
-                      placeholder="80"
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
-                      style={{ '--tw-ring-color': accentColor }}
-                    />
-                    <select
-                      value={windowHeightUnit}
-                      onChange={(e) => setWindowHeightUnit(e.target.value)}
-                      className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
-                      style={{ '--tw-ring-color': accentColor }}
-                    >
-                      <option value="%">%</option>
-                      <option value="px">px</option>
-                    </select>
-                  </div>
+          {/* Note about org-level configuration */}
+          {['pictometry', 'nearmap'].includes(integration.type) && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-blue-800 mb-1">Organization Configuration</p>
+                  <p className="text-blue-700">
+                    {integration.type === 'pictometry' && 'API key and popup window dimensions are configured by each organization in their own admin settings.'}
+                    {integration.type === 'nearmap' && 'Popup window dimensions are configured by each organization in their own admin settings. No API key is required as authentication is handled in the Nearmap embed widget.'}
+                  </p>
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">
-                Default: 80% width x 80% height. For percentage values, the popup will be sized relative to the browser viewport.
-              </p>
             </div>
           )}
         </form>
