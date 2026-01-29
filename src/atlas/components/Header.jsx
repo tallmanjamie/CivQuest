@@ -121,15 +121,22 @@ export default function Header({
             </div>
           )}
 
-          {/* Info Button */}
+          {/* Info Button with Dropdown */}
           {config?.ui?.info?.enabled && (
-            <button
-              onClick={() => setShowInfoPopup(true)}
-              className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition"
-              title="Information"
-            >
-              <Info className="w-5 h-5" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowInfoPopup(!showInfoPopup)}
+                className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition"
+                title="Information"
+              >
+                <Info className="w-5 h-5" />
+              </button>
+              <InfoPopup
+                isOpen={showInfoPopup}
+                onClose={() => setShowInfoPopup(false)}
+                config={config}
+              />
+            </div>
           )}
 
           {/* User Menu */}
@@ -192,12 +199,6 @@ export default function Header({
         </button>
       </div>
 
-      {/* Info Popup */}
-      <InfoPopup
-        isOpen={showInfoPopup}
-        onClose={() => setShowInfoPopup(false)}
-        config={config}
-      />
     </header>
   );
 }
