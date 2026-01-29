@@ -143,15 +143,20 @@ export default function MarkupPopup({
     }
   }, [markupType]);
 
-  // Initialize unit selection
+  // Initialize unit selection - reset when markup type changes or unit is invalid
   useEffect(() => {
-    if (!selectedUnit && availableUnits.length > 0) {
-      // Try to restore saved unit preference
-      const savedUnit = markup?.attributes?.measurementUnit;
-      const found = availableUnits.find(u => u.id === savedUnit);
-      setSelectedUnit(found || availableUnits[0]);
+    if (availableUnits.length > 0) {
+      // Check if current selectedUnit is valid for this markup type
+      const currentUnitValid = selectedUnit && availableUnits.some(u => u.id === selectedUnit.id);
+
+      if (!currentUnitValid) {
+        // Try to restore saved unit preference, or use first available
+        const savedUnit = markup?.attributes?.measurementUnit;
+        const found = availableUnits.find(u => u.id === savedUnit);
+        setSelectedUnit(found || availableUnits[0]);
+      }
     }
-  }, [availableUnits, selectedUnit, markup]);
+  }, [availableUnits, markup]);
 
   // Calculate measurement when unit or geometry changes (refreshKey triggers recalc after editing)
   useEffect(() => {
