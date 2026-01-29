@@ -11,7 +11,9 @@ import {
   Layers,
   GripVertical,
   Loader2,
-  Eye
+  Eye,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 import { useAtlas } from '../AtlasApp';
@@ -50,6 +52,7 @@ export default function FeatureInfoPanel({
   // Layout State
   const [activeTab, setActiveTab] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   
   // Title State (Resolved from Feature Widget)
   const [dynamicTitle, setDynamicTitle] = useState(null);
@@ -65,9 +68,19 @@ export default function FeatureInfoPanel({
   const resizeRef = useRef({ startX: 0, startW: 0 });
 
   // Notify parent of width changes for positioning navigation controls
+  // When maximized, report a very large width to push controls out of view
   useEffect(() => {
-    onWidthChange?.(desktopWidth);
-  }, [desktopWidth, onWidthChange]);
+    if (isMaximized) {
+      onWidthChange?.(9999); // Signal maximized state
+    } else {
+      onWidthChange?.(desktopWidth);
+    }
+  }, [desktopWidth, isMaximized, onWidthChange]);
+
+  // Reset maximized state when feature changes
+  useEffect(() => {
+    setIsMaximized(false);
+  }, [feature]);
 
   const useCustomTabs = useMemo(() => {
     if (!customFeatureInfo?.layerId || !customFeatureInfo?.tabs?.length) return false;
@@ -366,19 +379,46 @@ export default function FeatureInfoPanel({
   if (!feature) return null;
 
   if (isMobile) {
+    // Mobile view: 1/3 height by default, full height when maximized
+    // When not maximized, show panel covering approximately 1/3 of the map area above search tools
+    const mobileStyle = isMaximized
+      ? { top: '64px' } // Full height from header to bottom
+      : { height: '33vh', maxHeight: 'calc(100vh - 180px)' }; // 1/3 of viewport, accounting for header and search bar
+
     return (
       <div
-        className="fixed inset-x-0 bottom-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300"
-        style={{ top: '64px' }}
+        className={`fixed inset-x-0 bottom-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 ${
+          isMaximized ? '' : 'rounded-t-2xl'
+        }`}
+        style={mobileStyle}
       >
-        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20">
+        {/* Drag handle for visual affordance when not maximized */}
+        {!isMaximized && (
+          <div className="flex justify-center pt-2 pb-1">
+            <div className="w-10 h-1 bg-slate-300 rounded-full" />
+          </div>
+        )}
+        <div className={`flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20 ${!isMaximized ? 'pt-1' : ''}`}>
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-white shadow-sm border border-slate-100">
               <MapPin className="w-3 h-3" style={{ color: colors.bg500 }} />
             </div>
             <h3 className="font-semibold text-slate-800 truncate text-base">{displayTitle}</h3>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"><X className="w-5 h-5 text-slate-500" /></button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setIsMaximized(!isMaximized)}
+              className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"
+              title={isMaximized ? 'Minimize' : 'Maximize'}
+            >
+              {isMaximized ? (
+                <Minimize2 className="w-5 h-5 text-slate-500" />
+              ) : (
+                <Maximize2 className="w-5 h-5 text-slate-500" />
+              )}
+            </button>
+            <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"><X className="w-5 h-5 text-slate-500" /></button>
+          </div>
         </div>
         <ActionButtons />
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -391,27 +431,50 @@ export default function FeatureInfoPanel({
     );
   }
 
+  // Desktop view: resizable sidebar by default, full map area when maximized
+  const desktopStyle = isMaximized
+    ? { left: 0, right: 0, width: 'auto' } // Full width of map container
+    : { width: desktopWidth };
+
   return (
-    <div 
-      className="absolute right-0 top-0 bottom-0 bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.05)] z-40 flex flex-col border-l border-slate-200"
-      style={{ width: desktopWidth }}
+    <div
+      className={`absolute right-0 top-0 bottom-0 bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.05)] z-40 flex flex-col border-l border-slate-200 ${
+        isMaximized ? 'transition-all duration-300' : ''
+      }`}
+      style={desktopStyle}
     >
-      <div
-        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize transition-colors z-50 flex items-center justify-center group"
-        style={{ '--hover-bg': `${colors.bg500}4D` }}
-        onMouseDown={startResizingDesktop}
-        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${colors.bg500}4D`}
-        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-      >
-        <div className="hidden group-hover:block"><GripVertical className="w-3 h-3" style={{ color: colors.text600 }} /></div>
-      </div>
+      {/* Resize handle - only show when not maximized */}
+      {!isMaximized && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize transition-colors z-50 flex items-center justify-center group"
+          style={{ '--hover-bg': `${colors.bg500}4D` }}
+          onMouseDown={startResizingDesktop}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${colors.bg500}4D`}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+        >
+          <div className="hidden group-hover:block"><GripVertical className="w-3 h-3" style={{ color: colors.text600 }} /></div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50/50">
         <div className="flex items-center gap-2 min-w-0">
           <MapPin className="w-4 h-4 flex-shrink-0" style={{ color: colors.bg500 }} />
           <h3 className="font-semibold text-slate-800 truncate text-sm">{displayTitle}</h3>
         </div>
-        <button onClick={onClose} className="p-1.5 hover:bg-white rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setIsMaximized(!isMaximized)}
+            className="p-1.5 hover:bg-white rounded-lg transition"
+            title={isMaximized ? 'Minimize' : 'Maximize'}
+          >
+            {isMaximized ? (
+              <Minimize2 className="w-4 h-4 text-slate-500" />
+            ) : (
+              <Maximize2 className="w-4 h-4 text-slate-500" />
+            )}
+          </button>
+          <button onClick={onClose} className="p-1.5 hover:bg-white rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>
+        </div>
       </div>
 
       <ActionButtons />
