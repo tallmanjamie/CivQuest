@@ -75,6 +75,7 @@ import AdvancedSearchModal from './components/AdvancedSearchModal';
 import AuthScreen from './components/AuthScreen';
 import AccountSettings from './components/AccountSettings';
 import DisclaimerPopup from './components/DisclaimerPopup';
+import HelpChatPanel from './components/HelpChatPanel';
 
 // Theme utility for proper dynamic theming
 import { getThemeColors, getThemeCssVars } from './utils/themeColors';
@@ -120,6 +121,9 @@ function SearchToolbar({
   searchHistory,
   onClearHistory,
   onShowAdvanced,
+  showHelpPanel,
+  onShowHelp,
+  onHideHelp,
   position = 'top',
   helpModeEnabled = false
 }) {
@@ -441,6 +445,21 @@ function SearchToolbar({
                   <span className="block text-xs text-slate-400">View recent searches</span>
                 </div>
               </button>
+              <button
+                onClick={() => { onShowHelp?.(); setShowMenu(false); }}
+                className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
+              >
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: colors.bg100, color: colors.text600 }}
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="block text-sm font-semibold text-slate-700">Ask for Help</span>
+                  <span className="block text-xs text-slate-400">Get help using Atlas</span>
+                </div>
+              </button>
             </div>
           </>
         )}
@@ -517,6 +536,14 @@ function SearchToolbar({
             </div>
           </>
         )}
+
+        {/* Help Chat Panel */}
+        <HelpChatPanel
+          isOpen={showHelpPanel}
+          onClose={onHideHelp}
+          config={config}
+          position={position}
+        />
 
         {/* Search Input with Autocomplete */}
         <div className="flex-1 relative">
@@ -899,6 +926,7 @@ export default function AtlasApp() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [showHelpPanel, setShowHelpPanel] = useState(false);
 
   // Help mode state (shared with ChatView and SearchToolbar)
   const [helpModeEnabled, setHelpModeEnabled] = useState(false);
@@ -1114,7 +1142,11 @@ export default function AtlasApp() {
 
     // Help mode (shared with ChatView and SearchToolbar)
     helpModeEnabled,
-    setHelpModeEnabled
+    setHelpModeEnabled,
+
+    // Help panel
+    showHelpPanel,
+    setShowHelpPanel
   };
   
   // Loading state
@@ -1220,6 +1252,9 @@ export default function AtlasApp() {
       searchHistory={searchHistory}
       onClearHistory={clearHistory}
       onShowAdvanced={() => setShowAdvanced(true)}
+      showHelpPanel={showHelpPanel}
+      onShowHelp={() => setShowHelpPanel(true)}
+      onHideHelp={() => setShowHelpPanel(false)}
       position={searchBarPosition}
       helpModeEnabled={helpModeEnabled}
     />

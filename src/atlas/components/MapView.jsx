@@ -16,7 +16,8 @@ import {
   Globe,
   Printer,
   ChevronRight,
-  Navigation
+  Navigation,
+  HelpCircle
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors, COLOR_PALETTE } from '../utils/themeColors';
@@ -71,7 +72,8 @@ const MapView = forwardRef(function MapView(props, ref) {
     updateSearchResults,
     isSearching,
     zoomToFeature: contextZoomToFeature,
-    highlightFeature: contextHighlightFeature
+    highlightFeature: contextHighlightFeature,
+    setShowHelpPanel
   } = useAtlas();
 
   // Refs
@@ -1652,6 +1654,17 @@ const MapView = forwardRef(function MapView(props, ref) {
                         <span className="text-sm text-slate-700">Export</span>
                         <ChevronRight className="w-3 h-3 text-slate-400 ml-auto" />
                       </button>
+                      <button
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setShowHelpPanel?.(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <HelpCircle className="w-4 h-4" style={{ color: colors.bg600 }} />
+                        <span className="text-sm text-slate-700">Help</span>
+                        <ChevronRight className="w-3 h-3 text-slate-400 ml-auto" />
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1813,6 +1826,15 @@ const MapView = forwardRef(function MapView(props, ref) {
                 }}
                 onClose={() => setShowMapExport(false)}
               />
+
+              {/* 6. Help Button */}
+              <button
+                onClick={() => setShowHelpPanel?.(true)}
+                className="flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+                title="Get Help"
+              >
+                <HelpCircle className="w-4 h-4" style={{ color: colors.bg600 }} />
+              </button>
             </>
           )}
         </div>
