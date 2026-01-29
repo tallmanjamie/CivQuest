@@ -640,19 +640,122 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 }
 
 /**
+ * Extract tables from HTML content and return structured table data
+ * @param {string} htmlContent - HTML string content
+ * @returns {{tables: Array, contentWithoutTables: string}} Extracted tables and remaining content
+ */
+function extractTablesFromHtml(htmlContent) {
+  if (!htmlContent) return { tables: [], contentWithoutTables: '' };
+
+  const tables = [];
+  let contentWithoutTables = htmlContent;
+
+  // Match table elements
+  const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
+  let match;
+
+  while ((match = tableRegex.exec(htmlContent)) !== null) {
+    const tableHtml = match[0];
+    const tableContent = match[1];
+
+    // Parse table rows
+    const rows = [];
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let rowMatch;
+
+    while ((rowMatch = rowRegex.exec(tableContent)) !== null) {
+      const rowContent = rowMatch[1];
+      const cells = [];
+
+      // Parse header cells (th)
+      const thRegex = /<th[^>]*>([\s\S]*?)<\/th>/gi;
+      let thMatch;
+      while ((thMatch = thRegex.exec(rowContent)) !== null) {
+        cells.push({
+          text: stripHtmlTags(thMatch[1]).trim(),
+          isHeader: true
+        });
+      }
+
+      // Parse data cells (td)
+      const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+      let tdMatch;
+      while ((tdMatch = tdRegex.exec(rowContent)) !== null) {
+        cells.push({
+          text: stripHtmlTags(tdMatch[1]).trim(),
+          isHeader: false
+        });
+      }
+
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+    }
+
+    if (rows.length > 0) {
+      tables.push({
+        rows,
+        columnCount: Math.max(...rows.map(r => r.length))
+      });
+
+      // Mark table location in content for replacement
+      contentWithoutTables = contentWithoutTables.replace(tableHtml, '\n[[TABLE_' + (tables.length - 1) + ']]\n');
+    }
+  }
+
+  return { tables, contentWithoutTables };
+}
+
+/**
+ * Strip HTML tags from text while preserving meaningful content
+ * @param {string} html - HTML string
+ * @returns {string} Plain text content
+ */
+function stripHtmlTags(html) {
+  if (!html) return '';
+
+  return html
+    // Convert br to newline
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Remove tags
+    .replace(/<[^>]+>/g, '')
+    // Decode entities
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&rsquo;/g, "'")
+    .replace(/&lsquo;/g, "'")
+    .replace(/&rdquo;/g, '"')
+    .replace(/&ldquo;/g, '"')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–')
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-f]+);/gi, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
+    // Clean up whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Parse HTML content and extract text with line breaks
  * Handles common HTML elements and converts to structured text
  * Enhanced to handle Feature widget HTML output (Esri-specific classes, tables, etc.)
  * @param {string} htmlContent - HTML string content
- * @returns {Array<{text: string, style: object}>} Array of text segments with styles
+ * @returns {{segments: Array<{text: string, style: object}>, tables: Array}} Array of text segments with styles and tables
  */
 function parseHtmlContent(htmlContent) {
-  if (!htmlContent) return [];
+  if (!htmlContent) return { segments: [], tables: [] };
+
+  // First extract tables to handle them separately
+  const { tables, contentWithoutTables } = extractTablesFromHtml(htmlContent);
 
   const segments = [];
 
   // Pre-process Esri-specific HTML structures
-  let content = htmlContent;
+  let content = contentWithoutTables;
 
   // Handle Esri field containers - convert to label: value format
   // Pattern: <div class="esri-feature__fields-item">...<span class="esri-feature__field-header">Label</span>...<span class="esri-feature__field-data">Value</span>...</div>
@@ -660,12 +763,6 @@ function parseHtmlContent(htmlContent) {
     /<div[^>]*class="[^"]*esri-feature__fields-item[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*esri-feature__field-header[^"]*"[^>]*>([\s\S]*?)<\/span>[\s\S]*?<span[^>]*class="[^"]*esri-feature__field-data[^"]*"[^>]*>([\s\S]*?)<\/span>[\s\S]*?<\/div>/gi,
     '<b>$1:</b> $2\n'
   );
-
-  // Handle table cells - add spacing between td/th
-  content = content.replace(/<\/td>\s*<td/gi, '</td> | <td');
-  content = content.replace(/<\/th>\s*<th/gi, '</th> | <th');
-  content = content.replace(/<\/td>/gi, ' ');
-  content = content.replace(/<\/th>/gi, ' ');
 
   // Handle headers
   content = content.replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n[[BOLD_START]]$1[[BOLD_END]]\n');
@@ -679,7 +776,6 @@ function parseHtmlContent(htmlContent) {
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<\/li>/gi, '\n')
-    .replace(/<\/tr>/gi, '\n')
     .replace(/<hr\s*\/?>/gi, '\n---\n')
     // Handle list items
     .replace(/<li[^>]*>/gi, '• ');
@@ -693,8 +789,8 @@ function parseHtmlContent(htmlContent) {
   processedContent = processedContent.replace(/<i[^>]*>|<em[^>]*>/gi, '[[ITALIC_START]]');
   processedContent = processedContent.replace(/<\/i>|<\/em>/gi, '[[ITALIC_END]]');
 
-  // Remove remaining HTML tags
-  processedContent = processedContent.replace(/<[^>]+>/g, '');
+  // Remove remaining HTML tags (but preserve table markers)
+  processedContent = processedContent.replace(/<(?!\[\[TABLE_)[^>]+>/g, '');
 
   // Decode common HTML entities
   processedContent = processedContent
@@ -724,6 +820,14 @@ function parseHtmlContent(htmlContent) {
   const lines = processedContent.split('\n');
 
   for (const line of lines) {
+    // Check for table placeholder
+    const tableMatch = line.match(/\[\[TABLE_(\d+)\]\]/);
+    if (tableMatch) {
+      const tableIndex = parseInt(tableMatch[1], 10);
+      segments.push({ text: '', style: { tableIndex } });
+      continue;
+    }
+
     if (!line.trim()) {
       segments.push({ text: '', style: { lineBreak: true } });
       continue;
@@ -768,7 +872,7 @@ function parseHtmlContent(htmlContent) {
     segments.push({ text: '', style: { lineBreak: true } });
   }
 
-  return segments;
+  return { segments, tables };
 }
 
 /**
@@ -868,6 +972,8 @@ function createFallbackTemplate(feature, tableColumns, searchFields) {
 const POPUP_LINE_HEIGHT = 0.22; // inches per line
 const POPUP_SECTION_SPACING = 0.3; // inches between sections
 const POPUP_SECTION_HEADER_HEIGHT = 0.35; // inches for section header
+const POPUP_TABLE_ROW_HEIGHT = 0.22; // inches per table row
+const POPUP_TABLE_HEADER_HEIGHT = 0.25; // inches for table header row
 
 /**
  * Calculate layout for popup content across pages
@@ -883,10 +989,12 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
   let currentPage = { sections: [], usedHeight: 0 };
 
   for (const section of popupContent) {
-    // Parse content to get text segments
-    const segments = section.isHtml
+    // Parse content to get text segments and tables
+    const parsed = section.isHtml
       ? parseHtmlContent(section.content)
-      : [{ text: section.content, style: {} }];
+      : { segments: [{ text: section.content, style: {} }], tables: [] };
+
+    const { segments, tables } = parsed;
 
     // Calculate height needed for this section
     let sectionHeight = POPUP_SECTION_HEADER_HEIGHT; // Header
@@ -896,6 +1004,15 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
     for (const segment of segments) {
       if (segment.style?.lineBreak) {
         sectionHeight += POPUP_LINE_HEIGHT * 0.5; // Half line for breaks
+      } else if (segment.style?.tableIndex !== undefined) {
+        // Calculate table height
+        const table = tables[segment.style.tableIndex];
+        if (table) {
+          const hasHeader = table.rows.length > 0 && table.rows[0].some(c => c.isHeader);
+          sectionHeight += hasHeader ? POPUP_TABLE_HEADER_HEIGHT : 0;
+          sectionHeight += table.rows.length * POPUP_TABLE_ROW_HEIGHT;
+          sectionHeight += POPUP_LINE_HEIGHT; // Spacing after table
+        }
       } else if (segment.text) {
         const lines = pdf.splitTextToSize(segment.text, contentWidth - 0.2);
         sectionHeight += lines.length * POPUP_LINE_HEIGHT;
@@ -915,6 +1032,7 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
     currentPage.sections.push({
       ...section,
       segments,
+      tables,
       estimatedHeight: sectionHeight
     });
     currentPage.usedHeight += sectionHeight;
@@ -929,6 +1047,89 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
 }
 
 /**
+ * Draw a table in the PDF
+ * @param {object} pdf - jsPDF instance
+ * @param {object} table - Table data with rows and columnCount
+ * @param {number} startX - Starting X position
+ * @param {number} startY - Starting Y position
+ * @param {number} width - Available width
+ * @param {number} scaleRatio - Scale ratio
+ * @returns {number} Y position after the table
+ */
+function drawPdfTable(pdf, table, startX, startY, width, scaleRatio = 1.0) {
+  if (!table || !table.rows || table.rows.length === 0) return startY;
+
+  const rowHeight = POPUP_TABLE_ROW_HEIGHT * scaleRatio;
+  const headerRowHeight = POPUP_TABLE_HEADER_HEIGHT * scaleRatio;
+  const fontSize = 8 * scaleRatio;
+  const padding = 0.05;
+
+  // Calculate column widths based on content
+  const colCount = table.columnCount;
+  const colWidth = (width - 0.2) / colCount;
+
+  let currentY = startY;
+
+  // Draw border color
+  pdf.setDrawColor(226, 232, 240); // slate-200
+  pdf.setLineWidth(0.01);
+
+  for (let rowIdx = 0; rowIdx < table.rows.length; rowIdx++) {
+    const row = table.rows[rowIdx];
+    const isHeaderRow = row.some(cell => cell.isHeader);
+    const thisRowHeight = isHeaderRow ? headerRowHeight : rowHeight;
+
+    // Draw row background
+    if (isHeaderRow) {
+      pdf.setFillColor(241, 245, 249); // slate-100
+    } else if (rowIdx % 2 === 1) {
+      pdf.setFillColor(249, 250, 251); // gray-50
+    } else {
+      pdf.setFillColor(255, 255, 255); // white
+    }
+    pdf.rect(startX + 0.1, currentY, width - 0.2, thisRowHeight, 'FD');
+
+    // Draw cells
+    pdf.setFontSize(fontSize * 0.75);
+    for (let colIdx = 0; colIdx < row.length; colIdx++) {
+      const cell = row[colIdx];
+      const cellX = startX + 0.1 + (colIdx * colWidth);
+
+      // Set font style
+      if (cell.isHeader) {
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(30, 41, 59); // slate-800
+      } else {
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(51, 65, 85); // slate-700
+      }
+
+      // Truncate text if needed
+      const maxTextWidth = colWidth - (padding * 2);
+      let displayText = cell.text || '';
+      while (displayText.length > 0 && pdf.getTextWidth(displayText) > maxTextWidth) {
+        displayText = displayText.slice(0, -1);
+      }
+      if (displayText.length < (cell.text || '').length && displayText.length > 3) {
+        displayText = displayText.slice(0, -3) + '...';
+      }
+
+      // Draw text
+      pdf.text(displayText, cellX + padding, currentY + (thisRowHeight / 2) + (fontSize * 0.75) / 72 / 3);
+
+      // Draw vertical cell border (except for last column)
+      if (colIdx < row.length - 1) {
+        pdf.line(cellX + colWidth, currentY, cellX + colWidth, currentY + thisRowHeight);
+      }
+    }
+
+    currentY += thisRowHeight;
+  }
+
+  return currentY + (POPUP_LINE_HEIGHT * scaleRatio * 0.5); // Add some spacing after table
+}
+
+/**
  * Draw popup content sections on PDF
  * @param {object} pdf - jsPDF instance
  * @param {Array} sections - Array of sections to draw on this page
@@ -936,7 +1137,7 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
  * @param {number} startY - Starting Y position
  * @param {number} width - Available width
  * @param {number} maxHeight - Maximum height available
- * @param {object} scaleRatio - Optional scale ratio from customFeatureInfo
+ * @param {number} scaleRatio - Optional scale ratio from customFeatureInfo
  * @returns {number} Final Y position after drawing
  */
 function drawPopupContentSections(pdf, sections, startX, startY, width, maxHeight, scaleRatio = 1.0) {
@@ -973,6 +1174,15 @@ function drawPopupContentSections(pdf, sections, startX, startY, width, maxHeigh
       if (segment.style?.lineBreak) {
         currentY += lineHeight * 0.5;
         continue;
+      }
+
+      // Handle table segments
+      if (segment.style?.tableIndex !== undefined && section.tables) {
+        const table = section.tables[segment.style.tableIndex];
+        if (table) {
+          currentY = drawPdfTable(pdf, table, startX, currentY, width, scaleRatio);
+          continue;
+        }
       }
 
       if (!segment.text) continue;

@@ -9,7 +9,8 @@ import {
   Target,
   Download,
   Layers,
-  GripVertical
+  GripVertical,
+  Loader2
 } from 'lucide-react';
 
 import { useAtlas } from '../AtlasApp';
@@ -33,7 +34,9 @@ export default function FeatureInfoPanel({
   currentRelatedIndex = 0,
   onNavigateRelated,
   isMarkupFeature = false,
-  onWidthChange
+  onWidthChange,
+  isExportingPDF = false,
+  exportPDFProgress = ''
 }) {
   const { config: atlasConfig } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
@@ -325,7 +328,13 @@ export default function FeatureInfoPanel({
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
       <ActionButton icon={Bookmark} label="Save to Markup" onClick={() => onSaveAsMarkup?.(feature, displayTitle)} />
-      <ActionButton icon={Download} label="Export PDF" onClick={() => onExportPDF?.(feature, displayTitle)} />
+      <ActionButton
+        icon={isExportingPDF ? Loader2 : Download}
+        label={isExportingPDF ? (exportPDFProgress || 'Exporting...') : 'Export PDF'}
+        onClick={() => !isExportingPDF && onExportPDF?.(feature, displayTitle)}
+        disabled={isExportingPDF}
+        isLoading={isExportingPDF}
+      />
       <ActionButton icon={Target} label="Zoom To" onClick={() => onZoomTo?.(feature)} />
     </div>
   );
@@ -402,10 +411,18 @@ export default function FeatureInfoPanel({
   );
 }
 
-function ActionButton({ icon: Icon, label, onClick }) {
+function ActionButton({ icon: Icon, label, onClick, disabled = false, isLoading = false }) {
   return (
-    <button onClick={onClick} className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-50 hover:shadow-sm rounded-lg transition-all border border-slate-200 active:scale-95">
-      <Icon className="w-4 h-4 text-slate-400" />
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border border-slate-200 ${
+        disabled
+          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+          : 'text-slate-600 bg-white hover:bg-slate-50 hover:shadow-sm active:scale-95'
+      }`}
+    >
+      <Icon className={`w-4 h-4 ${disabled ? 'text-slate-300' : 'text-slate-400'} ${isLoading ? 'animate-spin' : ''}`} />
       <span className="truncate">{label}</span>
     </button>
   );
