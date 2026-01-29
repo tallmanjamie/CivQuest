@@ -118,6 +118,7 @@ export default function AtlasConfiguration({
       maxRecordCount: 1000,
       timeZoneOffset: -5,
       defaultSort: "",
+      autocompleteMaxResults: 100,
       maps: []
     }
   };

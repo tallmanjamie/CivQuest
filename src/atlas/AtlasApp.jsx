@@ -169,7 +169,8 @@ function SearchToolbar({
 
     try {
       const searchValue = input.toUpperCase();
-      const maxSuggestions = autocompleteField.maxSuggestions || 10;
+      // Use field-specific maxSuggestions, fall back to global config, then default to 100
+      const maxSuggestions = autocompleteField.maxSuggestions || config?.data?.autocompleteMaxResults || 100;
 
       // Query for suggestions using LIKE
       const params = new URLSearchParams({
@@ -200,7 +201,7 @@ function SearchToolbar({
     }
 
     return [];
-  }, [activeMap?.endpoint]);
+  }, [activeMap?.endpoint, config?.data?.autocompleteMaxResults]);
 
   /**
    * Handle input change with debounced suggestion fetching
