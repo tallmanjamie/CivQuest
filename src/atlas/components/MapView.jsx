@@ -1791,6 +1791,17 @@ const MapView = forwardRef(function MapView(props, ref) {
                     Start Tracking
                   </button>
                 </div>
+
+                <div className="border-t border-slate-200 mt-3 pt-3">
+                  <button
+                    onClick={() => {
+                      stopGpsTracking();
+                    }}
+                    className="w-full px-3 py-1.5 text-sm text-red-600 bg-red-50 hover:bg-red-100 rounded transition-colors"
+                  >
+                    Disable GPS
+                  </button>
+                </div>
               </div>
             )}
 
