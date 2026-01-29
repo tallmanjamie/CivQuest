@@ -117,6 +117,10 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [showMapExport, setShowMapExport] = useState(false);
   const [showMarkupTool, setShowMarkupTool] = useState(false);
 
+  // PDF Export state
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [exportPDFProgress, setExportPDFProgress] = useState('');
+
   // Mobile state
   const [isMobile, setIsMobile] = useState(false);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
@@ -1413,6 +1417,10 @@ const MapView = forwardRef(function MapView(props, ref) {
       }
     } : featureToExport;
 
+    // Set loading state
+    setIsExportingPDF(true);
+    setExportPDFProgress('Preparing...');
+
     try {
       await exportFeatureToPDF({
         feature: enrichedFeature,
@@ -1422,11 +1430,16 @@ const MapView = forwardRef(function MapView(props, ref) {
         sourceLayer: selectedFeatureLayer,
         onProgress: (status) => {
           console.log('[MapView] PDF Export:', status);
+          setExportPDFProgress(status);
         }
       });
     } catch (err) {
       console.error('[MapView] PDF export failed:', err);
       // Could add a toast notification here in the future
+    } finally {
+      // Reset loading state
+      setIsExportingPDF(false);
+      setExportPDFProgress('');
     }
   }, [selectedFeature, selectedFeatureLayer, config, activeMap]);
 
@@ -2034,6 +2047,8 @@ const MapView = forwardRef(function MapView(props, ref) {
           onNavigateRelated={setCurrentRelatedIndex}
           isMarkupFeature={isMarkupFeature}
           onWidthChange={setFeaturePanelWidth}
+          isExportingPDF={isExportingPDF}
+          exportPDFProgress={exportPDFProgress}
         />
       )}
 
