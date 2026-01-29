@@ -267,9 +267,10 @@ function extractFieldValuesFromExpression(expression, attributes) {
  * @param {object} feature - The feature with geometry and attributes
  * @param {object} sourceLayer - The source layer with popup template
  * @param {Array} filterElements - Optional array of element names to filter to specific tabs
+ * @param {object} mapView - Optional map view for Arcade expression context
  * @returns {Promise<string>} Rendered HTML content
  */
-async function renderPopupContentAsHtml(feature, sourceLayer, filterElements = null) {
+async function renderPopupContentAsHtml(feature, sourceLayer, filterElements = null, mapView = null) {
   try {
     // Import ArcGIS modules dynamically
     const [Feature, Graphic] = await Promise.all([
@@ -335,11 +336,19 @@ async function renderPopupContentAsHtml(feature, sourceLayer, filterElements = n
     tempContainer.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:800px;';
     document.body.appendChild(tempContainer);
 
-    // Create the Feature widget
-    const featureWidget = new Feature({
+    // Create the Feature widget with map context for Arcade expression evaluation
+    const featureWidgetOptions = {
       graphic,
       container: tempContainer
-    });
+    };
+
+    // Add map context if available - this is required for Arcade expressions
+    // that use functions like FeatureSetByRelationshipName, FeatureSetByName, etc.
+    if (mapView?.map) {
+      featureWidgetOptions.map = mapView.map;
+    }
+
+    const featureWidget = new Feature(featureWidgetOptions);
 
     // Wait for the widget to render
     // The Feature widget needs time to evaluate Arcade expressions and render content
@@ -425,13 +434,50 @@ async function evaluateArcadeExpression(expressionInfo, feature, sourceLayer) {
  * @param {object} feature - The feature
  * @param {object} sourceLayer - The source layer with popup template
  * @param {object} customFeatureInfo - Custom feature info configuration
+ * @param {object} mapView - Optional map view for Arcade expression context
  * @returns {Promise<Array>} Array of evaluated content sections
  */
-async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo = null) {
+async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo = null, mapView = null) {
   const popupElements = getPopupElementsFromWebmap(feature, sourceLayer, customFeatureInfo);
 
-  if (popupElements.length === 0) {
+  // Helper function to create fallback content from raw attributes
+  const createAttributeFallback = () => {
+    if (!feature?.attributes) return [];
+
+    const attrs = feature.attributes;
+    const lines = [];
+
+    for (const [key, value] of Object.entries(attrs)) {
+      if (
+        value != null &&
+        !key.startsWith('_') &&
+        key !== 'OBJECTID' &&
+        key !== 'Shape__Area' &&
+        key !== 'Shape__Length' &&
+        key !== 'displayName' &&
+        key !== 'GlobalID'
+      ) {
+        const label = key.replace(/_/g, ' ');
+        lines.push(`<b>${label}:</b> ${formatValue(value)}`);
+      }
+    }
+
+    if (lines.length > 0) {
+      console.log('[FeatureExport] Using fallback attribute content:', lines.length, 'fields');
+      return [{
+        name: 'Feature Attributes',
+        type: 'fields',
+        content: lines.join('<br/>'),
+        isHtml: true
+      }];
+    }
     return [];
+  };
+
+  // If no popup elements, try to create content from raw attributes
+  if (popupElements.length === 0) {
+    console.log('[FeatureExport] No popup elements found, trying attribute fallback');
+    return createAttributeFallback();
   }
 
   // Check if we have any Arcade expression elements
@@ -440,6 +486,9 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
   // If we have Arcade expressions, use the Feature widget to render them as HTML
   if (hasArcadeExpressions) {
     console.log('[FeatureExport] Using Feature widget to render Arcade expressions as HTML');
+    if (!mapView?.map) {
+      console.warn('[FeatureExport] No map context available - Arcade expressions may fail to evaluate');
+    }
 
     const evaluatedContent = [];
 
@@ -455,7 +504,7 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 
       if (popupEl.type === 'expression') {
         // Use Feature widget to render this specific expression as HTML
-        const renderedHtml = await renderPopupContentAsHtml(feature, sourceLayer, [popupEl.name]);
+        const renderedHtml = await renderPopupContentAsHtml(feature, sourceLayer, [popupEl.name], mapView);
 
         if (renderedHtml) {
           section.content = renderedHtml;
@@ -518,7 +567,7 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 
     // If individual element rendering failed, try rendering all content at once
     console.log('[FeatureExport] Individual expression rendering returned no content, trying full popup render');
-    const fullHtml = await renderPopupContentAsHtml(feature, sourceLayer);
+    const fullHtml = await renderPopupContentAsHtml(feature, sourceLayer, null, mapView);
     if (fullHtml) {
       return [{
         name: 'Feature Information',
@@ -582,36 +631,9 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
     }
   }
 
-  // If no content was successfully evaluated, create fallback from feature attributes
-  if (evaluatedContent.length === 0 && feature.attributes) {
-    const attrs = feature.attributes;
-    const lines = [];
-
-    // Filter out internal/system fields and build formatted list
-    for (const [key, value] of Object.entries(attrs)) {
-      if (
-        value != null &&
-        !key.startsWith('_') &&
-        key !== 'OBJECTID' &&
-        key !== 'Shape__Area' &&
-        key !== 'Shape__Length' &&
-        key !== 'displayName' &&
-        key !== 'GlobalID'
-      ) {
-        const label = key.replace(/_/g, ' ');
-        lines.push(`<b>${label}:</b> ${formatValue(value)}`);
-      }
-    }
-
-    if (lines.length > 0) {
-      evaluatedContent.push({
-        name: 'Feature Attributes',
-        type: 'fields',
-        content: lines.join('<br/>'),
-        isHtml: true
-      });
-      console.log('[FeatureExport] Using fallback attribute content:', lines.length, 'fields');
-    }
+  // If no content was successfully evaluated, use the attribute fallback
+  if (evaluatedContent.length === 0) {
+    return createAttributeFallback();
   }
 
   return evaluatedContent;
@@ -1160,7 +1182,7 @@ export async function exportFeatureToPDF({
   if (usePopupElements) {
     onProgress('Evaluating popup expressions...');
     try {
-      popupContent = await getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo);
+      popupContent = await getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo, mapView);
       console.log('[FeatureExport] Got popup content:', popupContent.length, 'sections');
     } catch (err) {
       console.warn('[FeatureExport] Could not evaluate popup content:', err);
