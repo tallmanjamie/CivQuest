@@ -49,6 +49,9 @@ const HIGHLIGHT_LAYER_ID = 'atlas-highlight-layer';
 const PUSHPIN_LAYER_ID = 'atlas-pushpin-layer';
 const MARKUP_LAYER_ID = 'atlas-markup-layer';
 
+// Import Feature Export Service
+import { exportFeatureToPDF } from '../utils/FeatureExportService';
+
 /**
  * MapView Component
  * Renders ArcGIS WebMap with search results overlay and integrated tool panels
@@ -1137,10 +1140,44 @@ const MapView = forwardRef(function MapView(props, ref) {
 
   /**
    * Handle export to PDF
+   * Uses FeatureExportService to generate a multi-page PDF
+   * @param {object} feature - The feature to export (optional, defaults to selectedFeature)
+   * @param {string} title - Optional title for the export
    */
-  const handleExportPDF = useCallback(() => {
-    console.log('[MapView] Export PDF not yet implemented');
-  }, []);
+  const handleExportPDF = useCallback(async (feature = null, title = null) => {
+    const featureToExport = feature || selectedFeature;
+
+    if (!featureToExport) {
+      console.warn('[MapView] No feature selected for PDF export');
+      return;
+    }
+
+    console.log('[MapView] Starting PDF export for feature:', featureToExport);
+
+    // If a title is provided, add it to the feature attributes for display
+    const enrichedFeature = title ? {
+      ...featureToExport,
+      attributes: {
+        ...featureToExport.attributes,
+        displayName: title
+      }
+    } : featureToExport;
+
+    try {
+      await exportFeatureToPDF({
+        feature: enrichedFeature,
+        atlasConfig: config,
+        mapConfig: activeMap,
+        mapView: viewRef.current,
+        onProgress: (status) => {
+          console.log('[MapView] PDF Export:', status);
+        }
+      });
+    } catch (err) {
+      console.error('[MapView] PDF export failed:', err);
+      // Could add a toast notification here in the future
+    }
+  }, [selectedFeature, config, activeMap]);
 
   /**
    * Close feature panel
