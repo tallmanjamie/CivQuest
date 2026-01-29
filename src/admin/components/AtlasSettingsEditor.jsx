@@ -7,7 +7,7 @@
 // - Shows image previews for logos/avatar
 // - Blank text fields = element hidden in Atlas
 
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   X,
   Save,
@@ -17,16 +17,11 @@ import {
   Image,
   Plus,
   Trash2,
-  GripVertical,
-  ChevronDown,
-  ChevronRight,
   AlertCircle,
-  ExternalLink,
   HelpCircle,
   ArrowUpFromLine,
   ArrowDownToLine,
   Lightbulb,
-  Search,
   Eye,
   EyeOff,
   Shield,
@@ -138,6 +133,7 @@ export default function AtlasSettingsEditor({
     },
     disclaimer: {
       enabled: false,
+      title: 'Notice',
       width: '600',
       widthUnit: 'px',
       height: '400',
@@ -163,6 +159,7 @@ export default function AtlasSettingsEditor({
   }));
 
   const [errors, setErrors] = useState({});
+  const [activeTab, setActiveTab] = useState('ui');
   const [expandedSections, setExpandedSections] = useState({
     ui: true,
     messages: true,
@@ -180,9 +177,14 @@ export default function AtlasSettingsEditor({
     isValidHex(config.ui.themeColor) ? config.ui.themeColor : ''
   );
 
-  const toggleSection = (section) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
+  // Tab definitions
+  const tabs = [
+    { id: 'ui', label: 'User Interface', icon: Palette },
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'disclaimer', label: 'Disclaimer', icon: Shield },
+    { id: 'basemaps', label: 'Basemaps', icon: Globe },
+    { id: 'data', label: 'Advanced', icon: HelpCircle }
+  ];
 
   // Update UI field
   const updateUI = (field, value) => {
@@ -419,29 +421,55 @@ export default function AtlasSettingsEditor({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">Atlas Settings</h2>
-            <p className="text-sm text-slate-500">Configure UI, messages, and basemaps</p>
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: `${accentColor}15` }}
+            >
+              <Palette className="w-5 h-5" style={{ color: accentColor }} />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Atlas Settings</h2>
+              <p className="text-sm text-slate-500">Configure UI, messages, and basemaps</p>
+            </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="px-6 pt-4 border-b border-slate-200 shrink-0">
+          <div className="flex gap-1 overflow-x-auto">
+            {tabs.map(tab => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    activeTab === tab.id
+                      ? 'border-current text-slate-800'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                  style={activeTab === tab.id ? { color: accentColor } : {}}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* UI Section */}
-          <Section
-            title="User Interface"
-            icon={Palette}
-            expanded={expandedSections.ui}
-            onToggle={() => toggleSection('ui')}
-            accentColor={accentColor}
-          >
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* UI Tab */}
+          {activeTab === 'ui' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -659,17 +687,11 @@ export default function AtlasSettingsEditor({
                 </div>
               </div>
             </div>
-          </Section>
+          )}
 
-          {/* Messages Section */}
-          <Section
-            title="Messages"
-            icon={MessageSquare}
-            expanded={expandedSections.messages}
-            onToggle={() => toggleSection('messages')}
-            accentColor={accentColor}
-          >
-            <div className="space-y-4">
+          {/* Messages Tab */}
+          {activeTab === 'messages' && (
+            <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
@@ -785,17 +807,11 @@ export default function AtlasSettingsEditor({
                 />
               </div>
             </div>
-          </Section>
+          )}
 
-          {/* Disclaimer Section */}
-          <Section
-            title="Disclaimer Popup"
-            icon={Shield}
-            expanded={expandedSections.disclaimer}
-            onToggle={() => toggleSection('disclaimer')}
-            accentColor={accentColor}
-          >
-            <div className="space-y-4">
+          {/* Disclaimer Tab */}
+          {activeTab === 'disclaimer' && (
+            <div className="space-y-6">
               {/* Enable Toggle */}
               <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                 <div>
@@ -822,6 +838,23 @@ export default function AtlasSettingsEditor({
               {/* Show configuration options only when enabled */}
               {config.disclaimer.enabled && (
                 <>
+                  {/* Title Configuration */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Popup Title
+                    </label>
+                    <input
+                      type="text"
+                      value={config.disclaimer.title || 'Notice'}
+                      onChange={(e) => updateDisclaimer('title', e.target.value)}
+                      placeholder="Notice"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      The title shown in the disclaimer popup header
+                    </p>
+                  </div>
+
                   {/* Size Configuration */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -1108,24 +1141,18 @@ export default function AtlasSettingsEditor({
                     <div className="flex items-start gap-2">
                       <Palette className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
                       <p className="text-xs text-amber-800">
-                        <strong>Note:</strong> The disclaimer header and button colors will automatically match your theme color set in the User Interface section above.
+                        <strong>Note:</strong> The disclaimer header and button colors will automatically match your theme color set in the User Interface tab.
                       </p>
                     </div>
                   </div>
                 </>
               )}
             </div>
-          </Section>
+          )}
 
-          {/* Basemaps Section */}
-          <Section
-            title="Basemaps"
-            icon={Globe}
-            expanded={expandedSections.basemaps}
-            onToggle={() => toggleSection('basemaps')}
-            accentColor={accentColor}
-          >
-            <div className="space-y-3">
+          {/* Basemaps Tab */}
+          {activeTab === 'basemaps' && (
+            <div className="space-y-4">
               {config.basemaps.map((basemap, idx) => (
                 <div key={idx} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
                   <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1182,8 +1209,11 @@ export default function AtlasSettingsEditor({
                 <Plus className="w-4 h-4" /> Add Basemap
               </button>
             </div>
-          </Section>
+          )}
 
+          {/* Advanced Tab */}
+          {activeTab === 'data' && (
+            <div className="space-y-6">
           {/* Help Documentation Section */}
           <Section
             title="Help Documentation"
@@ -1308,20 +1338,22 @@ export default function AtlasSettingsEditor({
                 </div>
               </div>
             </div>
-          </Section>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 flex justify-end gap-3">
+        <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3 shrink-0">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSave}
-            className="px-4 py-2 text-white rounded-lg font-medium flex items-center gap-2"
+            className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium"
             style={{ backgroundColor: accentColor }}
           >
             <Save className="w-4 h-4" />

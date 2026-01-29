@@ -102,7 +102,7 @@ export default function DisclaimerPopup({ config, orgId, onAccept }) {
         >
           <Shield className="w-6 h-6 text-white" />
           <h2 className="text-lg font-semibold text-white flex-1">
-            Notice
+            {disclaimer.title || 'Notice'}
           </h2>
         </div>
 
@@ -174,12 +174,6 @@ export default function DisclaimerPopup({ config, orgId, onAccept }) {
             </button>
           </div>
 
-          {/* Helper text for confirmation mode */}
-          {isConfirmationMode && !isChecked && (
-            <p className="mt-2 text-xs text-slate-500">
-              Please check the box above to continue
-            </p>
-          )}
         </div>
       </div>
     </div>

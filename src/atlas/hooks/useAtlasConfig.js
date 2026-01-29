@@ -37,6 +37,7 @@ const DEFAULT_CONFIG = {
   },
   disclaimer: {
     enabled: false,              // Off by default
+    title: 'Notice',             // Configurable title for the disclaimer popup
     width: '600',                // Width value
     widthUnit: 'px',             // 'px' or '%'
     height: '400',               // Height value
