@@ -207,6 +207,7 @@ function SearchToolbar({
 
   /**
    * Handle input change with debounced suggestion fetching
+   * NOTE: Autocomplete is disabled when helpModeEnabled is true
    */
   const handleInputChange = useCallback((e) => {
     const value = e.target.value;
@@ -216,6 +217,13 @@ function SearchToolbar({
     // Clear previous debounce
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
+    }
+
+    // Disable autocomplete in help mode - don't show feature suggestions
+    if (helpModeEnabled) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
     }
 
     // Don't fetch suggestions for very short inputs
@@ -256,7 +264,7 @@ function SearchToolbar({
       setSuggestions([]);
       setShowSuggestions(false);
     }
-  }, [getMatchingAutocomplete, fetchSuggestions, autocompleteConfig]);
+  }, [getMatchingAutocomplete, fetchSuggestions, autocompleteConfig, helpModeEnabled]);
 
   /**
    * Handle suggestion selection
