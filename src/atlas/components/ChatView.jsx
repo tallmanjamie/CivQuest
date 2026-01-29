@@ -942,7 +942,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
             {helpModeEnabled && (
               <p className="text-xs text-slate-500 mt-1">
                 {hasHelpDocs
-                  ? 'Ask questions about how to use Atlas. Click again to return to property search.'
+                  ? (config?.customHelpModeText || 'Ask questions about how to use Atlas. Click again to return to property search.')
                   : 'Help documentation is not configured yet. Contact your administrator to add help content.'}
               </p>
             )}
@@ -970,6 +970,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
               themeColor={themeColor}
               isMobile={isMobile}
               enabledModes={enabledModes}
+              onExitHelpMode={() => setHelpModeEnabled(false)}
               onViewMap={(features) => {
                 // Restore search results from this message before switching to map view
                 if (features) {
@@ -1230,7 +1231,8 @@ function MessageBubble({
   searchFields,
   themeColor,
   isMobile,
-  enabledModes
+  enabledModes,
+  onExitHelpMode
 }) {
   // Mobile tab state for results with map
   const [activeTab, setActiveTab] = useState('details');
@@ -1286,6 +1288,19 @@ function MessageBubble({
 
           {/* Help media */}
           <HelpMediaDisplay media={message.helpMedia} />
+
+          {/* Exit Help Mode button */}
+          {onExitHelpMode && (
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <button
+                onClick={onExitHelpMode}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+              >
+                <X className="w-4 h-4" />
+                Exit Help Mode
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

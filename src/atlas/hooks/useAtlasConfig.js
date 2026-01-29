@@ -197,15 +197,30 @@ export function useAtlasConfig(providedOrgId = null) {
           // Determine which help documentation to use
           // If useGlobalHelp is true (default), use global help from system config
           // If useGlobalHelp is false, use organization's custom help documentation
+          // If supplementGlobalHelp is true AND useGlobalHelp is true, merge both with org taking precedence
           const useGlobalHelpSetting = atlasConfig.useGlobalHelp !== false; // Default to true
+          const supplementGlobalHelpSetting = atlasConfig.supplementGlobalHelp === true; // Default to false
           const orgHelpDocs = atlasConfig.helpDocumentation || [];
 
-          // Effective help: use org help if they opted out of global, otherwise use global
-          // If org has custom help AND useGlobalHelp is false, use org help
-          // If useGlobalHelp is true, use global help
-          const effectiveHelpDocumentation = useGlobalHelpSetting ? globalHelp : orgHelpDocs;
+          // Effective help:
+          // - If useGlobalHelp is false: use org help only
+          // - If useGlobalHelp is true and supplementGlobalHelp is true: merge org + global (org takes precedence)
+          // - If useGlobalHelp is true and supplementGlobalHelp is false: use global help only
+          let effectiveHelpDocumentation;
+
+          if (!useGlobalHelpSetting) {
+            // Only org help
+            effectiveHelpDocumentation = orgHelpDocs;
+          } else if (supplementGlobalHelpSetting && orgHelpDocs.length > 0) {
+            // Merge: org help takes precedence (appears first in search results)
+            effectiveHelpDocumentation = [...orgHelpDocs, ...globalHelp];
+          } else {
+            // Global help only
+            effectiveHelpDocumentation = globalHelp;
+          }
 
           console.log('[useAtlasConfig] Help config - useGlobalHelp:', useGlobalHelpSetting,
+            'supplementGlobalHelp:', supplementGlobalHelpSetting,
             'orgHelpDocs:', orgHelpDocs.length, 'globalHelp:', globalHelp.length,
             'effective:', effectiveHelpDocumentation.length);
 
@@ -224,6 +239,8 @@ export function useAtlasConfig(providedOrgId = null) {
             // Help documentation - uses global or org-specific based on setting
             helpDocumentation: effectiveHelpDocumentation,
             useGlobalHelp: useGlobalHelpSetting,
+            supplementGlobalHelp: supplementGlobalHelpSetting,
+            customHelpModeText: atlasConfig.customHelpModeText || '',
             // Also store the org's own help docs in case admin needs to edit them
             orgHelpDocumentation: orgHelpDocs
           };

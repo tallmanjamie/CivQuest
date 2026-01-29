@@ -159,7 +159,9 @@ export default function AtlasSettingsEditor({
       ...data?.data
     },
     helpDocumentation: data?.helpDocumentation || [],
-    useGlobalHelp: data?.useGlobalHelp !== false  // Default to true
+    useGlobalHelp: data?.useGlobalHelp !== false,  // Default to true
+    supplementGlobalHelp: data?.supplementGlobalHelp || false,  // Use global + org-specific
+    customHelpModeText: data?.customHelpModeText || ''  // Custom text for help mode display
   }));
 
   const [errors, setErrors] = useState({});
@@ -1229,18 +1231,40 @@ export default function AtlasSettingsEditor({
           {/* Help Documentation Tab */}
           {activeTab === 'help' && (
             <div className="space-y-6">
+              {/* Custom Help Mode Display Text */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Custom Help Mode Display Text
+                </label>
+                <input
+                  type="text"
+                  value={config.customHelpModeText}
+                  onChange={(e) => setConfig(prev => ({ ...prev, customHelpModeText: e.target.value }))}
+                  placeholder="Ask questions about how to use Atlas. Click again to return to property search."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-1.5">
+                  Customize the message shown when help mode is active. Leave empty to use the default text.
+                </p>
+              </div>
+
               {/* Global Help Toggle */}
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <div>
                   <span className="font-medium text-slate-700">Use Global Atlas Help</span>
                   <p className="text-xs text-slate-500 mt-0.5">
                     When enabled, this organization uses the global help documentation configured by Atlas administrators.
-                    Disable to create custom help for this organization.
+                    Disable to create custom help for this organization only.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setConfig(prev => ({ ...prev, useGlobalHelp: !prev.useGlobalHelp }))}
+                  onClick={() => setConfig(prev => ({
+                    ...prev,
+                    useGlobalHelp: !prev.useGlobalHelp,
+                    // If turning off global help, also turn off supplement
+                    supplementGlobalHelp: !prev.useGlobalHelp ? prev.supplementGlobalHelp : false
+                  }))}
                   className={`relative w-12 h-6 rounded-full transition-colors ${
                     config.useGlobalHelp ? 'bg-emerald-500' : 'bg-slate-300'
                   }`}
@@ -1253,13 +1277,48 @@ export default function AtlasSettingsEditor({
                 </button>
               </div>
 
-              {/* Show custom help editor only when NOT using global help */}
-              {!config.useGlobalHelp ? (
+              {/* Supplement Global Help Option - only shown when useGlobalHelp is true */}
+              {config.useGlobalHelp && (
+                <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div>
+                    <span className="font-medium text-slate-700">Supplement with Organization Help</span>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Add organization-specific help articles that will be searched alongside global help.
+                      Your organization's help takes precedence when searching.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, supplementGlobalHelp: !prev.supplementGlobalHelp }))}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      config.supplementGlobalHelp ? 'bg-blue-500' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                        config.supplementGlobalHelp ? 'translate-x-7' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
+
+              {/* Show custom help editor when NOT using global help OR when supplementing global help */}
+              {(!config.useGlobalHelp || config.supplementGlobalHelp) ? (
                 <>
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <p className="text-xs text-blue-800">
-                      <strong>Custom Help Mode:</strong> Add organization-specific documentation that users can access in chat mode.
-                      Include images and videos with tags to help the AI find relevant media when answering questions.
+                      {config.supplementGlobalHelp ? (
+                        <>
+                          <strong>Supplemental Help:</strong> Add organization-specific documentation that will be searched alongside global help.
+                          Your organization's help articles take precedence when matching user queries.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Custom Help Mode:</strong> Add organization-specific documentation that users can access in chat mode.
+                          Include images and videos with tags to help the AI find relevant media when answering questions.
+                        </>
+                      )}
                     </p>
                   </div>
 
@@ -1299,9 +1358,12 @@ export default function AtlasSettingsEditor({
                 <div className="p-6 bg-slate-50 border border-slate-200 rounded-lg text-center">
                   <Globe className="w-12 h-12 text-slate-400 mx-auto mb-3" />
                   <h3 className="font-medium text-slate-700 mb-1">Using Global Atlas Help</h3>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-slate-500 mb-3">
                     This organization is using the global help documentation configured by Atlas administrators.
-                    Turn off "Use Global Atlas Help" above to create custom help for this organization.
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Turn on "Supplement with Organization Help" above to add your own help articles alongside global help,
+                    or turn off "Use Global Atlas Help" to create fully custom help for this organization.
                   </p>
                 </div>
               )}
