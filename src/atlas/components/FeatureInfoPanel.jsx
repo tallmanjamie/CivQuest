@@ -378,27 +378,26 @@ export default function FeatureInfoPanel({
 
   if (!feature) return null;
 
+  // Get search bar position from config
+  const searchBarPosition = atlasConfig?.ui?.searchBarPosition || 'top';
+  const searchBarHeight = searchBarPosition === 'bottom' ? 60 : 0; // Approximate height of search toolbar
+
   if (isMobile) {
     // Mobile view: 1/3 height by default, full height when maximized
-    // When not maximized, show panel covering approximately 1/3 of the map area above search tools
+    // When search bar is at bottom, position popup above it to avoid covering it
     const mobileStyle = isMaximized
-      ? { top: '64px' } // Full height from header to bottom
-      : { height: '33vh', maxHeight: 'calc(100vh - 180px)' }; // 1/3 of viewport, accounting for header and search bar
+      ? { top: '64px', bottom: searchBarHeight } // Full height from header, accounting for bottom search bar
+      : { height: '33vh', maxHeight: 'calc(100vh - 180px)', bottom: searchBarHeight }; // 1/3 of viewport, positioned above search bar
 
     return (
       <div
-        className={`fixed inset-x-0 bottom-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 ${
+        className={`fixed inset-x-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 ${
           isMaximized ? '' : 'rounded-t-2xl'
         }`}
         style={mobileStyle}
       >
-        {/* Drag handle for visual affordance when not maximized */}
-        {!isMaximized && (
-          <div className="flex justify-center pt-2 pb-1">
-            <div className="w-10 h-1 bg-slate-300 rounded-full" />
-          </div>
-        )}
-        <div className={`flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20 ${!isMaximized ? 'pt-1' : ''}`}>
+        {/* Mobile: No resize handle - users can only maximize or close */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-white shadow-sm border border-slate-100">
               <MapPin className="w-3 h-3" style={{ color: colors.bg500 }} />
