@@ -52,6 +52,7 @@ const HIGHLIGHT_LAYER_ID = 'atlas-highlight-layer';
 const PUSHPIN_LAYER_ID = 'atlas-pushpin-layer';
 const MARKUP_LAYER_ID = 'atlas-markup-layer';
 const GPS_LAYER_ID = 'atlas-gps-layer';
+const NEARBY_BUFFER_LAYER_ID = 'atlas-nearby-buffer-layer';
 
 // Import Feature Export Service
 import { exportFeatureToPDF } from '../utils/FeatureExportService';
@@ -85,6 +86,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const highlightLayerRef = useRef(null);
   const pushpinLayerRef = useRef(null);
   const markupLayerRef = useRef(null);
+  const nearbyBufferLayerRef = useRef(null);
   const markupToolRef = useRef(null);
   const mountedRef = useRef(true);
   const initStartedRef = useRef(false);
@@ -118,6 +120,10 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [showBasemapPicker, setShowBasemapPicker] = useState(false);
   const [showMapExport, setShowMapExport] = useState(false);
   const [showMarkupTool, setShowMarkupTool] = useState(false);
+
+  // Nearby Search state - track buffer for converting to markup
+  const [nearbyBufferGeometry, setNearbyBufferGeometry] = useState(null);
+  const [nearbySearchInfo, setNearbySearchInfo] = useState(null);
 
   // PDF Export state
   const [isExportingPDF, setIsExportingPDF] = useState(false);
@@ -298,11 +304,18 @@ const MapView = forwardRef(function MapView(props, ref) {
           listMode: 'hide'
         });
 
+        const nearbyBufferLayer = new GraphicsLayer({
+          id: NEARBY_BUFFER_LAYER_ID,
+          title: 'Nearby Search Buffer',
+          listMode: 'hide'
+        });
+
         graphicsLayerRef.current = graphicsLayer;
         highlightLayerRef.current = highlightLayer;
         pushpinLayerRef.current = pushpinLayer;
         markupLayerRef.current = markupLayer;
         gpsLayerRef.current = gpsLayer;
+        nearbyBufferLayerRef.current = nearbyBufferLayer;
 
         if (!mountedRef.current || !containerRef.current) {
           console.log('[MapView] Component unmounted before view creation');
@@ -347,8 +360,8 @@ const MapView = forwardRef(function MapView(props, ref) {
 
         console.log('[MapView] Map loaded, adding layers...');
 
-        // Add graphics layers (GPS on top, then markup, then pushpins, then highlight, then results)
-        webMap.addMany([graphicsLayer, highlightLayer, pushpinLayer, markupLayer, gpsLayer]);
+        // Add graphics layers (GPS on top, then markup, then pushpins, then highlight, then nearby buffer, then results)
+        webMap.addMany([graphicsLayer, nearbyBufferLayer, highlightLayer, pushpinLayer, markupLayer, gpsLayer]);
 
         // Apply saved extent
         if (initialExtent) {
@@ -1465,8 +1478,14 @@ const MapView = forwardRef(function MapView(props, ref) {
     setSelectedFeatureLayer(null);
     setRelatedFeatures([]);
     setIsMarkupFeature(false);
+    // Clear nearby buffer state and graphic
+    setNearbyBufferGeometry(null);
+    setNearbySearchInfo(null);
     if (highlightLayerRef.current) {
       highlightLayerRef.current.removeAll();
+    }
+    if (nearbyBufferLayerRef.current) {
+      nearbyBufferLayerRef.current.removeAll();
     }
   }, []);
 
@@ -1476,6 +1495,10 @@ const MapView = forwardRef(function MapView(props, ref) {
    */
   const handleNearbySearch = useCallback((features, bufferGeometry, searchInfo) => {
     console.log('[MapView] Nearby search completed:', features.length, 'features found');
+
+    // Store buffer geometry and search info for "Save as markup" functionality
+    setNearbyBufferGeometry(bufferGeometry);
+    setNearbySearchInfo(searchInfo);
 
     // Update search results context - this updates search results panel and table view
     updateSearchResults({ features });
@@ -1498,6 +1521,47 @@ const MapView = forwardRef(function MapView(props, ref) {
       }
     }
 
+    // Get theme color for rendering
+    const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
+    const hex500 = palette[500];
+    const hexToRgb = (hex) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? [
+        parseInt(result[1], 16),
+        parseInt(result[2], 16),
+        parseInt(result[3], 16)
+      ] : [14, 165, 233];
+    };
+    const [r, g, b] = hexToRgb(hex500);
+
+    // Render buffer graphic on map (on top of results with dashed outline)
+    if (nearbyBufferLayerRef.current && bufferGeometry) {
+      nearbyBufferLayerRef.current.removeAll();
+
+      const bufferSymbol = new SimpleFillSymbol({
+        color: [r, g, b, 0.1], // Very light fill
+        outline: new SimpleLineSymbol({
+          color: [r, g, b, 0.8],
+          width: 2,
+          style: 'dash' // Dashed outline to distinguish from results
+        })
+      });
+
+      const bufferGraphic = new Graphic({
+        geometry: bufferGeometry,
+        symbol: bufferSymbol,
+        attributes: {
+          type: 'nearby-buffer',
+          distance: searchInfo?.distance,
+          unit: searchInfo?.unit,
+          sourceName: searchInfo?.sourceName
+        }
+      });
+
+      nearbyBufferLayerRef.current.add(bufferGraphic);
+      console.log('[MapView] Buffer graphic added to map');
+    }
+
     // Render results on map
     if (graphicsLayerRef.current) {
       graphicsLayerRef.current.removeAll();
@@ -1514,19 +1578,6 @@ const MapView = forwardRef(function MapView(props, ref) {
             else if (geometry.x !== undefined) geometry.type = 'point';
           }
         }
-
-        // Get theme color
-        const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
-        const hex500 = palette[500];
-        const hexToRgb = (hex) => {
-          const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-          return result ? [
-            parseInt(result[1], 16),
-            parseInt(result[2], 16),
-            parseInt(result[3], 16)
-          ] : [14, 165, 233];
-        };
-        const [r, g, b] = hexToRgb(hex500);
 
         let symbol;
         if (geometry.type === 'polygon' || geometry.rings) {
@@ -1558,8 +1609,14 @@ const MapView = forwardRef(function MapView(props, ref) {
         graphicsLayerRef.current.add(graphic);
       });
 
-      // Zoom to results
-      if (features.length > 0 && viewRef.current) {
+      // Zoom to buffer extent (includes all results)
+      if (bufferGeometry && viewRef.current) {
+        const bufferExtent = bufferGeometry.extent;
+        if (bufferExtent) {
+          viewRef.current.goTo(bufferExtent.expand(1.2));
+        }
+      } else if (features.length > 0 && viewRef.current) {
+        // Fallback to results extent if no buffer
         const extent = graphicsLayerRef.current.graphics.reduce((ext, g) => {
           if (!g.geometry) return ext;
           const geomExt = g.geometry.extent || g.geometry;
@@ -1575,9 +1632,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     // Show search results panel
     setShowSearchResults(true);
 
-    // Close feature panel/markup popup after search
-    setShowFeaturePanel(false);
-    setShowMarkupPopup(false);
+    // Keep feature panel/markup popup open so user can refine search or save buffer
   }, [updateSearchResults, themeColor, chatViewRef]);
 
   /**
@@ -1645,8 +1700,14 @@ const MapView = forwardRef(function MapView(props, ref) {
     setShowMarkupPopup(false);
     setSelectedMarkup(null);
     setIsEditingMarkup(false);
+    // Clear nearby buffer state and graphic
+    setNearbyBufferGeometry(null);
+    setNearbySearchInfo(null);
     if (highlightLayerRef.current) {
       highlightLayerRef.current.removeAll();
+    }
+    if (nearbyBufferLayerRef.current) {
+      nearbyBufferLayerRef.current.removeAll();
     }
   }, []);
 
