@@ -105,13 +105,14 @@ export async function addIntegration(integration, userId = null) {
   const docRef = doc(db, PATHS.systemConfig);
   const docSnap = await getDoc(docRef);
 
+  const now = new Date().toISOString();
   const newIntegration = {
     ...integration,
     id: integration.id || crypto.randomUUID(),
     enabled: integration.enabled !== false,
     organizations: integration.organizations || [],
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
+    createdAt: now,
+    updatedAt: now
   };
 
   let integrations = [];
@@ -159,7 +160,7 @@ export async function updateIntegration(integrationId, updates, userId = null) {
   integrations[index] = {
     ...integrations[index],
     ...updates,
-    updatedAt: serverTimestamp()
+    updatedAt: new Date().toISOString()
   };
 
   await updateDoc(docRef, {
