@@ -7,7 +7,7 @@
 // - Shows image previews for logos/avatar
 // - Blank text fields = element hidden in Atlas
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X,
   Save,
@@ -34,8 +34,11 @@ import {
   Link,
   CheckSquare,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  Type
 } from 'lucide-react';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 /**
  * Helper to check if a string is a valid hex color
@@ -785,6 +788,18 @@ export default function AtlasSettingsEditor({
                     <div className="flex gap-2">
                       <button
                         type="button"
+                        onClick={() => updateDisclaimer('contentMode', 'richText')}
+                        className={`flex-1 p-3 border rounded-lg flex items-center justify-center gap-2 transition-colors ${
+                          config.disclaimer.contentMode === 'richText'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <Type className="w-5 h-5" />
+                        <span className="font-medium">Text Editor</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => updateDisclaimer('contentMode', 'html')}
                         className={`flex-1 p-3 border rounded-lg flex items-center justify-center gap-2 transition-colors ${
                           config.disclaimer.contentMode === 'html'
@@ -811,7 +826,46 @@ export default function AtlasSettingsEditor({
                   </div>
 
                   {/* Content Input */}
-                  {config.disclaimer.contentMode === 'html' ? (
+                  {config.disclaimer.contentMode === 'richText' && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Disclaimer Content
+                      </label>
+                      <div className="border border-slate-300 rounded-lg overflow-hidden bg-white">
+                        <ReactQuill
+                          value={config.disclaimer.richTextContent || ''}
+                          onChange={(content) => updateDisclaimer('richTextContent', content)}
+                          placeholder="Enter your disclaimer content here..."
+                          modules={{
+                            toolbar: [
+                              [{ 'header': [1, 2, 3, false] }],
+                              ['bold', 'italic', 'underline', 'strike'],
+                              [{ 'color': [] }, { 'background': [] }],
+                              [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                              [{ 'indent': '-1'}, { 'indent': '+1' }],
+                              [{ 'align': [] }],
+                              ['link'],
+                              ['clean']
+                            ]
+                          }}
+                          formats={[
+                            'header',
+                            'bold', 'italic', 'underline', 'strike',
+                            'color', 'background',
+                            'list', 'bullet', 'indent',
+                            'align',
+                            'link'
+                          ]}
+                          className="disclaimer-rich-editor"
+                          style={{ minHeight: '200px' }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Use the formatting toolbar to style your disclaimer content. No HTML knowledge required.
+                      </p>
+                    </div>
+                  )}
+                  {config.disclaimer.contentMode === 'html' && (
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-sm font-medium text-slate-700">
@@ -853,7 +907,8 @@ export default function AtlasSettingsEditor({
                         Supports HTML formatting. Content will be styled automatically.
                       </p>
                     </div>
-                  ) : (
+                  )}
+                  {config.disclaimer.contentMode === 'embed' && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">
                         Embed URL

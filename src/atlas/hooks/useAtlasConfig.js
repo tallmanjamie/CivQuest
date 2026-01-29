@@ -41,7 +41,8 @@ const DEFAULT_CONFIG = {
     widthUnit: 'px',             // 'px' or '%'
     height: '400',               // Height value
     heightUnit: 'px',            // 'px' or '%'
-    contentMode: 'html',         // 'html' or 'embed'
+    contentMode: 'richText',     // 'richText', 'html', or 'embed'
+    richTextContent: '',         // Rich text content (WYSIWYG editor output)
     htmlContent: '',             // HTML content for the disclaimer
     embedUrl: '',                // URL to embed in iframe
     confirmationType: 'confirmation', // 'confirmation' or 'dontShowAgain'
