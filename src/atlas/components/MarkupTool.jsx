@@ -339,7 +339,7 @@ const MarkupTool = forwardRef(function MarkupTool({
     const sketchVM = new SketchViewModel({
       view,
       layer,
-      updateOnGraphicClick: true,
+      updateOnGraphicClick: false, // Disable auto-edit on click - only explicit Edit button starts editing
       defaultCreateOptions: { hasZ: false }
     });
 
@@ -385,6 +385,14 @@ const MarkupTool = forwardRef(function MarkupTool({
                             tool === 'polygon' ? 'Polygon' :
                             tool === 'text' ? (s.textContent || 'Label') : 'Markup';
 
+        const showLabel = (tool === 'point' && s.pointShowLabel) ||
+                          (tool === 'polyline' && s.lineShowLabel) ||
+                          (tool === 'polygon' && s.polygonShowLabel);
+
+        const measurementUnit = tool === 'point' || tool === 'text' ? s.pointMeasurementUnit :
+                                tool === 'polyline' ? s.lineMeasurementUnit :
+                                tool === 'polygon' ? s.polygonMeasurementUnit : 'dd';
+
         graphic.attributes = {
           id: `markup_${Date.now()}`,
           name: defaultName,
@@ -394,13 +402,11 @@ const MarkupTool = forwardRef(function MarkupTool({
                  tool === 'polyline' ? s.lineColor.value :
                  tool === 'text' ? s.textColor.value : s.pointColor.value,
           metric: metricText,
+          measurementUnit,
+          showLabel,
           isMarkup: true,
           timestamp: Date.now()
         };
-
-        const showLabel = (tool === 'point' && s.pointShowLabel) || 
-                          (tool === 'polyline' && s.lineShowLabel) || 
-                          (tool === 'polygon' && s.polygonShowLabel);
 
         if (showLabel && metricText) {
           const labelPoint = graphic.geometry.type === 'point' ? graphic.geometry : 
@@ -453,26 +459,56 @@ const MarkupTool = forwardRef(function MarkupTool({
             if (tool === 'point' || tool === 'text') {
               const lon = graphic.geometry.longitude || graphic.geometry.x;
               const lat = graphic.geometry.latitude || graphic.geometry.y;
-              const unit = s.pointMeasurementUnit;
+              const unit = graphic.attributes?.measurementUnit || s.pointMeasurementUnit;
               if (unit === 'dd') metricText = `${lat.toFixed(6)}°, ${lon.toFixed(6)}°`;
               else if (unit === 'dms') metricText = `${toDMS(lat, true)}, ${toDMS(lon, false)}`;
               else if (unit === 'latlon') metricText = `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
             } else if (tool === 'polyline' && geometryEngine) {
-              const len = geometryEngine.geodesicLength(graphic.geometry, s.lineMeasurementUnit);
+              const unit = graphic.attributes?.measurementUnit || s.lineMeasurementUnit;
+              const len = geometryEngine.geodesicLength(graphic.geometry, unit);
               const labelMap = { feet: 'ft', meters: 'm', miles: 'mi', kilometers: 'km' };
-              metricText = `${len.toLocaleString(undefined, {maxFractionDigits:1})} ${labelMap[s.lineMeasurementUnit] || s.lineMeasurementUnit}`;
+              metricText = `${len.toLocaleString(undefined, {maximumFractionDigits:2})} ${labelMap[unit] || unit}`;
             } else if (tool === 'polygon' && geometryEngine) {
+              const unit = graphic.attributes?.measurementUnit || s.polygonMeasurementUnit;
               const unitMapping = { 'acres': 'acres', 'sqfeet': 'square-feet', 'sqmeters': 'square-meters' };
-              const arcgisUnit = unitMapping[s.polygonMeasurementUnit] || 'acres';
+              const arcgisUnit = unitMapping[unit] || 'acres';
               const area = geometryEngine.geodesicArea(graphic.geometry, arcgisUnit);
               const labelMap = { acres: 'ac', sqfeet: 'sq ft', sqmeters: 'sq m' };
-              metricText = `${area.toLocaleString(undefined, {maxFractionDigits:1})} ${labelMap[s.polygonMeasurementUnit] || s.polygonMeasurementUnit}`;
+              metricText = `${Math.abs(area).toLocaleString(undefined, {maximumFractionDigits:2})} ${labelMap[unit] || unit}`;
             }
 
             if (metricText) {
               graphic.attributes.metric = metricText;
             }
           } catch (e) { console.error("Measurement update error:", e); }
+
+          // Update label if showLabel is enabled
+          if (graphic.attributes?.showLabel && metricText && layer) {
+            const markupId = graphic.attributes?.id;
+            // Remove existing labels
+            const existingLabels = layer.graphics.items.filter(g => g.attributes?.parentId === markupId && g.attributes?.isLabel);
+            if (existingLabels.length > 0) {
+              layer.removeMany(existingLabels);
+            }
+            // Create new label at updated position
+            const labelPoint = graphic.geometry.type === 'point' ? graphic.geometry :
+                               graphic.geometry.type === 'polygon' ? graphic.geometry.centroid :
+                               graphic.geometry.extent?.center || graphic.geometry;
+            const newLabel = new Graphic({
+              geometry: labelPoint,
+              symbol: {
+                type: 'text',
+                color: [40, 40, 40, 1],
+                text: metricText,
+                haloColor: [255, 255, 255, 0.9],
+                haloSize: 1.5,
+                font: { size: 10, weight: 'bold' },
+                yoffset: graphic.geometry.type === 'point' ? 12 : 0
+              },
+              attributes: { parentId: markupId, isLabel: true }
+            });
+            layer.add(newLabel);
+          }
 
           // Clear editing state
           if (editingMarkupRef.current === graphic) {
