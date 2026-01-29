@@ -10,29 +10,24 @@
 // to any notification in that organization.
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  collection, 
-  doc, 
-  updateDoc, 
+import {
+  collection,
+  doc,
+  updateDoc,
   getDocs,
   setDoc,
-  deleteDoc,
-  addDoc,
   onSnapshot,
   serverTimestamp
 } from "firebase/firestore";
-import { 
-  Users, 
-  Search, 
-  Edit2, 
-  Trash2,
+import {
+  Users,
+  Search,
+  Edit2,
   UserPlus,
-  Send,
   Check,
   X,
-  Plus,
   Ban,
-  Clock,
+  UserCheck,
   Mail,
   Bell,
   Building2,
@@ -41,7 +36,8 @@ import {
   Save,
   Loader2,
   AlertTriangle,
-  Shield
+  Shield,
+  AlertCircle
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
 import { 
@@ -401,23 +397,51 @@ export default function UserManagementPanel({
     }
   };
 
-  // Delete user
-  const handleDeleteUser = async (user) => {
+  // Suspend user
+  const handleSuspendUser = async (user) => {
     confirm?.({
-      title: 'Delete User',
-      message: `Are you sure you want to delete ${user.email}? This will remove all their subscriptions.`,
-      confirmLabel: 'Delete',
+      title: 'Suspend User',
+      message: `Are you sure you want to suspend ${user.email}? They will not be able to access Notify until unsuspended.`,
+      confirmLabel: 'Suspend',
       destructive: true,
       onConfirm: async () => {
+        setSaving(true);
         try {
-          await deleteDoc(doc(db, PATHS.users, user.id));
-          addToast?.(`User ${user.email} deleted`, 'success');
+          const userRef = doc(db, PATHS.users, user.id);
+          await updateDoc(userRef, {
+            suspended: true,
+            suspendedAt: serverTimestamp(),
+            suspendReason: 'Suspended by admin'
+          });
+          addToast?.(`User ${user.email} has been suspended`, 'success');
         } catch (error) {
-          console.error('[UserManagement] Delete error:', error);
-          addToast?.('Failed to delete user', 'error');
+          console.error('[UserManagement] Suspend error:', error);
+          addToast?.('Failed to suspend user', 'error');
+        } finally {
+          setSaving(false);
         }
       }
     });
+  };
+
+  // Unsuspend user
+  const handleUnsuspendUser = async (user) => {
+    setSaving(true);
+    try {
+      const userRef = doc(db, PATHS.users, user.id);
+      await updateDoc(userRef, {
+        suspended: false,
+        suspendedAt: null,
+        suspendReason: null,
+        unsuspendedAt: serverTimestamp()
+      });
+      addToast?.(`User ${user.email} has been unsuspended`, 'success');
+    } catch (error) {
+      console.error('[UserManagement] Unsuspend error:', error);
+      addToast?.('Failed to unsuspend user', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Get active subscription count for a user
@@ -583,6 +607,9 @@ export default function UserManagementPanel({
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Subscriptions
                 </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Status
+                </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Actions
                 </th>
@@ -591,45 +618,75 @@ export default function UserManagementPanel({
             <tbody className="divide-y divide-slate-100">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
                     {searchTerm ? 'No users match your search' : 'No users found'}
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map(user => (
-                  <tr key={user.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Mail className="w-4 h-4 text-slate-400" />
-                        <span className="text-sm text-slate-800">{user.email}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs">
-                        <Bell className="w-3 h-3" />
-                        {getUserSubCount(user)} active
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setEditingUser(user)}
-                          className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
-                          title="Edit subscriptions"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(user)}
-                          className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg"
-                          title="Delete user"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                filteredUsers.map(user => {
+                  const isSuspended = user.suspended === true;
+                  return (
+                    <tr key={user.id} className={`hover:bg-slate-50 ${isSuspended ? 'bg-red-50/50' : ''}`}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Mail className="w-4 h-4 text-slate-400" />
+                          <span className={`text-sm ${isSuspended ? 'text-slate-500' : 'text-slate-800'}`}>
+                            {user.email}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs">
+                          <Bell className="w-3 h-3" />
+                          {getUserSubCount(user)} active
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {isSuspended ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded text-xs">
+                            <Ban className="w-3 h-3" />
+                            Suspended
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs">
+                            <Check className="w-3 h-3" />
+                            Active
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setEditingUser(user)}
+                            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+                            title="Edit subscriptions"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          {isSuspended ? (
+                            <button
+                              onClick={() => handleUnsuspendUser(user)}
+                              disabled={saving}
+                              className="flex items-center gap-1 px-2 py-1 text-emerald-600 hover:bg-emerald-50 rounded text-xs disabled:opacity-50"
+                              title="Unsuspend user"
+                            >
+                              <UserCheck className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleSuspendUser(user)}
+                              disabled={saving}
+                              className="flex items-center gap-1 px-2 py-1 text-amber-600 hover:bg-amber-50 rounded text-xs disabled:opacity-50"
+                              title="Suspend user"
+                            >
+                              <Ban className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
