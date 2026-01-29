@@ -37,7 +37,7 @@ export default function InfoPopup({ isOpen, onClose, config }) {
           style={{ backgroundColor: colors.bg700 }}
         >
           <h2 className="text-sm font-semibold text-white">
-            Welcome to the
+            {infoConfig?.headerText || 'Welcome!'}
           </h2>
           <button
             onClick={onClose}

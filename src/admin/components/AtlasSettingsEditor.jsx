@@ -986,6 +986,24 @@ export default function AtlasSettingsEditor({
 
               {config.ui.info?.enabled && (
                 <div className="space-y-4">
+                  {/* Header Text */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      Header Text
+                    </label>
+                    <input
+                      type="text"
+                      value={config.ui.info?.headerText || ''}
+                      onChange={(e) => updateInfo('headerText', e.target.value.slice(0, 25))}
+                      placeholder="Welcome!"
+                      maxLength={25}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      {(config.ui.info?.headerText || '').length}/25 characters
+                    </p>
+                  </div>
+
                   {/* Info Text */}
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">
