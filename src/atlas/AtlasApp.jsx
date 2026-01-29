@@ -853,7 +853,10 @@ export default function AtlasApp() {
             // Wait for auth state to propagate
             await new Promise(resolve => setTimeout(resolve, 500));
           } catch (signInErr) {
-            if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
+            if (signInErr.code === 'auth/wrong-password') {
+              // Account exists but password doesn't match - wasn't created with ArcGIS
+              setOauthError(`An account with email ${email} exists but wasn't created with ArcGIS. Please sign in with your email and password, then link your ArcGIS account in Account Settings.`);
+            } else if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
               setOauthError(`No account found with email ${email}. Please use the Create Account option first.`);
             } else {
               throw signInErr;
