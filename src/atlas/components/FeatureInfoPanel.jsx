@@ -13,12 +13,14 @@ import {
   Loader2,
   Eye,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Radar
 } from 'lucide-react';
 
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
 import { useIntegrations } from '../hooks/useIntegrations';
+import NearbySearchTool from './NearbySearchTool';
 
 /**
  * FeatureInfoPanel Component
@@ -34,6 +36,7 @@ export default function FeatureInfoPanel({
   onSaveAsMarkup,
   onExportPDF,
   onZoomTo,
+  onNearbySearch,
   relatedFeatures = [],
   currentRelatedIndex = 0,
   onNavigateRelated,
@@ -42,7 +45,7 @@ export default function FeatureInfoPanel({
   isExportingPDF = false,
   exportPDFProgress = ''
 }) {
-  const { config: atlasConfig, orgId } = useAtlas();
+  const { config: atlasConfig, orgId, activeMap } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
@@ -53,6 +56,7 @@ export default function FeatureInfoPanel({
   const [activeTab, setActiveTab] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [showNearbyTool, setShowNearbyTool] = useState(false);
   
   // Title State (Resolved from Feature Widget)
   const [dynamicTitle, setDynamicTitle] = useState(null);
@@ -354,6 +358,35 @@ export default function FeatureInfoPanel({
     });
   }, [feature, displayTitle, colors.bg500, openEagleView]);
 
+  // Handle Nearby button click
+  const handleNearbyClick = useCallback(() => {
+    setShowNearbyTool(true);
+  }, []);
+
+  // Handle Nearby search results
+  const handleNearbyResults = useCallback((features, bufferGeometry, searchInfo) => {
+    console.log('[FeatureInfoPanel] Nearby search found', features.length, 'features');
+    setShowNearbyTool(false);
+    if (onNearbySearch) {
+      onNearbySearch(features, bufferGeometry, searchInfo);
+    }
+  }, [onNearbySearch]);
+
+  // Handle saving buffer as markup
+  const handleSaveBufferAsMarkup = useCallback((bufferGeometry, bufferName) => {
+    if (onSaveAsMarkup) {
+      // Create a pseudo-feature with the buffer geometry
+      const bufferFeature = {
+        geometry: bufferGeometry,
+        attributes: {}
+      };
+      onSaveAsMarkup(bufferFeature, bufferName);
+    }
+  }, [onSaveAsMarkup]);
+
+  // Get endpoint for nearby search
+  const nearbyEndpoint = activeMap?.endpoint || config?.data?.endpoint;
+
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
       <ActionButton icon={Bookmark} label="Markup" onClick={() => onSaveAsMarkup?.(feature, displayTitle)} />
@@ -365,6 +398,7 @@ export default function FeatureInfoPanel({
         isLoading={isExportingPDF}
       />
       <ActionButton icon={Target} label="Zoom" onClick={() => onZoomTo?.(feature)} />
+      <ActionButton icon={Radar} label="Nearby" onClick={handleNearbyClick} />
       {isPictometryEnabled && (
         <ActionButton
           icon={Eye}
@@ -419,6 +453,23 @@ export default function FeatureInfoPanel({
           </div>
         </div>
         <ActionButtons />
+
+        {/* Nearby Search Tool */}
+        {showNearbyTool && (
+          <div className="p-3 border-b border-slate-200">
+            <NearbySearchTool
+              geometry={feature?.geometry}
+              endpoint={nearbyEndpoint}
+              customFeatureInfo={customFeatureInfo}
+              onResults={handleNearbyResults}
+              onSaveBufferAsMarkup={handleSaveBufferAsMarkup}
+              onClose={() => setShowNearbyTool(false)}
+              themeColor={themeColor}
+              sourceName={displayTitle}
+            />
+          </div>
+        )}
+
         <div className="flex-1 flex flex-col overflow-hidden">
           {renderTabsList()}
           <div className="flex-1 overflow-y-auto p-5 pb-20">
@@ -476,6 +527,23 @@ export default function FeatureInfoPanel({
       </div>
 
       <ActionButtons />
+
+      {/* Nearby Search Tool */}
+      {showNearbyTool && (
+        <div className="p-3 border-b border-slate-200">
+          <NearbySearchTool
+            geometry={feature?.geometry}
+            endpoint={nearbyEndpoint}
+            customFeatureInfo={customFeatureInfo}
+            onResults={handleNearbyResults}
+            onSaveBufferAsMarkup={handleSaveBufferAsMarkup}
+            onClose={() => setShowNearbyTool(false)}
+            themeColor={themeColor}
+            sourceName={displayTitle}
+          />
+        </div>
+      )}
+
       {renderTabsList()}
 
       <div className="flex-1 overflow-y-auto custom-scrollbar">

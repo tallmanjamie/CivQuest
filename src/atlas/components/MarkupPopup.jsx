@@ -13,7 +13,8 @@ import {
   Tag,
   FileText,
   GripVertical,
-  Eye
+  Eye,
+  Radar
 } from 'lucide-react';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 import Point from '@arcgis/core/geometry/Point';
@@ -22,6 +23,7 @@ import Polygon from '@arcgis/core/geometry/Polygon';
 import { getThemeColors } from '../utils/themeColors';
 import { useAtlas } from '../AtlasApp';
 import { useIntegrations } from '../hooks/useIntegrations';
+import NearbySearchTool from './NearbySearchTool';
 
 /**
  * Ensures the geometry is a proper ArcGIS Geometry class instance.
@@ -105,11 +107,13 @@ export default function MarkupPopup({
   onCancelEditing,
   onUpdateMarkup,
   onUpdateLabel,
+  onNearbySearch,
+  onSaveBufferAsMarkup,
   isEditing = false,
   onWidthChange,
   refreshKey = 0
 }) {
-  const { config: atlasConfig, orgId } = useAtlas();
+  const { config: atlasConfig, orgId, activeMap } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
@@ -126,6 +130,7 @@ export default function MarkupPopup({
   const [isMobile, setIsMobile] = useState(false);
   const [desktopWidth, setDesktopWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
+  const [showNearbyTool, setShowNearbyTool] = useState(false);
   const resizeRef = React.useRef({ startX: 0, startW: 0 });
 
   // Determine markup type
@@ -289,6 +294,30 @@ export default function MarkupPopup({
     });
   }, [markup, name, colors.bg500, openEagleView]);
 
+  // Handle Nearby button click
+  const handleNearbyClick = useCallback(() => {
+    setShowNearbyTool(true);
+  }, []);
+
+  // Handle Nearby search results
+  const handleNearbyResults = useCallback((features, bufferGeometry, searchInfo) => {
+    console.log('[MarkupPopup] Nearby search found', features.length, 'features');
+    setShowNearbyTool(false);
+    if (onNearbySearch) {
+      onNearbySearch(features, bufferGeometry, searchInfo);
+    }
+  }, [onNearbySearch]);
+
+  // Handle saving buffer as markup from nearby tool
+  const handleSaveBuffer = useCallback((bufferGeometry, bufferName) => {
+    if (onSaveBufferAsMarkup) {
+      onSaveBufferAsMarkup(bufferGeometry, bufferName);
+    }
+  }, [onSaveBufferAsMarkup]);
+
+  // Get endpoint for nearby search
+  const nearbyEndpoint = activeMap?.endpoint || config?.data?.endpoint;
+
   // Desktop resizing
   const startResizingDesktop = useCallback((e) => {
     e.preventDefault();
@@ -400,7 +429,7 @@ export default function MarkupPopup({
           </>
         ) : (
           <>
-            {/* Zoom/Edit buttons when not editing */}
+            {/* Zoom/Edit/Nearby buttons when not editing */}
             <button
               onClick={handleZoom}
               className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
@@ -415,6 +444,13 @@ export default function MarkupPopup({
               <Edit3 className="w-4 h-4 text-slate-400" />
               <span>Edit</span>
             </button>
+            <button
+              onClick={handleNearbyClick}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
+            >
+              <Radar className="w-4 h-4 text-slate-400" />
+              <span>Nearby</span>
+            </button>
             {isPictometryEnabled && (
               <button
                 onClick={handleOpenEagleView}
@@ -428,6 +464,22 @@ export default function MarkupPopup({
           </>
         )}
       </div>
+
+      {/* Nearby Search Tool */}
+      {showNearbyTool && (
+        <div className="p-3 border-b border-slate-200">
+          <NearbySearchTool
+            geometry={markup?.geometry}
+            endpoint={nearbyEndpoint}
+            customFeatureInfo={activeMap?.customFeatureInfo}
+            onResults={handleNearbyResults}
+            onSaveBufferAsMarkup={handleSaveBuffer}
+            onClose={() => setShowNearbyTool(false)}
+            themeColor={themeColor}
+            sourceName={name || 'Markup'}
+          />
+        </div>
+      )}
 
       {/* Measurement Display */}
       <div className="p-4 border-b border-slate-200">
