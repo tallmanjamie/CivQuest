@@ -33,7 +33,7 @@ import {
   Link,
   FileText,
   CheckSquare,
-  SquareX
+  XSquare
 } from 'lucide-react';
 
 /**
@@ -994,7 +994,7 @@ export default function AtlasSettingsEditor({
                             : 'border-slate-200 hover:border-slate-300 text-slate-600'
                         }`}
                       >
-                        <SquareX className="w-5 h-5" />
+                        <XSquare className="w-5 h-5" />
                         <span className="text-sm font-medium">Don't Show Again</span>
                         <span className="text-xs text-slate-500 text-center">Optional checkbox to hide permanently</span>
                       </button>
