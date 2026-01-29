@@ -60,10 +60,13 @@ export default function MarkupPopup({
   onClose,
   onZoomTo,
   onEditMarkup,
+  onDoneEditing,
+  onCancelEditing,
   onUpdateMarkup,
   onUpdateLabel,
   isEditing = false,
-  onWidthChange
+  onWidthChange,
+  refreshKey = 0
 }) {
   const { config: atlasConfig } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
@@ -111,7 +114,7 @@ export default function MarkupPopup({
     }
   }, [availableUnits, selectedUnit, markup]);
 
-  // Calculate measurement when unit or geometry changes
+  // Calculate measurement when unit or geometry changes (refreshKey triggers recalc after editing)
   useEffect(() => {
     if (!markup?.geometry || !selectedUnit) return;
 
@@ -135,14 +138,14 @@ export default function MarkupPopup({
       console.warn('[MarkupPopup] Measurement error:', err);
       setMeasurement('Unable to calculate');
     }
-  }, [markup, selectedUnit, markupType]);
+  }, [markup, selectedUnit, markupType, refreshKey]);
 
-  // Sync name with markup
+  // Sync name with markup (refreshKey triggers sync after editing)
   useEffect(() => {
     setName(markup?.attributes?.name || '');
     setNotes(markup?.attributes?.notes || '');
     setShowLabel(markup?.attributes?.showLabel || false);
-  }, [markup]);
+  }, [markup, refreshKey]);
 
   // Mobile detection
   useEffect(() => {
@@ -173,7 +176,7 @@ export default function MarkupPopup({
     }
   }, [markup, onUpdateMarkup]);
 
-  // Handle unit change
+  // Handle unit change - also update label on map if showing
   const handleUnitChange = useCallback((unitId) => {
     const unit = availableUnits.find(u => u.id === unitId);
     if (unit) {
@@ -183,6 +186,13 @@ export default function MarkupPopup({
       }
     }
   }, [availableUnits, markup, onUpdateMarkup]);
+
+  // Update label on map when measurement changes and showLabel is true
+  useEffect(() => {
+    if (showLabel && measurement && markup) {
+      onUpdateLabel?.(markup, true, measurement);
+    }
+  }, [measurement, showLabel, markup, onUpdateLabel]);
 
   // Handle label toggle
   const handleLabelToggle = useCallback((checked) => {
@@ -206,6 +216,16 @@ export default function MarkupPopup({
       onEditMarkup?.(markup);
     }
   }, [markup, onEditMarkup]);
+
+  // Handle done editing
+  const handleDoneEditing = useCallback(() => {
+    onDoneEditing?.();
+  }, [onDoneEditing]);
+
+  // Handle cancel editing
+  const handleCancelEditing = useCallback(() => {
+    onCancelEditing?.();
+  }, [onCancelEditing]);
 
   // Desktop resizing
   const startResizingDesktop = useCallback((e) => {
@@ -297,26 +317,44 @@ export default function MarkupPopup({
 
       {/* Action Buttons */}
       <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
-        <button
-          onClick={handleZoom}
-          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
-        >
-          <ZoomIn className="w-4 h-4 text-slate-400" />
-          <span>Zoom To</span>
-        </button>
-
-        <button
-          onClick={handleEdit}
-          disabled={isEditing}
-          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition border ${
-            isEditing
-              ? 'bg-blue-50 text-blue-600 border-blue-200 cursor-default'
-              : 'text-slate-600 bg-white hover:bg-slate-100 border-slate-200'
-          }`}
-        >
-          <Edit3 className={`w-4 h-4 ${isEditing ? 'text-blue-500' : 'text-slate-400'}`} />
-          <span>{isEditing ? 'Editing...' : 'Edit'}</span>
-        </button>
+        {isEditing ? (
+          <>
+            {/* Done/Cancel buttons when editing */}
+            <button
+              onClick={handleCancelEditing}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
+            >
+              <X className="w-4 h-4 text-slate-400" />
+              <span>Cancel</span>
+            </button>
+            <button
+              onClick={handleDoneEditing}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-white rounded-lg transition border border-green-600"
+              style={{ backgroundColor: '#22c55e' }}
+            >
+              <Check className="w-4 h-4 text-white" />
+              <span>Done</span>
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Zoom/Edit buttons when not editing */}
+            <button
+              onClick={handleZoom}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
+            >
+              <ZoomIn className="w-4 h-4 text-slate-400" />
+              <span>Zoom To</span>
+            </button>
+            <button
+              onClick={handleEdit}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
+            >
+              <Edit3 className="w-4 h-4 text-slate-400" />
+              <span>Edit</span>
+            </button>
+          </>
+        )}
       </div>
 
       {/* Measurement Display */}
@@ -355,8 +393,11 @@ export default function MarkupPopup({
 
       {/* Label Toggle */}
       <div className="px-4 py-3 border-b border-slate-200">
-        <label className="flex items-center gap-3 cursor-pointer group">
-          <div className={`relative w-10 h-5 rounded-full transition ${showLabel ? '' : 'bg-slate-200'}`}
+        <button
+          onClick={() => handleLabelToggle(!showLabel)}
+          className="flex items-center gap-3 cursor-pointer group w-full text-left"
+        >
+          <div className={`relative w-10 h-5 rounded-full transition flex-shrink-0 ${showLabel ? '' : 'bg-slate-200'}`}
                style={showLabel ? { backgroundColor: colors.bg500 } : {}}>
             <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
               showLabel ? 'translate-x-5' : 'translate-x-0.5'
@@ -366,7 +407,7 @@ export default function MarkupPopup({
             <Tag className="w-4 h-4 text-slate-400" />
             <span className="text-sm text-slate-700 font-medium">Show measurement label</span>
           </div>
-        </label>
+        </button>
         <p className="text-[11px] text-slate-400 mt-1.5 ml-[52px]">
           Display the measurement value on the map
         </p>

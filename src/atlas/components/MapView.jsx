@@ -104,6 +104,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [showMarkupPopup, setShowMarkupPopup] = useState(false);
   const [markupPopupWidth, setMarkupPopupWidth] = useState(400);
   const [isEditingMarkup, setIsEditingMarkup] = useState(false);
+  const [markupRefreshKey, setMarkupRefreshKey] = useState(0);
 
   // Tool Panel States
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
@@ -1484,6 +1485,26 @@ const MapView = forwardRef(function MapView(props, ref) {
   }, [showMarkupTool]);
 
   /**
+   * Handle done editing markup - completes the edit
+   */
+  const handleDoneEditing = useCallback(() => {
+    if (!markupToolRef.current) return;
+    markupToolRef.current.completeEdit();
+    setIsEditingMarkup(false);
+    // Force refresh the popup to show updated geometry/measurement
+    setMarkupRefreshKey(k => k + 1);
+  }, []);
+
+  /**
+   * Handle cancel editing markup - cancels the edit
+   */
+  const handleCancelEditing = useCallback(() => {
+    if (!markupToolRef.current) return;
+    markupToolRef.current.cancelEdit();
+    setIsEditingMarkup(false);
+  }, []);
+
+  /**
    * Handle update markup attributes
    */
   const handleUpdateMarkupAttributes = useCallback((markup, updates) => {
@@ -2002,10 +2023,13 @@ const MapView = forwardRef(function MapView(props, ref) {
           onClose={handleCloseMarkupPopup}
           onZoomTo={handleZoomToMarkup}
           onEditMarkup={handleEditMarkup}
+          onDoneEditing={handleDoneEditing}
+          onCancelEditing={handleCancelEditing}
           onUpdateMarkup={handleUpdateMarkupAttributes}
           onUpdateLabel={handleUpdateMarkupLabel}
           isEditing={isEditingMarkup}
           onWidthChange={setMarkupPopupWidth}
+          refreshKey={markupRefreshKey}
         />
       )}
 
