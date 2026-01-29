@@ -28,7 +28,12 @@ import {
   Lightbulb,
   Search,
   Eye,
-  EyeOff
+  EyeOff,
+  Shield,
+  Link,
+  FileText,
+  CheckSquare,
+  SquareX
 } from 'lucide-react';
 
 /**
@@ -130,6 +135,20 @@ export default function AtlasSettingsEditor({
       timeZoneOffset: -5,
       defaultSort: '',
       ...data?.data
+    },
+    disclaimer: {
+      enabled: false,
+      width: '600',
+      widthUnit: 'px',
+      height: '400',
+      heightUnit: 'px',
+      contentMode: 'html', // 'html' or 'embed'
+      embedUrl: '',
+      htmlContent: '',
+      confirmationType: 'confirmation', // 'confirmation' or 'dontShowAgain'
+      checkboxText: 'I agree to the terms and conditions',
+      buttonText: 'Continue',
+      ...data?.disclaimer
     }
   }));
 
@@ -138,7 +157,8 @@ export default function AtlasSettingsEditor({
     ui: true,
     messages: true,
     basemaps: false,
-    data: false
+    data: false,
+    disclaimer: false
   });
   
   // Custom hex color input
@@ -172,6 +192,14 @@ export default function AtlasSettingsEditor({
     setConfig(prev => ({
       ...prev,
       data: { ...prev.data, [field]: value }
+    }));
+  };
+
+  // Update disclaimer field
+  const updateDisclaimer = (field, value) => {
+    setConfig(prev => ({
+      ...prev,
+      disclaimer: { ...prev.disclaimer, [field]: value }
     }));
   };
 
@@ -783,6 +811,240 @@ export default function AtlasSettingsEditor({
                   />
                 </div>
               </div>
+            </div>
+          </Section>
+
+          {/* Disclaimer Section */}
+          <Section
+            title="Disclaimer Popup"
+            icon={Shield}
+            expanded={expandedSections.disclaimer}
+            onToggle={() => toggleSection('disclaimer')}
+            accentColor={accentColor}
+          >
+            <div className="space-y-4">
+              {/* Enable Toggle */}
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div>
+                  <label className="text-sm font-medium text-slate-700">Enable Disclaimer</label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Show a disclaimer popup when users first visit the site
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateDisclaimer('enabled', !config.disclaimer.enabled)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    config.disclaimer.enabled ? 'bg-sky-500' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      config.disclaimer.enabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {config.disclaimer.enabled && (
+                <>
+                  {/* Size Settings */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Width
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={config.disclaimer.width}
+                          onChange={(e) => updateDisclaimer('width', e.target.value)}
+                          placeholder="600"
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        />
+                        <select
+                          value={config.disclaimer.widthUnit}
+                          onChange={(e) => updateDisclaimer('widthUnit', e.target.value)}
+                          className="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        >
+                          <option value="px">px</option>
+                          <option value="%">%</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Height
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={config.disclaimer.height}
+                          onChange={(e) => updateDisclaimer('height', e.target.value)}
+                          placeholder="400"
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        />
+                        <select
+                          value={config.disclaimer.heightUnit}
+                          onChange={(e) => updateDisclaimer('heightUnit', e.target.value)}
+                          className="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                        >
+                          <option value="px">px</option>
+                          <option value="%">%</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Content Mode */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Content Source
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateDisclaimer('contentMode', 'html')}
+                        className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                          config.disclaimer.contentMode === 'html'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <FileText className="w-5 h-5" />
+                        <span className="text-sm font-medium">HTML Editor</span>
+                        <span className="text-xs text-slate-500">Write custom content</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateDisclaimer('contentMode', 'embed')}
+                        className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                          config.disclaimer.contentMode === 'embed'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <Link className="w-5 h-5" />
+                        <span className="text-sm font-medium">Embed URL</span>
+                        <span className="text-xs text-slate-500">Load from webpage</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Embed URL or HTML Editor */}
+                  {config.disclaimer.contentMode === 'embed' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Embed URL
+                      </label>
+                      <input
+                        type="url"
+                        value={config.disclaimer.embedUrl}
+                        onChange={(e) => updateDisclaimer('embedUrl', e.target.value)}
+                        placeholder="https://example.com/terms"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        The content from this URL will be displayed in an iframe
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Disclaimer Content (HTML)
+                      </label>
+                      <textarea
+                        value={config.disclaimer.htmlContent}
+                        onChange={(e) => updateDisclaimer('htmlContent', e.target.value)}
+                        placeholder="<h2>Terms of Use</h2><p>By using this site, you agree to...</p>"
+                        rows={8}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Supports HTML tags for formatting. Colors will match the site theme.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Confirmation Type */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Confirmation Type
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateDisclaimer('confirmationType', 'confirmation')}
+                        className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                          config.disclaimer.confirmationType === 'confirmation'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <CheckSquare className="w-5 h-5" />
+                        <span className="text-sm font-medium">Require Agreement</span>
+                        <span className="text-xs text-slate-500 text-center">Must check box to continue</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateDisclaimer('confirmationType', 'dontShowAgain')}
+                        className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                          config.disclaimer.confirmationType === 'dontShowAgain'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <SquareX className="w-5 h-5" />
+                        <span className="text-sm font-medium">Don't Show Again</span>
+                        <span className="text-xs text-slate-500 text-center">Optional checkbox to hide permanently</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Text Customization */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Checkbox Text
+                      </label>
+                      <input
+                        type="text"
+                        value={config.disclaimer.checkboxText}
+                        onChange={(e) => updateDisclaimer('checkboxText', e.target.value)}
+                        placeholder={config.disclaimer.confirmationType === 'confirmation'
+                          ? "I agree to the terms and conditions"
+                          : "Don't show this again"}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Button Text
+                      </label>
+                      <input
+                        type="text"
+                        value={config.disclaimer.buttonText}
+                        onChange={(e) => updateDisclaimer('buttonText', e.target.value)}
+                        placeholder="Continue"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preview Note */}
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-amber-800">
+                        <p className="font-medium">Theme Colors Applied</p>
+                        <p className="text-xs mt-0.5">
+                          The disclaimer popup will automatically use the theme color configured in the User Interface section.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </Section>
         </div>
