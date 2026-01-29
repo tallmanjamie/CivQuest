@@ -24,9 +24,22 @@ import {
  *   media: Array<{ id, type: 'image'|'video', url, title, thumbnail?, tags }>,
  *   links: Array<{ id, title, url, description? }>  // External links tied to this article
  * }
+ *
+ * Integration structure:
+ * {
+ *   id: string,
+ *   type: string, // key from AVAILABLE_INTEGRATIONS (e.g., 'pictometry')
+ *   name: string, // custom display name
+ *   integrationType: 'atlas' | 'notify',
+ *   enabled: boolean,
+ *   organizations: string[], // org IDs that have access
+ *   createdAt: timestamp,
+ *   updatedAt: timestamp
+ * }
  */
 export const DEFAULT_SYSTEM_CONFIG = {
   globalHelpDocumentation: [],
+  integrations: [], // System-level integrations configuration
   updatedAt: null,
   updatedBy: null
 };
