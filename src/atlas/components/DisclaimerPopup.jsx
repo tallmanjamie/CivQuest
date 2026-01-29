@@ -116,6 +116,14 @@ export default function DisclaimerPopup({ config, orgId, onAccept }) {
               title="Disclaimer Content"
               sandbox="allow-scripts allow-same-origin"
             />
+          ) : disclaimer.contentMode === 'richText' ? (
+            // Rich text content mode (WYSIWYG editor output)
+            <div
+              className="p-5 prose prose-slate max-w-none"
+              dangerouslySetInnerHTML={{
+                __html: disclaimer.richTextContent || '<p>No disclaimer content configured.</p>'
+              }}
+            />
           ) : (
             // HTML content mode
             <div

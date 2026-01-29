@@ -32,7 +32,8 @@ export default function FeatureInfoPanel({
   relatedFeatures = [],
   currentRelatedIndex = 0,
   onNavigateRelated,
-  isMarkupFeature = false
+  isMarkupFeature = false,
+  onWidthChange
 }) {
   const { config: atlasConfig } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
@@ -54,6 +55,11 @@ export default function FeatureInfoPanel({
   const featureContainerRef = useRef(null);
   const titleWatcherRef = useRef(null); // Ref to hold the title watcher handle
   const resizeRef = useRef({ startX: 0, startW: 0 });
+
+  // Notify parent of width changes for positioning navigation controls
+  useEffect(() => {
+    onWidthChange?.(desktopWidth);
+  }, [desktopWidth, onWidthChange]);
 
   const useCustomTabs = useMemo(() => {
     if (!customFeatureInfo?.layerId || !customFeatureInfo?.tabs?.length) return false;
