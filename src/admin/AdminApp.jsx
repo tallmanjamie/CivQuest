@@ -62,7 +62,8 @@ import {
   Layers,
   Printer,
   BookOpen,
-  Puzzle
+  Puzzle,
+  MapPin
 } from 'lucide-react';
 
 // Import admin components
@@ -1528,6 +1529,10 @@ function OrgIntegrationsModal({ db, org, onClose, addToast, accentColor = '#004E
   };
 
   const isConfigured = (integrationTypeKey) => {
+    // Nearmap doesn't require credentials - it's always configured
+    if (integrationTypeKey === 'nearmap') {
+      return true;
+    }
     const config = configValues[integrationTypeKey];
     return config?.apiKey && config.apiKey.trim() !== '';
   };
@@ -1605,7 +1610,11 @@ function OrgIntegrationsModal({ db, org, onClose, addToast, accentColor = '#004E
                           className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                           style={{ backgroundColor: `${accentColor}15` }}
                         >
-                          <Eye className="w-5 h-5" style={{ color: accentColor }} />
+                          {integration.type === 'nearmap' ? (
+                            <MapPin className="w-5 h-5" style={{ color: accentColor }} />
+                          ) : (
+                            <Eye className="w-5 h-5" style={{ color: accentColor }} />
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
@@ -1655,8 +1664,24 @@ function OrgIntegrationsModal({ db, org, onClose, addToast, accentColor = '#004E
                         </>
                       )}
 
+                      {/* Nearmap - No credentials required */}
+                      {integration.type === 'nearmap' && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                          <div className="flex items-start gap-3">
+                            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                            <div className="text-sm">
+                              <p className="font-medium text-green-800 mb-1">No Credentials Required</p>
+                              <p className="text-green-700">
+                                Nearmap authentication is handled directly in the embedded viewer.
+                                This integration only requires configuring the popup window size.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Generic config schema fields for future integrations */}
-                      {integration.type !== 'pictometry' && definition?.configSchema && (
+                      {integration.type !== 'pictometry' && integration.type !== 'nearmap' && definition?.configSchema && (
                         Object.entries(definition.configSchema).map(([fieldKey, fieldDef]) => (
                           <div key={fieldKey}>
                             <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -1683,6 +1708,8 @@ function OrgIntegrationsModal({ db, org, onClose, addToast, accentColor = '#004E
                         <div className="text-sm text-slate-500">
                           {changed ? (
                             <span className="text-amber-600 font-medium">Unsaved changes</span>
+                          ) : integration.type === 'nearmap' ? (
+                            <span className="text-green-600">Ready to use</span>
                           ) : configured ? (
                             <span className="text-green-600">Configuration saved</span>
                           ) : (
