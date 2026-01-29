@@ -38,6 +38,38 @@ export const AVAILABLE_INTEGRATIONS = {
         description: 'Your EagleView/Pictometry API key',
         required: true,
         placeholder: 'e.g., 3f513db9-95ae-4df3-b64b-b26267b95cce'
+      },
+      windowWidth: {
+        type: 'number',
+        label: 'Window Width',
+        description: 'Width of the EagleView popup window',
+        required: false,
+        default: 80,
+        placeholder: '80'
+      },
+      windowWidthUnit: {
+        type: 'select',
+        label: 'Width Unit',
+        description: 'Unit for window width (pixels or percentage)',
+        required: false,
+        default: '%',
+        options: ['px', '%']
+      },
+      windowHeight: {
+        type: 'number',
+        label: 'Window Height',
+        description: 'Height of the EagleView popup window',
+        required: false,
+        default: 80,
+        placeholder: '80'
+      },
+      windowHeightUnit: {
+        type: 'select',
+        label: 'Height Unit',
+        description: 'Unit for window height (pixels or percentage)',
+        required: false,
+        default: '%',
+        options: ['px', '%']
       }
     }
   }

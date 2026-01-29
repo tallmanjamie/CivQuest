@@ -5,8 +5,8 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { initializeApp } from "firebase/app";
 import LicenseManagement from './components/LicenseManagement';
-import { 
-  getAuth, 
+import {
+  getAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -81,6 +81,17 @@ import {
   subscribeToIntegrations,
   AVAILABLE_INTEGRATIONS
 } from '../shared/services/integrations';
+
+// Import ArcGIS OAuth services
+import {
+  initiateArcGISLogin,
+  getOAuthRedirectUri,
+  parseOAuthCallback,
+  clearOAuthParams,
+  verifyOAuthState,
+  completeArcGISOAuth,
+  generateDeterministicPassword
+} from '../shared/services/arcgis-auth';
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -338,12 +349,97 @@ function AdminLogin() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [arcgisLoading, setArcgisLoading] = useState(false);
+
+  // Handle ArcGIS OAuth callback on mount
+  useEffect(() => {
+    const handleOAuthCallback = async () => {
+      const { code, state, error: oauthError, errorDescription } = parseOAuthCallback();
+
+      // If there's an OAuth error, display it
+      if (oauthError) {
+        setError(errorDescription || oauthError);
+        clearOAuthParams();
+        return;
+      }
+
+      // If no code, nothing to process
+      if (!code) return;
+
+      // Verify state for CSRF protection
+      if (!verifyOAuthState(state)) {
+        setError('Invalid OAuth state. Please try again.');
+        clearOAuthParams();
+        return;
+      }
+
+      setArcgisLoading(true);
+      setError(null);
+
+      try {
+        const redirectUri = getOAuthRedirectUri();
+        const oauthResult = await completeArcGISOAuth(code, redirectUri);
+
+        const { user: arcgisUser } = oauthResult;
+
+        // Use the ArcGIS email, or construct one from username if email not available
+        const userEmail = arcgisUser.email || `${arcgisUser.username}@arcgis.local`;
+
+        // Generate a deterministic password for this ArcGIS user
+        const deterministicPassword = await generateDeterministicPassword(
+          arcgisUser.username,
+          arcgisUser.email || arcgisUser.orgId || arcgisUser.username
+        );
+
+        // Try to sign in first (existing user)
+        try {
+          await signInWithEmailAndPassword(auth, userEmail, deterministicPassword);
+        } catch (signInError) {
+          // If user doesn't exist, create them
+          if (signInError.code === 'auth/user-not-found' || signInError.code === 'auth/invalid-credential') {
+            try {
+              const cred = await createUserWithEmailAndPassword(auth, userEmail, deterministicPassword);
+
+              // Create user document
+              await setDoc(doc(db, PATHS.user(cred.user.uid)), {
+                email: userEmail.toLowerCase(),
+                displayName: arcgisUser.fullName || arcgisUser.username,
+                arcgisUsername: arcgisUser.username,
+                arcgisOrgId: arcgisUser.orgId || null,
+                createdAt: serverTimestamp(),
+                createdVia: 'arcgis_oauth_admin',
+                subscriptions: {},
+                disabled: false,
+                suspended: false
+              }, { merge: true });
+            } catch (createError) {
+              throw createError;
+            }
+          } else {
+            throw signInError;
+          }
+        }
+
+        // Clear OAuth params from URL
+        clearOAuthParams();
+
+      } catch (err) {
+        console.error('ArcGIS OAuth error:', err);
+        setError(err.message || 'Failed to sign in with ArcGIS. Please try again.');
+        clearOAuthParams();
+      } finally {
+        setArcgisLoading(false);
+      }
+    };
+
+    handleOAuthCallback();
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    
+
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
@@ -353,6 +449,24 @@ function AdminLogin() {
     }
   };
 
+  const handleArcGISLogin = () => {
+    const redirectUri = getOAuthRedirectUri();
+    initiateArcGISLogin(redirectUri, 'signin');
+  };
+
+  // Show loading state while processing OAuth callback
+  if (arcgisLoading) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[#0079C1] mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-slate-800">Signing in with ArcGIS...</h2>
+          <p className="text-slate-500 mt-2">Please wait while we verify your account.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
@@ -360,7 +474,33 @@ function AdminLogin() {
           <Shield className="w-8 h-8 text-[#004E7C]" />
           <h1 className="text-2xl font-bold text-slate-800">Admin Portal</h1>
         </div>
-        
+
+        {/* ArcGIS Sign In Button */}
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={handleArcGISLogin}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#0079C1] text-white rounded-lg font-medium hover:bg-[#006699] transition-colors disabled:opacity-50"
+          >
+            <Globe className="w-5 h-5" />
+            Sign in with ArcGIS
+          </button>
+          <p className="text-xs text-slate-500 text-center mt-2">
+            Use your ArcGIS Online account
+          </p>
+        </div>
+
+        {/* Divider */}
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-200"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-4 bg-white text-slate-500">or continue with email</span>
+          </div>
+        </div>
+
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
@@ -372,7 +512,7 @@ function AdminLogin() {
               required
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
             <input
@@ -383,13 +523,13 @@ function AdminLogin() {
               required
             />
           </div>
-          
+
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
               {error}
             </div>
           )}
-          
+
           <button
             type="submit"
             disabled={loading}
@@ -1897,23 +2037,41 @@ function OrgAdminManagement() {
 
   const handleAddAdmin = async (email, organizationId) => {
     try {
-      // Create Firebase Auth account
-      const tempPassword = Math.random().toString(36).slice(-12) + 'A1!';
-      const userCredential = await createUserWithEmailAndPassword(auth, email, tempPassword);
-      
-      // Create admin document
-      await setDoc(doc(db, PATHS.admins, userCredential.user.uid), {
+      // Search for existing user by email
+      const usersQuery = query(
+        collection(db, PATHS.users),
+        where('email', '==', email.toLowerCase())
+      );
+      const usersSnapshot = await getDocs(usersQuery);
+
+      if (usersSnapshot.empty) {
+        addToast(`No user found with email ${email}. The user must have an existing CivQuest account.`, 'error');
+        return;
+      }
+
+      const existingUser = usersSnapshot.docs[0];
+      const userId = existingUser.id;
+
+      // Check if user is already an admin
+      const existingAdminDoc = await getDoc(doc(db, PATHS.admins, userId));
+      if (existingAdminDoc.exists()) {
+        addToast(`User ${email} is already an admin.`, 'error');
+        return;
+      }
+
+      // Create admin document for existing user
+      await setDoc(doc(db, PATHS.admins, userId), {
         email: email.toLowerCase(),
         role: 'org_admin',
         organizationId,
         disabled: false,
         createdAt: serverTimestamp()
       });
-      
-      addToast(`Admin ${email} created. Temporary password: ${tempPassword}`, 'success');
+
+      addToast(`${email} has been added as an organization admin.`, 'success');
       setShowAddModal(false);
     } catch (err) {
-      addToast(`Error creating admin: ${err.message}`, 'error');
+      addToast(`Error adding admin: ${err.message}`, 'error');
     }
   };
 
@@ -2071,12 +2229,16 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-4">
+          <p className="text-sm text-slate-500 -mt-2 mb-2">
+            Add an existing CivQuest user as an organization admin.
+          </p>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter user's email address"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
               required
             />
@@ -2111,7 +2273,7 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
               className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center gap-2"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create Admin
+              Add Admin
             </button>
           </div>
         </form>
