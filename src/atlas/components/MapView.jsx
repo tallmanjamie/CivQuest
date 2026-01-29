@@ -88,6 +88,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const mountedRef = useRef(true);
   const initStartedRef = useRef(false);
   const originalPopupEnabledRef = useRef(new Map()); // Store original popupEnabled state for each layer
+  const searchResultsRef = useRef(null); // Track current searchResults to avoid stale closure in click handler
 
   // State
   const [isLoading, setIsLoading] = useState(true);
@@ -160,6 +161,11 @@ const MapView = forwardRef(function MapView(props, ref) {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showToolsMenu]);
+
+  // Keep searchResultsRef in sync to avoid stale closure in click handler
+  useEffect(() => {
+    searchResultsRef.current = searchResults;
+  }, [searchResults]);
 
   /**
    * Get storage key for persisting map extent
@@ -516,10 +522,11 @@ const MapView = forwardRef(function MapView(props, ref) {
           return;
         }
 
-        // Handle search result click
+        // Handle search result click - use ref to avoid stale closure
         const featureIndex = clickedGraphic.attributes?._index;
-        if (featureIndex !== undefined && searchResults?.features) {
-          const feature = searchResults.features[featureIndex];
+        const currentSearchResults = searchResultsRef.current;
+        if (featureIndex !== undefined && currentSearchResults?.features) {
+          const feature = currentSearchResults.features[featureIndex];
           if (feature) {
             // Try to find the source layer for custom popup support
             const customLayerId = activeMap?.customFeatureInfo?.layerId;
@@ -584,7 +591,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     } catch (err) {
       console.warn('[MapView] Click handler error:', err);
     }
-  }, [searchResults, activeMap]);
+  }, [activeMap]); // Note: searchResults accessed via ref to avoid stale closure
 
   /**
    * Handle feature selection (opens FeatureInfoPanel)
