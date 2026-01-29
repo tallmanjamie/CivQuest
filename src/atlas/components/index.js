@@ -18,6 +18,6 @@ export { default as SearchResultsPanel } from './SearchResultsPanel';
 export { default as FeatureInfoPanel } from './FeatureInfoPanel';
 export { default as LayersPanel } from './LayersPanel';
 export { default as BasemapPicker } from './BasemapPicker';
-export { default as MapExportTool } from './MapExportTool';
-export { default as MarkupTool } from './MarkupTool';
 export { default as MapExportTool, ExportToolButton } from './MapExportTool';
+export { default as MarkupTool } from './MarkupTool';
+export { default as MarkupPopup } from './MarkupPopup';

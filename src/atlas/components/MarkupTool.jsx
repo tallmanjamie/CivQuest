@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import {
   Pencil,
   Circle,
@@ -178,14 +178,14 @@ const Checkbox = ({ checked, onChange, label }) => (
   </label>
 );
 
-export default function MarkupTool({
+const MarkupTool = forwardRef(function MarkupTool({
   view,
   graphicsLayer,
   config,
   isExpanded = false,
   onToggle,
   className = ''
-}) {
+}, ref) {
   const { config: atlasConfig } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
@@ -684,6 +684,82 @@ export default function MarkupTool({
     }
   }, [settings, editingMarkup, applySymbolToEditingMarkup]);
 
+  // Update markup attributes
+  const updateMarkupAttributes = useCallback((graphic, updates) => {
+    if (!graphic || !updates) return;
+
+    Object.assign(graphic.attributes, updates);
+    setMarkups(prev => [...prev]);
+  }, []);
+
+  // Update or create label for a markup
+  const updateMarkupLabel = useCallback((graphic, showLabel, labelText) => {
+    const layer = layerRef.current;
+    if (!layer || !graphic) return;
+
+    const markupId = graphic.attributes?.id;
+    if (!markupId) return;
+
+    // Find and remove existing label
+    const existingLabels = layer.graphics.items.filter(g => g.attributes?.parentId === markupId && g.attributes?.isLabel);
+    if (existingLabels.length > 0) {
+      layer.removeMany(existingLabels);
+    }
+
+    // Update the showLabel attribute
+    graphic.attributes.showLabel = showLabel;
+
+    // Create new label if enabled
+    if (showLabel && labelText) {
+      const labelPoint = graphic.geometry.type === 'point' ? graphic.geometry :
+                         graphic.geometry.type === 'polygon' ? graphic.geometry.centroid :
+                         graphic.geometry.extent?.center || graphic.geometry;
+
+      const label = new Graphic({
+        geometry: labelPoint,
+        symbol: {
+          type: 'text',
+          color: [40, 40, 40, 1],
+          text: labelText,
+          haloColor: [255, 255, 255, 0.9],
+          haloSize: 1.5,
+          font: { size: 10, weight: 'bold' },
+          yoffset: graphic.geometry.type === 'point' ? 12 : 0
+        },
+        attributes: { parentId: markupId, isLabel: true }
+      });
+      layer.add(label);
+    }
+
+    setMarkups(prev => [...prev]);
+  }, []);
+
+  // Find markup by ID
+  const findMarkupById = useCallback((markupId) => {
+    return markups.find(m => m.attributes?.id === markupId);
+  }, [markups]);
+
+  // Edit a markup by ID (called from MarkupPopup)
+  const editMarkupById = useCallback((markupId) => {
+    const graphic = findMarkupById(markupId);
+    if (graphic) {
+      startEdit(graphic);
+    }
+  }, [findMarkupById, startEdit]);
+
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    editMarkupById,
+    startEdit,
+    cancelEdit,
+    completeEdit,
+    updateMarkupAttributes,
+    updateMarkupLabel,
+    findMarkupById,
+    get editingMarkup() { return editingMarkup; },
+    get markups() { return markups; }
+  }), [editMarkupById, startEdit, cancelEdit, completeEdit, updateMarkupAttributes, updateMarkupLabel, findMarkupById, editingMarkup, markups]);
+
   if (!isExpanded) {
     return (
       <button
@@ -937,4 +1013,6 @@ export default function MarkupTool({
       </div>
     </div>
   );
-}
+});
+
+export default MarkupTool;

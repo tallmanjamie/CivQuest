@@ -28,6 +28,7 @@ import LayersPanel from './LayersPanel';
 import BasemapPicker from './BasemapPicker';
 import MapExportTool from './MapExportTool';
 import MarkupTool from './MarkupTool';
+import MarkupPopup from './MarkupPopup';
 
 // ArcGIS ES Modules
 import WebMap from '@arcgis/core/WebMap';
@@ -81,6 +82,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   const highlightLayerRef = useRef(null);
   const pushpinLayerRef = useRef(null);
   const markupLayerRef = useRef(null);
+  const markupToolRef = useRef(null);
   const mountedRef = useRef(true);
   const initStartedRef = useRef(false);
   const originalPopupEnabledRef = useRef(new Map()); // Store original popupEnabled state for each layer
@@ -96,6 +98,12 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [relatedFeatures, setRelatedFeatures] = useState([]);
   const [currentRelatedIndex, setCurrentRelatedIndex] = useState(0);
   const [isMarkupFeature, setIsMarkupFeature] = useState(false);
+
+  // Markup Popup State
+  const [selectedMarkup, setSelectedMarkup] = useState(null);
+  const [showMarkupPopup, setShowMarkupPopup] = useState(false);
+  const [markupPopupWidth, setMarkupPopupWidth] = useState(400);
+  const [isEditingMarkup, setIsEditingMarkup] = useState(false);
 
   // Tool Panel States
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
@@ -480,15 +488,28 @@ const MapView = forwardRef(function MapView(props, ref) {
       if (graphicHits.length > 0) {
         const clickedGraphic = graphicHits[0].graphic;
 
-        // Check if it's a markup feature
+        // Check if it's a markup feature - open MarkupPopup instead of FeatureInfoPanel
         if (clickedGraphic.layer === markupLayerRef.current) {
-          setSelectedFeature({
-            geometry: clickedGraphic.geometry,
-            attributes: clickedGraphic.attributes || {}
-          });
-          setIsMarkupFeature(true);
-          setRelatedFeatures([]);
-          setShowFeaturePanel(true);
+          // Skip label graphics
+          if (clickedGraphic.attributes?.isLabel) {
+            return;
+          }
+
+          // Close any open feature panel
+          setShowFeaturePanel(false);
+          setSelectedFeature(null);
+          setIsMarkupFeature(false);
+
+          // Open markup popup
+          setSelectedMarkup(clickedGraphic);
+          setShowMarkupPopup(true);
+
+          // Check if this markup is currently being edited
+          const isEditing = markupToolRef.current?.editingMarkup?.attributes?.id === clickedGraphic.attributes?.id;
+          setIsEditingMarkup(isEditing);
+
+          // Highlight the markup
+          highlightFeature({ geometry: clickedGraphic.geometry, attributes: clickedGraphic.attributes }, clickedGraphic);
           return;
         }
 
@@ -1420,6 +1441,64 @@ const MapView = forwardRef(function MapView(props, ref) {
     }
   }, []);
 
+  /**
+   * Close markup popup
+   */
+  const handleCloseMarkupPopup = useCallback(() => {
+    setShowMarkupPopup(false);
+    setSelectedMarkup(null);
+    setIsEditingMarkup(false);
+    if (highlightLayerRef.current) {
+      highlightLayerRef.current.removeAll();
+    }
+  }, []);
+
+  /**
+   * Handle zoom to markup
+   */
+  const handleZoomToMarkup = useCallback((markup) => {
+    if (!viewRef.current || !markup?.geometry) return;
+
+    const geometry = markup.geometry;
+    const target = geometry.type === 'point'
+      ? { target: geometry, zoom: 16 }
+      : geometry.extent.expand(1.5);
+
+    viewRef.current.goTo(target);
+  }, []);
+
+  /**
+   * Handle edit markup - delegates to MarkupTool
+   */
+  const handleEditMarkup = useCallback((markup) => {
+    if (!markupToolRef.current || !markup) return;
+
+    // Expand the markup tool if it's collapsed
+    if (!showMarkupTool) {
+      setShowMarkupTool(true);
+    }
+
+    // Start editing via MarkupTool ref
+    markupToolRef.current.startEdit(markup);
+    setIsEditingMarkup(true);
+  }, [showMarkupTool]);
+
+  /**
+   * Handle update markup attributes
+   */
+  const handleUpdateMarkupAttributes = useCallback((markup, updates) => {
+    if (!markupToolRef.current || !markup) return;
+    markupToolRef.current.updateMarkupAttributes(markup, updates);
+  }, []);
+
+  /**
+   * Handle update markup label
+   */
+  const handleUpdateMarkupLabel = useCallback((markup, showLabel, labelText) => {
+    if (!markupToolRef.current || !markup) return;
+    markupToolRef.current.updateMarkupLabel(markup, showLabel, labelText);
+  }, []);
+
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     renderResults,
@@ -1440,6 +1519,20 @@ const MapView = forwardRef(function MapView(props, ref) {
       renderResults(searchResults.features);
     }
   }, [searchResults, renderResults, mapReady]);
+
+  // Sync editing state with MarkupTool
+  useEffect(() => {
+    if (!showMarkupPopup || !selectedMarkup) return;
+
+    const checkEditingState = () => {
+      const isEditing = markupToolRef.current?.editingMarkup?.attributes?.id === selectedMarkup.attributes?.id;
+      setIsEditingMarkup(isEditing);
+    };
+
+    // Check periodically while popup is open (to sync when editing completes)
+    const interval = setInterval(checkEditingState, 500);
+    return () => clearInterval(interval);
+  }, [showMarkupPopup, selectedMarkup]);
 
   // Get config values
   const basemaps = activeMap?.basemaps || config?.basemaps || [];
@@ -1579,6 +1672,7 @@ const MapView = forwardRef(function MapView(props, ref) {
               )}
               {showMarkupTool && (
                 <MarkupTool
+                  ref={markupToolRef}
                   view={viewRef.current}
                   graphicsLayer={markupLayerRef.current}
                   config={config}
@@ -1646,6 +1740,7 @@ const MapView = forwardRef(function MapView(props, ref) {
 
               {/* 2. Markup Tool */}
               <MarkupTool
+                ref={markupToolRef}
                 view={viewRef.current}
                 graphicsLayer={markupLayerRef.current}
                 config={config}
@@ -1728,7 +1823,13 @@ const MapView = forwardRef(function MapView(props, ref) {
       {mapReady && !isLoading && !error && (
         <div
           className="absolute bottom-4 flex flex-col gap-2 z-20 transition-[right] duration-300"
-          style={{ right: showFeaturePanel && selectedFeature && !isMobile ? featurePanelWidth + 16 : 16 }}
+          style={{
+            right: (showFeaturePanel && selectedFeature && !isMobile)
+              ? featurePanelWidth + 16
+              : (showMarkupPopup && selectedMarkup && !isMobile)
+                ? markupPopupWidth + 16
+                : 16
+          }}
         >
           {/* GPS Button and Settings */}
           <div className="relative">
@@ -1889,6 +1990,22 @@ const MapView = forwardRef(function MapView(props, ref) {
           onNavigateRelated={setCurrentRelatedIndex}
           isMarkupFeature={isMarkupFeature}
           onWidthChange={setFeaturePanelWidth}
+        />
+      )}
+
+      {/* ==================== MARKUP POPUP ==================== */}
+      {showMarkupPopup && selectedMarkup && (
+        <MarkupPopup
+          markup={selectedMarkup}
+          view={viewRef.current}
+          config={config}
+          onClose={handleCloseMarkupPopup}
+          onZoomTo={handleZoomToMarkup}
+          onEditMarkup={handleEditMarkup}
+          onUpdateMarkup={handleUpdateMarkupAttributes}
+          onUpdateLabel={handleUpdateMarkupLabel}
+          isEditing={isEditingMarkup}
+          onWidthChange={setMarkupPopupWidth}
         />
       )}
 
