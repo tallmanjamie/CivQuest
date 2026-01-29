@@ -641,7 +641,7 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 
 /**
  * Extract fixed width from HTML content if specified in a root element's style
- * Looks for width styles like "width: 600px" or "width:600px" in the outermost container
+ * Looks for width or max-width styles like "width: 600px" or "max-width:600px" in the outermost container
  * @param {string} htmlContent - HTML string content
  * @returns {number|null} Width in pixels if found, null otherwise
  */
@@ -650,10 +650,22 @@ function extractFixedWidthFromHtml(htmlContent) {
 
   // Look for width in style attribute of the first/outermost element
   // Match patterns like: <div style="width: 600px"> or <div style="...;width:600px;...">
-  const styleMatch = htmlContent.match(/^[\s]*<[^>]+style\s*=\s*["'][^"']*width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/i);
+  // Use negative lookbehind to avoid matching max-width when looking for width
+  const styleMatch = htmlContent.match(/^[\s]*<[^>]+style\s*=\s*["'][^"']*(?<!max-)width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/i);
 
   if (styleMatch && styleMatch[1]) {
     const widthPx = parseFloat(styleMatch[1]);
+    if (!isNaN(widthPx) && widthPx > 0) {
+      return widthPx;
+    }
+  }
+
+  // Check for max-width in style attribute
+  // Match patterns like: <div style="max-width: 600px"> or <div style="...;max-width:600px;...">
+  const maxWidthMatch = htmlContent.match(/^[\s]*<[^>]+style\s*=\s*["'][^"']*max-width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/i);
+
+  if (maxWidthMatch && maxWidthMatch[1]) {
+    const widthPx = parseFloat(maxWidthMatch[1]);
     if (!isNaN(widthPx) && widthPx > 0) {
       return widthPx;
     }
@@ -1446,7 +1458,7 @@ export async function exportFeatureToPDF({
   // Get evaluated popup content if using popup elements
   let popupContent = [];
   if (usePopupElements) {
-    onProgress('Evaluating popup expressions...');
+    onProgress('Processing PDF...');
     try {
       popupContent = await getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo, mapView);
       console.log('[FeatureExport] Got popup content:', popupContent.length, 'sections');
