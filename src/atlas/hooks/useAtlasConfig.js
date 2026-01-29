@@ -27,7 +27,19 @@ const DEFAULT_CONFIG = {
     themeColor: 'sky',
     defaultMode: 'chat',
     searchBarPosition: 'top',
-    searchPlaceholder: ''  // Empty = use default
+    searchPlaceholder: '',  // Empty = use default
+    // Info button configuration - shows info popup when clicked
+    info: {
+      enabled: false,                  // Disabled by default
+      text: '',                        // Text displayed at top of popup
+      logo: null,                      // Logo URL displayed below text
+      buttons: []                      // Array of { label: string, url: string }
+    },
+    // Header links configuration - shows links in header
+    links: {
+      enabled: false,                  // Disabled by default
+      items: []                        // Array of { label: string, url: string } (max 4)
+    }
   },
   messages: {
     welcomeTitle: '',  // Empty = hidden
@@ -228,7 +240,13 @@ export function useAtlasConfig(providedOrgId = null) {
             ...DEFAULT_CONFIG,
             ...atlasConfig,
             id: orgId,
-            ui: { ...DEFAULT_CONFIG.ui, ...atlasConfig.ui },
+            ui: {
+              ...DEFAULT_CONFIG.ui,
+              ...atlasConfig.ui,
+              // Deep merge nested ui objects
+              info: { ...DEFAULT_CONFIG.ui.info, ...atlasConfig.ui?.info },
+              links: { ...DEFAULT_CONFIG.ui.links, ...atlasConfig.ui?.links }
+            },
             messages: { ...DEFAULT_CONFIG.messages, ...atlasConfig.messages },
             disclaimer: { ...DEFAULT_CONFIG.disclaimer, ...atlasConfig.disclaimer },
             data: { ...DEFAULT_CONFIG.data, ...atlasConfig.data },
