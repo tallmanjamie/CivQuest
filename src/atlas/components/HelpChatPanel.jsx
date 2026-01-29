@@ -14,7 +14,8 @@ import {
   Search,
   ArrowLeft,
   Image as ImageIcon,
-  PlayCircle
+  PlayCircle,
+  ExternalLink
 } from 'lucide-react';
 import { getThemeColors } from '../utils/themeColors';
 
@@ -31,7 +32,7 @@ export default function HelpChatPanel({
   config,
   position = 'top' // 'top' or 'bottom' based on search bar position
 }) {
-  const [view, setView] = useState('articles'); // 'articles' | 'article' | 'chat'
+  const [view, setView] = useState('chat'); // 'articles' | 'article' | 'chat' - default to chat mode
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [chatMessages, setChatMessages] = useState([]);
@@ -45,8 +46,9 @@ export default function HelpChatPanel({
   const colors = getThemeColors(themeColor);
   const isBottom = position === 'bottom';
 
-  // Get help documentation from config
+  // Get help documentation and links from config
   const helpDocs = config?.helpDocumentation || [];
+  const helpLinks = config?.helpLinks || [];
 
   // Filter articles based on search query
   const filteredDocs = searchQuery.trim()
@@ -190,7 +192,7 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
   // Reset view when panel closes
   useEffect(() => {
     if (!isOpen) {
-      setView('articles');
+      setView('chat'); // Default to chat mode
       setSelectedArticle(null);
       setSearchQuery('');
     }
@@ -199,19 +201,18 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
   if (!isOpen) return null;
 
   return (
-    <>
+    <div className="fixed inset-0 z-50">
       {/* Backdrop */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
 
-      {/* Panel */}
+      {/* Panel - positioned to match AdvancedSearchModal */}
       <div
-        className={`absolute ${isBottom ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-slate-200 shadow-xl rounded-xl w-96 z-50 overflow-hidden flex flex-col`}
-        style={{ maxHeight: '70vh' }}
+        className={`absolute ${isBottom ? 'bottom-16 left-3' : 'top-28 left-3'} bg-white rounded-xl shadow-2xl w-[calc(100%-1.5rem)] sm:w-96 max-h-[70vh] flex flex-col animate-in fade-in ${isBottom ? 'slide-in-from-bottom-4' : 'slide-in-from-top-4'} duration-200`}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
-          className="px-4 py-3 border-b border-slate-100 flex justify-between items-center flex-shrink-0"
-          style={{ backgroundColor: colors.bg50 }}
+          className="px-4 py-3 border-b border-slate-100 flex justify-between items-center flex-shrink-0 bg-slate-50 rounded-t-xl"
         >
           <div className="flex items-center gap-2">
             {(view === 'article' || view === 'chat') && (
@@ -267,19 +268,26 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
 
             {/* Articles List */}
             <div className="flex-1 overflow-y-auto">
-              {helpDocs.length === 0 ? (
+              {/* Empty state - no content at all */}
+              {helpDocs.length === 0 && helpLinks.length === 0 && (
                 <div className="p-6 text-center">
                   <BookOpen className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                  <p className="text-sm text-slate-500">No help articles available</p>
+                  <p className="text-sm text-slate-500">No help content available</p>
                   <p className="text-xs text-slate-400 mt-1">Contact your administrator to add help content</p>
                 </div>
-              ) : filteredDocs.length === 0 ? (
+              )}
+
+              {/* Search with no results */}
+              {filteredDocs.length === 0 && searchQuery.trim() && (
                 <div className="p-6 text-center">
                   <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                   <p className="text-sm text-slate-500">No matching articles</p>
                   <p className="text-xs text-slate-400 mt-1">Try different keywords</p>
                 </div>
-              ) : (
+              )}
+
+              {/* Articles */}
+              {filteredDocs.length > 0 && (
                 <div className="divide-y divide-slate-50">
                   {filteredDocs.map((doc, idx) => (
                     <button
@@ -312,6 +320,41 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                       <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 flex-shrink-0" />
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/* External Resources */}
+              {helpLinks.length > 0 && !searchQuery.trim() && (
+                <div className={filteredDocs.length > 0 ? "border-t border-slate-100" : ""}>
+                  <div className="px-4 py-2 bg-slate-50">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      External Resources
+                    </p>
+                  </div>
+                  <div className="divide-y divide-slate-50">
+                    {helpLinks.map((link, idx) => (
+                      <a
+                        key={link.id || idx}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors flex items-center gap-3 group block"
+                      >
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-emerald-100"
+                        >
+                          <ExternalLink className="w-4 h-4 text-emerald-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-700 truncate">{link.title}</p>
+                          {link.description && (
+                            <p className="text-xs text-slate-500 truncate mt-0.5">{link.description}</p>
+                          )}
+                        </div>
+                        <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-600 flex-shrink-0" />
+                      </a>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -529,6 +572,6 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
           </>
         )}
       </div>
-    </>
+    </div>
   );
 }

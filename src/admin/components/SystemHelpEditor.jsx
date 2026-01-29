@@ -16,7 +16,9 @@ import {
   FileImage,
   Video,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  ExternalLink,
+  Link
 } from 'lucide-react';
 import { subscribeToSystemConfig, updateGlobalHelpDocumentation } from '../../shared/services/systemConfig';
 
@@ -31,17 +33,22 @@ export default function SystemHelpEditor({
   accentColor = '#004E7C'
 }) {
   const [helpDocs, setHelpDocs] = useState([]);
+  const [helpLinks, setHelpLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [originalDocs, setOriginalDocs] = useState([]);
+  const [originalLinks, setOriginalLinks] = useState([]);
 
   // Subscribe to system config for real-time updates
   useEffect(() => {
     const unsubscribe = subscribeToSystemConfig((config) => {
       const docs = config.globalHelpDocumentation || [];
+      const links = config.globalHelpLinks || [];
       setHelpDocs(docs);
+      setHelpLinks(links);
       setOriginalDocs(JSON.parse(JSON.stringify(docs)));
+      setOriginalLinks(JSON.parse(JSON.stringify(links)));
       setLoading(false);
     });
 
@@ -50,9 +57,10 @@ export default function SystemHelpEditor({
 
   // Track changes
   useEffect(() => {
-    const changed = JSON.stringify(helpDocs) !== JSON.stringify(originalDocs);
-    setHasChanges(changed);
-  }, [helpDocs, originalDocs]);
+    const docsChanged = JSON.stringify(helpDocs) !== JSON.stringify(originalDocs);
+    const linksChanged = JSON.stringify(helpLinks) !== JSON.stringify(originalLinks);
+    setHasChanges(docsChanged || linksChanged);
+  }, [helpDocs, originalDocs, helpLinks, originalLinks]);
 
   // Add new help article
   const addHelpDoc = () => {
@@ -151,16 +159,51 @@ export default function SystemHelpEditor({
     setHelpDocs(updated);
   };
 
+  // Hyperlink management
+  const addHelpLink = () => {
+    setHelpLinks(prev => [...prev, {
+      id: `link_${Date.now()}`,
+      title: '',
+      url: '',
+      description: ''
+    }]);
+  };
+
+  const updateHelpLink = (index, field, value) => {
+    const updated = [...helpLinks];
+    updated[index] = { ...updated[index], [field]: value };
+    setHelpLinks(updated);
+  };
+
+  const removeHelpLink = async (index) => {
+    const link = helpLinks[index];
+    const confirmed = await confirm({
+      title: 'Delete External Link',
+      message: `Are you sure you want to delete "${link.title || 'Untitled Link'}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      danger: true
+    });
+
+    if (confirmed) {
+      setHelpLinks(prev => prev.filter((_, i) => i !== index));
+    }
+  };
+
   // Save changes
   const handleSave = async () => {
     setSaving(true);
     try {
       // Clean up empty articles
       const cleanedDocs = helpDocs.filter(doc => doc.title.trim() || doc.content.trim());
+      // Clean up empty links
+      const cleanedLinks = helpLinks.filter(link => link.title.trim() && link.url.trim());
 
-      await updateGlobalHelpDocumentation(cleanedDocs, adminEmail);
+      await updateGlobalHelpDocumentation(cleanedDocs, adminEmail, cleanedLinks);
       setOriginalDocs(JSON.parse(JSON.stringify(cleanedDocs)));
+      setOriginalLinks(JSON.parse(JSON.stringify(cleanedLinks)));
       setHelpDocs(cleanedDocs);
+      setHelpLinks(cleanedLinks);
       addToast('Global help documentation saved successfully', 'success');
     } catch (error) {
       console.error('Error saving global help:', error);
@@ -184,6 +227,7 @@ export default function SystemHelpEditor({
 
     if (confirmed) {
       setHelpDocs(JSON.parse(JSON.stringify(originalDocs)));
+      setHelpLinks(JSON.parse(JSON.stringify(originalLinks)));
     }
   };
 
@@ -267,6 +311,89 @@ export default function SystemHelpEditor({
           <Plus className="w-5 h-5" />
           Add Help Article
         </button>
+      </div>
+
+      {/* External Links Section */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div
+            className="w-10 h-10 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: `${accentColor}15` }}
+          >
+            <ExternalLink className="w-5 h-5" style={{ color: accentColor }} />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">External Resources</h2>
+            <p className="text-sm text-slate-500">
+              Add links to external resources (opens in new window)
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {helpLinks.map((link, linkIdx) => (
+            <div
+              key={link.id || linkIdx}
+              className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Link className="w-5 h-5 text-slate-400" />
+                </div>
+                <div className="flex-1 space-y-3">
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={link.title}
+                      onChange={(e) => updateHelpLink(linkIdx, 'title', e.target.value)}
+                      placeholder="Link Title"
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeHelpLink(linkIdx)}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <input
+                    type="url"
+                    value={link.url}
+                    onChange={(e) => updateHelpLink(linkIdx, 'url', e.target.value)}
+                    placeholder="URL (https://...)"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={link.description || ''}
+                    onChange={(e) => updateHelpLink(linkIdx, 'description', e.target.value)}
+                    placeholder="Description (optional)"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {helpLinks.length === 0 && (
+            <div className="p-6 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-center">
+              <ExternalLink className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+              <p className="text-slate-500 text-sm">
+                No external links added yet
+              </p>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={addHelpLink}
+            className="w-full py-3 border border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-slate-400 hover:text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-2 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Add External Link
+          </button>
+        </div>
       </div>
 
       {/* Action Buttons */}

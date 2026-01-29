@@ -17,6 +17,7 @@ import {
  */
 export const DEFAULT_SYSTEM_CONFIG = {
   globalHelpDocumentation: [],
+  globalHelpLinks: [],
   updatedAt: null,
   updatedBy: null
 };
@@ -101,8 +102,12 @@ export async function updateSystemConfig(data, userId = null) {
 /**
  * Update global help documentation
  */
-export async function updateGlobalHelpDocumentation(helpDocs, userId = null) {
-  await updateSystemConfig({ globalHelpDocumentation: helpDocs }, userId);
+export async function updateGlobalHelpDocumentation(helpDocs, userId = null, helpLinks = null) {
+  const updateData = { globalHelpDocumentation: helpDocs };
+  if (helpLinks !== null) {
+    updateData.globalHelpLinks = helpLinks;
+  }
+  await updateSystemConfig(updateData, userId);
 }
 
 export default {
