@@ -73,7 +73,8 @@ const MapView = forwardRef(function MapView(props, ref) {
     isSearching,
     zoomToFeature: contextZoomToFeature,
     highlightFeature: contextHighlightFeature,
-    setShowHelpPanel
+    setShowHelpPanel,
+    chatViewRef
   } = useAtlas();
 
   // Refs
@@ -615,6 +616,11 @@ const MapView = forwardRef(function MapView(props, ref) {
         };
       }
     }
+
+    // Close any open markup popup
+    setShowMarkupPopup(false);
+    setSelectedMarkup(null);
+    setIsEditingMarkup(false);
 
     setSelectedFeature(enrichedFeature);
     setSelectedFeatureLayer(resolvedLayer);
@@ -1465,6 +1471,174 @@ const MapView = forwardRef(function MapView(props, ref) {
   }, []);
 
   /**
+   * Handle nearby search results
+   * Updates search results, renders on map, and triggers chat message
+   */
+  const handleNearbySearch = useCallback((features, bufferGeometry, searchInfo) => {
+    console.log('[MapView] Nearby search completed:', features.length, 'features found');
+
+    // Update search results context - this updates search results panel and table view
+    updateSearchResults({ features });
+
+    // Add message to chat
+    if (chatViewRef?.current?.addMessage) {
+      const { distance, unit, sourceName } = searchInfo || {};
+      if (features.length === 0) {
+        chatViewRef.current.addMessage('ai', `No features found within **${distance} ${unit}** of **${sourceName}**.`);
+      } else {
+        chatViewRef.current.addMessage('ai', `Found **${features.length}** feature${features.length !== 1 ? 's' : ''} within **${distance} ${unit}** of **${sourceName}**.`, {
+          features,
+          showResultActions: true,
+          searchMetadata: {
+            queryType: 'nearbySearch',
+            whereClause: `Spatial query within ${distance} ${unit} buffer`,
+            interpretation: `Searching for features near ${sourceName}`
+          }
+        });
+      }
+    }
+
+    // Render results on map
+    if (graphicsLayerRef.current) {
+      graphicsLayerRef.current.removeAll();
+      features.forEach(feature => {
+        if (!feature.geometry) return;
+
+        let geometry = feature.geometry;
+        // Ensure geometry has type
+        if (geometry && typeof geometry === 'object' && !geometry.declaredClass) {
+          geometry = { ...geometry };
+          if (!geometry.type) {
+            if (geometry.rings) geometry.type = 'polygon';
+            else if (geometry.paths) geometry.type = 'polyline';
+            else if (geometry.x !== undefined) geometry.type = 'point';
+          }
+        }
+
+        // Get theme color
+        const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
+        const hex500 = palette[500];
+        const hexToRgb = (hex) => {
+          const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+          return result ? [
+            parseInt(result[1], 16),
+            parseInt(result[2], 16),
+            parseInt(result[3], 16)
+          ] : [14, 165, 233];
+        };
+        const [r, g, b] = hexToRgb(hex500);
+
+        let symbol;
+        if (geometry.type === 'polygon' || geometry.rings) {
+          symbol = new SimpleFillSymbol({
+            color: [r, g, b, 0.35],
+            outline: new SimpleLineSymbol({
+              color: [r, g, b],
+              width: 2
+            })
+          });
+        } else if (geometry.type === 'polyline' || geometry.paths) {
+          symbol = new SimpleLineSymbol({
+            color: [r, g, b],
+            width: 3
+          });
+        } else {
+          symbol = new SimpleMarkerSymbol({
+            color: [r, g, b],
+            size: 10,
+            outline: { color: [255, 255, 255], width: 2 }
+          });
+        }
+
+        const graphic = new Graphic({
+          geometry,
+          symbol,
+          attributes: feature.attributes
+        });
+        graphicsLayerRef.current.add(graphic);
+      });
+
+      // Zoom to results
+      if (features.length > 0 && viewRef.current) {
+        const extent = graphicsLayerRef.current.graphics.reduce((ext, g) => {
+          if (!g.geometry) return ext;
+          const geomExt = g.geometry.extent || g.geometry;
+          if (!ext) return geomExt.extent || geomExt;
+          return ext.union(geomExt.extent || geomExt);
+        }, null);
+        if (extent) {
+          viewRef.current.goTo(extent.expand(1.2));
+        }
+      }
+    }
+
+    // Show search results panel
+    setShowSearchResults(true);
+
+    // Close feature panel/markup popup after search
+    setShowFeaturePanel(false);
+    setShowMarkupPopup(false);
+  }, [updateSearchResults, themeColor, chatViewRef]);
+
+  /**
+   * Handle saving buffer geometry as markup
+   */
+  const handleSaveBufferAsMarkup = useCallback((bufferGeometry, bufferName) => {
+    if (!markupLayerRef.current || !bufferGeometry) {
+      console.warn('[MapView] Cannot save buffer as markup: missing layer or geometry');
+      return;
+    }
+
+    console.log('[MapView] Saving buffer as markup:', bufferName);
+
+    // Get theme color
+    const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
+    const hex500 = palette[500];
+    const hexToRgb = (hex) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? [
+        parseInt(result[1], 16),
+        parseInt(result[2], 16),
+        parseInt(result[3], 16)
+      ] : [14, 165, 233];
+    };
+    const [r, g, b] = hexToRgb(hex500);
+
+    // Create polygon from buffer geometry
+    const graphicGeometry = new Polygon({
+      rings: bufferGeometry.rings,
+      spatialReference: bufferGeometry.spatialReference || { wkid: 4326 }
+    });
+
+    const symbol = new SimpleFillSymbol({
+      color: [r, g, b, 0.25],
+      outline: new SimpleLineSymbol({
+        color: [r, g, b],
+        width: 2,
+        style: 'dash'
+      })
+    });
+
+    const markupGraphic = new Graphic({
+      geometry: graphicGeometry,
+      symbol,
+      attributes: {
+        id: `markup_${Date.now()}`,
+        name: bufferName,
+        tool: 'polygon',
+        symbolStyle: 'solid',
+        color: hex500,
+        isMarkup: true,
+        timestamp: Date.now(),
+        savedFrom: 'nearby-search'
+      }
+    });
+
+    markupLayerRef.current.add(markupGraphic);
+    console.log('[MapView] Buffer saved as markup:', bufferName);
+  }, [themeColor]);
+
+  /**
    * Close markup popup
    */
   const handleCloseMarkupPopup = useCallback(() => {
@@ -2049,6 +2223,7 @@ const MapView = forwardRef(function MapView(props, ref) {
           onSaveAsMarkup={handleSaveAsMarkup}
           onExportPDF={handleExportPDF}
           onZoomTo={zoomToFeature}
+          onNearbySearch={handleNearbySearch}
           relatedFeatures={relatedFeatures}
           currentRelatedIndex={currentRelatedIndex}
           onNavigateRelated={setCurrentRelatedIndex}
@@ -2072,6 +2247,8 @@ const MapView = forwardRef(function MapView(props, ref) {
           onCancelEditing={handleCancelEditing}
           onUpdateMarkup={handleUpdateMarkupAttributes}
           onUpdateLabel={handleUpdateMarkupLabel}
+          onNearbySearch={handleNearbySearch}
+          onSaveBufferAsMarkup={handleSaveBufferAsMarkup}
           isEditing={isEditingMarkup}
           onWidthChange={setMarkupPopupWidth}
           refreshKey={markupRefreshKey}
