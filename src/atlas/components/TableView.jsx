@@ -5,12 +5,40 @@
 
 import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { ModuleRegistry, ClientSideRowModelModule, CsvExportModule } from 'ag-grid-community';
+import {
+  ModuleRegistry,
+  ClientSideRowModelModule,
+  CsvExportModule,
+  RowSelectionModule,
+  PaginationModule,
+  TextFilterModule,
+  NumberFilterModule,
+  DateFilterModule,
+  TooltipModule,
+  CellStyleModule,
+  ColumnApiModule,
+  RowApiModule,
+  ValidationModule
+} from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 // Register AG Grid modules (required for v31+)
-ModuleRegistry.registerModules([ClientSideRowModelModule, CsvExportModule]);
+// All modules must be registered for their features to work in AG Grid v35+
+ModuleRegistry.registerModules([
+  ClientSideRowModelModule,
+  CsvExportModule,
+  RowSelectionModule,
+  PaginationModule,
+  TextFilterModule,
+  NumberFilterModule,
+  DateFilterModule,
+  TooltipModule,
+  CellStyleModule,
+  ColumnApiModule,
+  RowApiModule,
+  ValidationModule
+]);
 
 import {
   Download,
