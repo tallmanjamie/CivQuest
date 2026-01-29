@@ -17,8 +17,7 @@ import {
   Video,
   AlertCircle,
   RefreshCw,
-  ExternalLink,
-  Link
+  ExternalLink
 } from 'lucide-react';
 import { subscribeToSystemConfig, updateGlobalHelpDocumentation } from '../../shared/services/systemConfig';
 
@@ -33,22 +32,17 @@ export default function SystemHelpEditor({
   accentColor = '#004E7C'
 }) {
   const [helpDocs, setHelpDocs] = useState([]);
-  const [helpLinks, setHelpLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [originalDocs, setOriginalDocs] = useState([]);
-  const [originalLinks, setOriginalLinks] = useState([]);
 
   // Subscribe to system config for real-time updates
   useEffect(() => {
     const unsubscribe = subscribeToSystemConfig((config) => {
       const docs = config.globalHelpDocumentation || [];
-      const links = config.globalHelpLinks || [];
       setHelpDocs(docs);
-      setHelpLinks(links);
       setOriginalDocs(JSON.parse(JSON.stringify(docs)));
-      setOriginalLinks(JSON.parse(JSON.stringify(links)));
       setLoading(false);
     });
 
@@ -58,9 +52,8 @@ export default function SystemHelpEditor({
   // Track changes
   useEffect(() => {
     const docsChanged = JSON.stringify(helpDocs) !== JSON.stringify(originalDocs);
-    const linksChanged = JSON.stringify(helpLinks) !== JSON.stringify(originalLinks);
-    setHasChanges(docsChanged || linksChanged);
-  }, [helpDocs, originalDocs, helpLinks, originalLinks]);
+    setHasChanges(docsChanged);
+  }, [helpDocs, originalDocs]);
 
   // Add new help article
   const addHelpDoc = () => {
@@ -159,51 +152,16 @@ export default function SystemHelpEditor({
     setHelpDocs(updated);
   };
 
-  // Hyperlink management
-  const addHelpLink = () => {
-    setHelpLinks(prev => [...prev, {
-      id: `link_${Date.now()}`,
-      title: '',
-      url: '',
-      description: ''
-    }]);
-  };
-
-  const updateHelpLink = (index, field, value) => {
-    const updated = [...helpLinks];
-    updated[index] = { ...updated[index], [field]: value };
-    setHelpLinks(updated);
-  };
-
-  const removeHelpLink = async (index) => {
-    const link = helpLinks[index];
-    const confirmed = await confirm({
-      title: 'Delete External Link',
-      message: `Are you sure you want to delete "${link.title || 'Untitled Link'}"? This action cannot be undone.`,
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
-      danger: true
-    });
-
-    if (confirmed) {
-      setHelpLinks(prev => prev.filter((_, i) => i !== index));
-    }
-  };
-
   // Save changes
   const handleSave = async () => {
     setSaving(true);
     try {
       // Clean up empty articles
       const cleanedDocs = helpDocs.filter(doc => doc.title.trim() || doc.content.trim());
-      // Clean up empty links
-      const cleanedLinks = helpLinks.filter(link => link.title.trim() && link.url.trim());
 
-      await updateGlobalHelpDocumentation(cleanedDocs, adminEmail, cleanedLinks);
+      await updateGlobalHelpDocumentation(cleanedDocs, adminEmail);
       setOriginalDocs(JSON.parse(JSON.stringify(cleanedDocs)));
-      setOriginalLinks(JSON.parse(JSON.stringify(cleanedLinks)));
       setHelpDocs(cleanedDocs);
-      setHelpLinks(cleanedLinks);
       addToast('Global help documentation saved successfully', 'success');
     } catch (error) {
       console.error('Error saving global help:', error);
@@ -227,7 +185,6 @@ export default function SystemHelpEditor({
 
     if (confirmed) {
       setHelpDocs(JSON.parse(JSON.stringify(originalDocs)));
-      setHelpLinks(JSON.parse(JSON.stringify(originalLinks)));
     }
   };
 
@@ -311,89 +268,6 @@ export default function SystemHelpEditor({
           <Plus className="w-5 h-5" />
           Add Help Article
         </button>
-      </div>
-
-      {/* External Links Section */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center"
-            style={{ backgroundColor: `${accentColor}15` }}
-          >
-            <ExternalLink className="w-5 h-5" style={{ color: accentColor }} />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-slate-800">External Resources</h2>
-            <p className="text-sm text-slate-500">
-              Add links to external resources (opens in new window)
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {helpLinks.map((link, linkIdx) => (
-            <div
-              key={link.id || linkIdx}
-              className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm"
-            >
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Link className="w-5 h-5 text-slate-400" />
-                </div>
-                <div className="flex-1 space-y-3">
-                  <div className="flex gap-3">
-                    <input
-                      type="text"
-                      value={link.title}
-                      onChange={(e) => updateHelpLink(linkIdx, 'title', e.target.value)}
-                      placeholder="Link Title"
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeHelpLink(linkIdx)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <input
-                    type="url"
-                    value={link.url}
-                    onChange={(e) => updateHelpLink(linkIdx, 'url', e.target.value)}
-                    placeholder="URL (https://...)"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
-                  />
-                  <input
-                    type="text"
-                    value={link.description || ''}
-                    onChange={(e) => updateHelpLink(linkIdx, 'description', e.target.value)}
-                    placeholder="Description (optional)"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {helpLinks.length === 0 && (
-            <div className="p-6 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-center">
-              <ExternalLink className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-              <p className="text-slate-500 text-sm">
-                No external links added yet
-              </p>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={addHelpLink}
-            className="w-full py-3 border border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-slate-400 hover:text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-2 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Add External Link
-          </button>
-        </div>
       </div>
 
       {/* Action Buttons */}
@@ -568,7 +442,8 @@ function HelpDocCard({
           <div className="pt-4 border-t border-slate-100">
             <label className="block text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
               <FileImage className="w-4 h-4" />
-              Media (Screenshots & Videos)
+              Media & Links
+              <span className="text-xs text-slate-400 font-normal">(images, videos, or external links)</span>
             </label>
 
             {/* Media Items */}
@@ -590,7 +465,7 @@ function HelpDocCard({
               onClick={() => onAddMedia(docIndex)}
               className="w-full py-2 border border-dashed border-slate-300 rounded-lg text-sm text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1 transition-colors"
             >
-              <Plus className="w-4 h-4" /> Add Image or Video
+              <Plus className="w-4 h-4" /> Add Image, Video, or Link
             </button>
           </div>
         </div>
@@ -601,6 +476,7 @@ function HelpDocCard({
 
 /**
  * Media Card Component
+ * Supports image, video, and link types
  */
 function MediaCard({
   media,
@@ -612,6 +488,7 @@ function MediaCard({
   onRemoveTag
 }) {
   const [newTag, setNewTag] = useState('');
+  const isLink = media.type === 'link';
 
   const handleAddTag = () => {
     if (newTag.trim()) {
@@ -620,25 +497,36 @@ function MediaCard({
     }
   };
 
+  // Render appropriate preview icon based on type
+  const renderPreview = () => {
+    if (!media.url) {
+      return isLink
+        ? <ExternalLink className="w-8 h-8 text-slate-400" />
+        : <FileImage className="w-8 h-8 text-slate-400" />;
+    }
+
+    if (media.type === 'link') {
+      return <ExternalLink className="w-8 h-8 text-emerald-500" />;
+    } else if (media.type === 'video') {
+      return <Video className="w-8 h-8 text-slate-400" />;
+    } else {
+      return (
+        <img
+          src={media.url}
+          alt={media.title || 'Media'}
+          className="w-full h-full object-cover"
+          onError={(e) => { e.target.style.display = 'none'; }}
+        />
+      );
+    }
+  };
+
   return (
-    <div className="p-3 bg-slate-50 rounded-lg mb-3">
+    <div className={`p-3 rounded-lg mb-3 ${isLink ? 'bg-emerald-50' : 'bg-slate-50'}`}>
       <div className="flex items-start gap-3">
         {/* Media Preview */}
-        <div className="w-24 h-16 bg-slate-200 rounded flex-shrink-0 flex items-center justify-center overflow-hidden">
-          {media.url ? (
-            media.type === 'video' ? (
-              <Video className="w-8 h-8 text-slate-400" />
-            ) : (
-              <img
-                src={media.url}
-                alt={media.title || 'Media'}
-                className="w-full h-full object-cover"
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
-            )
-          ) : (
-            <FileImage className="w-8 h-8 text-slate-400" />
-          )}
+        <div className={`w-24 h-16 rounded flex-shrink-0 flex items-center justify-center overflow-hidden ${isLink ? 'bg-emerald-100' : 'bg-slate-200'}`}>
+          {renderPreview()}
         </div>
 
         {/* Media Fields */}
@@ -651,12 +539,13 @@ function MediaCard({
             >
               <option value="image">Image</option>
               <option value="video">Video</option>
+              <option value="link">External Link</option>
             </select>
             <input
               type="text"
               value={media.title}
               onChange={(e) => onUpdate(docIndex, mediaIndex, 'title', e.target.value)}
-              placeholder="Title"
+              placeholder={isLink ? "Link Title" : "Title"}
               className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-sm"
             />
             <button
@@ -675,43 +564,56 @@ function MediaCard({
             className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
           />
 
-          {/* Media Tags */}
-          <div>
-            <div className="flex flex-wrap gap-1 mb-1">
-              {(media.tags || []).map((tag, tagIdx) => (
-                <span
-                  key={tagIdx}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs"
-                >
-                  {tag}
-                  <button
-                    type="button"
-                    onClick={() => onRemoveTag(docIndex, mediaIndex, tagIdx)}
-                    className="hover:text-emerald-600"
+          {/* Description field for links */}
+          {isLink && (
+            <input
+              type="text"
+              value={media.description || ''}
+              onChange={(e) => onUpdate(docIndex, mediaIndex, 'description', e.target.value)}
+              placeholder="Description (optional)"
+              className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+            />
+          )}
+
+          {/* Media Tags - only show for images and videos */}
+          {!isLink && (
+            <div>
+              <div className="flex flex-wrap gap-1 mb-1">
+                {(media.tags || []).map((tag, tagIdx) => (
+                  <span
+                    key={tagIdx}
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs"
                   >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </span>
-              ))}
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => onRemoveTag(docIndex, mediaIndex, tagIdx)}
+                      className="hover:text-emerald-600"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                  placeholder="Add tag for matching..."
+                  className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTag}
+                  className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs hover:bg-emerald-200 transition-colors"
+                >
+                  +
+                </button>
+              </div>
             </div>
-            <div className="flex gap-1">
-              <input
-                type="text"
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
-                placeholder="Add tag for matching..."
-                className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
-              />
-              <button
-                type="button"
-                onClick={handleAddTag}
-                className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs hover:bg-emerald-200 transition-colors"
-              >
-                +
-              </button>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

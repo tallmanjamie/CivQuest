@@ -37,7 +37,8 @@ import {
   Type,
   Search,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  ExternalLink
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -1632,7 +1633,8 @@ function HelpDocEditor({
           <div className="pt-3 border-t border-slate-100">
             <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
               <FileImage className="w-4 h-4" />
-              Media (Screenshots & Videos)
+              Media & Links
+              <span className="text-xs text-slate-400 font-normal">(images, videos, or external links)</span>
             </label>
 
             {/* Media Items */}
@@ -1654,7 +1656,7 @@ function HelpDocEditor({
               onClick={() => onAddMedia(docIndex)}
               className="mt-2 w-full py-1.5 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
             >
-              <Plus className="w-3 h-3" /> Add Image or Video
+              <Plus className="w-3 h-3" /> Add Image, Video, or Link
             </button>
           </div>
         </div>
@@ -1665,7 +1667,7 @@ function HelpDocEditor({
 
 /**
  * Media Editor Component
- * Handles individual media items (images/videos) with tags
+ * Handles individual media items (images, videos, and links) with tags
  */
 function MediaEditor({
   media,
@@ -1677,6 +1679,7 @@ function MediaEditor({
   onRemoveTag
 }) {
   const [newTag, setNewTag] = useState('');
+  const isLink = media.type === 'link';
 
   const handleAddTag = () => {
     if (newTag.trim()) {
@@ -1685,25 +1688,36 @@ function MediaEditor({
     }
   };
 
+  // Render appropriate preview icon based on type
+  const renderPreview = () => {
+    if (!media.url) {
+      return isLink
+        ? <ExternalLink className="w-8 h-8 text-slate-400" />
+        : <FileImage className="w-8 h-8 text-slate-400" />;
+    }
+
+    if (media.type === 'link') {
+      return <ExternalLink className="w-8 h-8 text-emerald-500" />;
+    } else if (media.type === 'video') {
+      return <Video className="w-8 h-8 text-slate-400" />;
+    } else {
+      return (
+        <img
+          src={media.url}
+          alt={media.title || 'Media'}
+          className="w-full h-full object-cover"
+          onError={(e) => { e.target.style.display = 'none'; }}
+        />
+      );
+    }
+  };
+
   return (
-    <div className="p-3 bg-slate-50 rounded-lg mb-2">
+    <div className={`p-3 rounded-lg mb-2 ${isLink ? 'bg-emerald-50' : 'bg-slate-50'}`}>
       <div className="flex items-start gap-3">
         {/* Media Preview */}
-        <div className="w-24 h-16 bg-slate-200 rounded flex-shrink-0 flex items-center justify-center overflow-hidden">
-          {media.url ? (
-            media.type === 'video' ? (
-              <Video className="w-8 h-8 text-slate-400" />
-            ) : (
-              <img
-                src={media.url}
-                alt={media.title || 'Media'}
-                className="w-full h-full object-cover"
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
-            )
-          ) : (
-            <FileImage className="w-8 h-8 text-slate-400" />
-          )}
+        <div className={`w-24 h-16 rounded flex-shrink-0 flex items-center justify-center overflow-hidden ${isLink ? 'bg-emerald-100' : 'bg-slate-200'}`}>
+          {renderPreview()}
         </div>
 
         {/* Media Fields */}
@@ -1716,12 +1730,13 @@ function MediaEditor({
             >
               <option value="image">Image</option>
               <option value="video">Video</option>
+              <option value="link">External Link</option>
             </select>
             <input
               type="text"
               value={media.title}
               onChange={(e) => onUpdate(docIndex, mediaIndex, 'title', e.target.value)}
-              placeholder="Title"
+              placeholder={isLink ? "Link Title" : "Title"}
               className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
             />
             <button
@@ -1740,43 +1755,56 @@ function MediaEditor({
             className="w-full px-2 py-1 border border-slate-300 rounded text-xs"
           />
 
-          {/* Media Tags */}
-          <div>
-            <div className="flex flex-wrap gap-1 mb-1">
-              {(media.tags || []).map((tag, tagIdx) => (
-                <span
-                  key={tagIdx}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs"
-                >
-                  {tag}
-                  <button
-                    type="button"
-                    onClick={() => onRemoveTag(docIndex, mediaIndex, tagIdx)}
-                    className="hover:text-emerald-600"
+          {/* Description field for links */}
+          {isLink && (
+            <input
+              type="text"
+              value={media.description || ''}
+              onChange={(e) => onUpdate(docIndex, mediaIndex, 'description', e.target.value)}
+              placeholder="Description (optional)"
+              className="w-full px-2 py-1 border border-slate-300 rounded text-xs"
+            />
+          )}
+
+          {/* Media Tags - only show for images and videos */}
+          {!isLink && (
+            <div>
+              <div className="flex flex-wrap gap-1 mb-1">
+                {(media.tags || []).map((tag, tagIdx) => (
+                  <span
+                    key={tagIdx}
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs"
                   >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </span>
-              ))}
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => onRemoveTag(docIndex, mediaIndex, tagIdx)}
+                      className="hover:text-emerald-600"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                  placeholder="Add tag for matching..."
+                  className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTag}
+                  className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs hover:bg-emerald-200"
+                >
+                  +
+                </button>
+              </div>
             </div>
-            <div className="flex gap-1">
-              <input
-                type="text"
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
-                placeholder="Add tag for matching..."
-                className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
-              />
-              <button
-                type="button"
-                onClick={handleAddTag}
-                className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs hover:bg-emerald-200"
-              >
-                +
-              </button>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
