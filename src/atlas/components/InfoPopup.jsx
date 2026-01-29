@@ -1,13 +1,14 @@
 // src/atlas/components/InfoPopup.jsx
-// Info popup modal that displays organization information with logo and links
+// Info popup dropdown that displays organization information with logo and links
 // Opens when user clicks the info button in the header
+// Positioned directly below the info button as a compact dropdown
 
 import React from 'react';
 import { X } from 'lucide-react';
 import { getThemeColors } from '../utils/themeColors';
 
 /**
- * InfoPopup Component
+ * InfoPopup Component - Compact dropdown positioned below info button
  * @param {Object} props
  * @param {boolean} props.isOpen - Whether the popup is visible
  * @param {Function} props.onClose - Callback to close the popup
@@ -20,39 +21,37 @@ export default function InfoPopup({ isOpen, onClose, config }) {
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
-  // Get organization title for header
-  const title = config?.ui?.headerTitle || 'Information';
-
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
+    <>
+      {/* Backdrop to close when clicking outside */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+
+      {/* Dropdown popup positioned below the button */}
       <div
-        className="bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden w-full max-w-md"
+        className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden z-50"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
-          className="px-5 py-4 flex items-center justify-between"
+          className="px-3 py-2 flex items-center justify-between"
           style={{ backgroundColor: colors.bg700 }}
         >
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="text-sm font-semibold text-white">
             Welcome to the
           </h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-white/20 rounded-lg transition"
+            className="p-0.5 hover:bg-white/20 rounded transition"
           >
-            <X className="w-5 h-5 text-white" />
+            <X className="w-4 h-4 text-white" />
           </button>
         </div>
 
         {/* Content Area */}
-        <div className="p-6 flex flex-col items-center gap-6">
+        <div className="p-3 flex flex-col items-center gap-3">
           {/* Title/Text at top */}
           {infoConfig?.text && (
-            <h3 className="text-xl font-bold text-slate-800 text-center">
+            <h3 className="text-sm font-bold text-slate-800 text-center">
               {infoConfig.text}
             </h3>
           )}
@@ -63,21 +62,21 @@ export default function InfoPopup({ isOpen, onClose, config }) {
               <img
                 src={infoConfig.logo}
                 alt="Organization Logo"
-                className="max-w-[200px] max-h-[200px] object-contain"
+                className="max-w-[120px] max-h-[80px] object-contain"
               />
             </div>
           )}
 
           {/* Buttons at the bottom */}
           {infoConfig?.buttons?.length > 0 && (
-            <div className="w-full flex flex-col gap-3 mt-2">
+            <div className="w-full flex flex-col gap-1.5">
               {infoConfig.buttons.map((button, index) => (
                 <a
                   key={index}
                   href={button.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full px-6 py-3 text-white text-center font-medium rounded-lg transition-all hover:opacity-90 hover:shadow-md active:scale-[0.98]"
+                  className="w-full px-3 py-1.5 text-white text-center text-sm font-medium rounded transition-all hover:opacity-90"
                   style={{ backgroundColor: colors.bg700 }}
                 >
                   {button.label}
@@ -87,6 +86,6 @@ export default function InfoPopup({ isOpen, onClose, config }) {
           )}
         </div>
       </div>
-    </div>
+    </>
   );
 }
