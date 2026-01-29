@@ -500,7 +500,7 @@ function ActionButton({ icon: Icon, label, onClick, disabled = false, isLoading 
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border ${
+      className={`group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold rounded-lg transition-all border ${
         disabled
           ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
           : isHighlighted
@@ -510,7 +510,7 @@ function ActionButton({ icon: Icon, label, onClick, disabled = false, isLoading 
       style={isHighlighted && !disabled ? { backgroundColor: themeColor, borderColor: themeColor } : {}}
     >
       <Icon className={`w-4 h-4 ${disabled ? 'text-slate-300' : isHighlighted ? 'text-white' : 'text-slate-400'} ${isLoading ? 'animate-spin' : ''}`} />
-      <span className="truncate">{label}</span>
+      <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200 truncate">{label}</span>
     </button>
   );
 }

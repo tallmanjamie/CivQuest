@@ -616,6 +616,11 @@ const MapView = forwardRef(function MapView(props, ref) {
       }
     }
 
+    // Close any open markup popup
+    setShowMarkupPopup(false);
+    setSelectedMarkup(null);
+    setIsEditingMarkup(false);
+
     setSelectedFeature(enrichedFeature);
     setSelectedFeatureLayer(resolvedLayer);
     setIsMarkupFeature(false);

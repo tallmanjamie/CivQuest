@@ -380,18 +380,18 @@ export default function MarkupPopup({
             {/* Done/Cancel buttons when editing */}
             <button
               onClick={handleCancelEditing}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
+              className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
             >
               <X className="w-4 h-4 text-slate-400" />
-              <span>Cancel</span>
+              <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">Cancel</span>
             </button>
             <button
               onClick={handleDoneEditing}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-white rounded-lg transition border border-green-600"
+              className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-white rounded-lg transition-all border border-green-600"
               style={{ backgroundColor: '#22c55e' }}
             >
               <Check className="w-4 h-4 text-white" />
-              <span>Done</span>
+              <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">Done</span>
             </button>
           </>
         ) : (
@@ -399,26 +399,25 @@ export default function MarkupPopup({
             {/* Zoom/Edit buttons when not editing */}
             <button
               onClick={handleZoom}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
+              className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
             >
               <ZoomIn className="w-4 h-4 text-slate-400" />
-              <span>Zoom To</span>
+              <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">Zoom To</span>
             </button>
             <button
               onClick={handleEdit}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
+              className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
             >
               <Edit3 className="w-4 h-4 text-slate-400" />
-              <span>Edit</span>
+              <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">Edit</span>
             </button>
             {isPictometryEnabled && (
               <button
                 onClick={handleOpenEagleView}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-white rounded-lg transition border hover:opacity-90"
-                style={{ backgroundColor: colors.bg500, borderColor: colors.bg500 }}
+                className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
               >
-                <Eye className="w-4 h-4 text-white" />
-                <span>EagleView</span>
+                <Eye className="w-4 h-4 text-slate-400" />
+                <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">EagleView</span>
               </button>
             )}
           </>
