@@ -405,8 +405,8 @@ const TableView = forwardRef(function TableView(props, ref) {
       : [...visibleColumns, field];
 
     setVisibleColumns(newVisible);
-    // Use setColumnVisible for AG Grid v31+ (singular method for individual column)
-    gridRef.current.api.setColumnVisible(field, !isVisible);
+    // Use setColumnsVisible for AG Grid v31+ (takes array of column IDs)
+    gridRef.current.api.setColumnsVisible([field], !isVisible);
   }, [visibleColumns]);
 
   /**
@@ -417,10 +417,8 @@ const TableView = forwardRef(function TableView(props, ref) {
 
     const allFields = getColumnDefs().map(c => c.field);
     setVisibleColumns(allFields);
-    // Set each column visible individually for AG Grid v31+
-    allFields.forEach(field => {
-      gridRef.current.api.setColumnVisible(field, true);
-    });
+    // Use setColumnsVisible for AG Grid v31+ (batch all columns at once)
+    gridRef.current.api.setColumnsVisible(allFields, true);
   }, [getColumnDefs]);
 
   /**
