@@ -27,7 +27,8 @@ import {
   Send,
   Plus,
   Clock,
-  Filter
+  Filter,
+  Settings
 } from 'lucide-react';
 
 // Firebase Auth
@@ -72,6 +73,7 @@ import ErrorScreen from './components/ErrorScreen';
 import OrgSelector from './components/OrgSelector';
 import AdvancedSearchModal from './components/AdvancedSearchModal';
 import AuthScreen from './components/AuthScreen';
+import AccountSettings from './components/AccountSettings';
 
 // Theme utility for proper dynamic theming
 import { getThemeColors, getThemeCssVars } from './utils/themeColors';
@@ -882,6 +884,7 @@ export default function AtlasApp() {
   const [showOrgSelector, setShowOrgSelector] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
 
   // Search History State (shared across all views)
   const [searchHistory, setSearchHistory] = useState([]);
@@ -1208,13 +1211,14 @@ export default function AtlasApp() {
       {/* Apply CSS variables for theme colors */}
       <div className="h-dvh flex flex-col bg-slate-100 font-sans" style={cssVars}>
         {/* Header */}
-        <Header 
+        <Header
           config={config}
           mode={mode}
           onModeChange={handleModeChange}
           enabledModes={enabledModes}
           onMenuToggle={() => setShowMobileMenu(!showMobileMenu)}
           showMobileMenu={showMobileMenu}
+          onOpenSettings={() => setShowAccountSettings(true)}
         />
         
         {/* Search Toolbar - Top Position */}
@@ -1264,6 +1268,7 @@ export default function AtlasApp() {
             user={firebaseUser}
             userData={firebaseUserData}
             onSignOut={handleSignOut}
+            onOpenSettings={() => setShowAccountSettings(true)}
             colors={colors}
           />
         )}
@@ -1287,6 +1292,12 @@ export default function AtlasApp() {
           onSearch={handleAdvancedSearch}
           position={searchBarPosition}
         />
+
+        {/* Account Settings Modal */}
+        <AccountSettings
+          isOpen={showAccountSettings}
+          onClose={() => setShowAccountSettings(false)}
+        />
       </div>
     </AtlasContext.Provider>
   );
@@ -1295,7 +1306,24 @@ export default function AtlasApp() {
 /**
  * Mobile Menu Component
  */
-function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, user, userData, onSignOut, colors }) {
+function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, user, userData, onSignOut, onOpenSettings, colors }) {
+  // Get display name - prefer firstName/lastName, then arcgisProfile.fullName, then email
+  const getDisplayName = () => {
+    if (userData?.firstName || userData?.lastName) {
+      return [userData.firstName, userData.lastName].filter(Boolean).join(' ');
+    }
+    return userData?.arcgisProfile?.fullName || user?.email || 'User';
+  };
+  const displayName = getDisplayName();
+
+  // Get initial for avatar
+  const getInitial = () => {
+    if (userData?.firstName) return userData.firstName[0].toUpperCase();
+    if (userData?.lastName) return userData.lastName[0].toUpperCase();
+    if (userData?.arcgisProfile?.fullName) return userData.arcgisProfile.fullName[0].toUpperCase();
+    return user?.email?.[0]?.toUpperCase() || '?';
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose}>
       <div
@@ -1349,23 +1377,32 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, user, u
                   style={{ backgroundColor: colors.bg100 }}
                 >
                   <span className="text-lg font-semibold" style={{ color: colors.text600 }}>
-                    {userData?.arcgisProfile?.fullName?.[0] || user.email?.[0]?.toUpperCase() || '?'}
+                    {getInitial()}
                   </span>
                 </div>
                 <div>
                   <p className="font-medium text-slate-800">
-                    {userData?.arcgisProfile?.fullName || user.email}
+                    {displayName}
                   </p>
                   <p className="text-xs text-slate-500">{user.email}</p>
                 </div>
               </div>
-              <button
-                onClick={() => { onSignOut(); onClose(); }}
-                className="w-full py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center justify-center gap-2"
-              >
-                <LogOut className="w-4 h-4" />
-                Sign Out
-              </button>
+              <div className="space-y-1">
+                <button
+                  onClick={() => { onOpenSettings?.(); onClose(); }}
+                  className="w-full py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center justify-center gap-2"
+                >
+                  <Settings className="w-4 h-4" />
+                  Settings
+                </button>
+                <button
+                  onClick={() => { onSignOut(); onClose(); }}
+                  className="w-full py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center justify-center gap-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </button>
+              </div>
             </div>
           ) : (
             <p className="text-sm text-slate-500 text-center">Not signed in</p>

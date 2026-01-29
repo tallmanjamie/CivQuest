@@ -147,6 +147,38 @@ export async function linkArcGISAccount(uid, arcgisData) {
   });
 }
 
+/**
+ * Unlink ArcGIS account from user
+ */
+export async function unlinkArcGISAccount(uid) {
+  const docRef = doc(db, PATHS.user(uid));
+  await updateDoc(docRef, {
+    linkedArcGISUsername: null,
+    arcgisProfile: null,
+    arcgisOrganization: null
+  });
+}
+
+/**
+ * Update user profile (firstName, lastName)
+ */
+export async function updateUserProfile(uid, profileData) {
+  const docRef = doc(db, PATHS.user(uid));
+  const updates = {};
+
+  if (profileData.firstName !== undefined) {
+    updates.firstName = profileData.firstName;
+  }
+  if (profileData.lastName !== undefined) {
+    updates.lastName = profileData.lastName;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    updates.updatedAt = serverTimestamp();
+    await updateDoc(docRef, updates);
+  }
+}
+
 export default {
   getUser,
   createUser,
@@ -157,5 +189,7 @@ export default {
   disableUser,
   suspendUser,
   unsuspendUser,
-  linkArcGISAccount
+  linkArcGISAccount,
+  unlinkArcGISAccount,
+  updateUserProfile
 };

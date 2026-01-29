@@ -8,13 +8,19 @@ import SubscriptionsTab from './SubscriptionsTab';
 import AccountTab from './AccountTab';
 import Archive from './Archive';
 
-export default function Dashboard({ 
-  user, 
-  targetSubscription, 
-  targetOrganization, 
-  availableSubscriptions 
+export default function Dashboard({
+  user,
+  targetSubscription,
+  targetOrganization,
+  availableSubscriptions,
+  activeTab: externalActiveTab,
+  setActiveTab: externalSetActiveTab
 }) {
-  const [activeTab, setActiveTab] = useState('feeds');
+  // Use external state if provided, otherwise use local state
+  const [internalActiveTab, setInternalActiveTab] = useState('feeds');
+  const activeTab = externalActiveTab !== undefined ? externalActiveTab : internalActiveTab;
+  const setActiveTab = externalSetActiveTab || setInternalActiveTab;
+
   const [userSubscriptions, setUserSubscriptions] = useState(null);
   const [userData, setUserData] = useState(null);
 

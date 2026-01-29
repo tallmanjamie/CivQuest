@@ -602,7 +602,7 @@ export default function UserManagementPanel({
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Email
+                  User
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Subscriptions
@@ -625,14 +625,25 @@ export default function UserManagementPanel({
               ) : (
                 filteredUsers.map(user => {
                   const isSuspended = user.suspended === true;
+                  // Get display name - prefer firstName/lastName, then email
+                  const displayName = (user.firstName || user.lastName)
+                    ? [user.firstName, user.lastName].filter(Boolean).join(' ')
+                    : null;
                   return (
                     <tr key={user.id} className={`hover:bg-slate-50 ${isSuspended ? 'bg-red-50/50' : ''}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <Mail className="w-4 h-4 text-slate-400" />
-                          <span className={`text-sm ${isSuspended ? 'text-slate-500' : 'text-slate-800'}`}>
-                            {user.email}
-                          </span>
+                          <div>
+                            {displayName && (
+                              <span className={`text-sm font-medium block ${isSuspended ? 'text-slate-500' : 'text-slate-800'}`}>
+                                {displayName}
+                              </span>
+                            )}
+                            <span className={`text-sm ${displayName ? 'text-slate-500' : (isSuspended ? 'text-slate-500' : 'text-slate-800')}`}>
+                              {user.email}
+                            </span>
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3">
