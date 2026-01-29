@@ -129,6 +129,7 @@ export default function AtlasSettingsEditor({
       maxRecordCount: 1000,
       timeZoneOffset: -5,
       defaultSort: '',
+      autocompleteMaxResults: 100,
       ...data?.data
     }
   }));
@@ -747,7 +748,7 @@ export default function AtlasSettingsEditor({
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm font-mono"
                 />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Max Record Count
@@ -758,6 +759,22 @@ export default function AtlasSettingsEditor({
                     onChange={(e) => updateData('maxRecordCount', parseInt(e.target.value) || 1000)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Autocomplete Max Results
+                  </label>
+                  <input
+                    type="number"
+                    value={config.data.autocompleteMaxResults}
+                    onChange={(e) => updateData('autocompleteMaxResults', parseInt(e.target.value) || 100)}
+                    min="1"
+                    max="500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Default number of suggestions shown in search autocomplete
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
