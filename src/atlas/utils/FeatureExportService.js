@@ -3,7 +3,8 @@
 //
 // Supports:
 // - Feature export templates with custom elements and layout
-// - Popup-based fallback when no template is configured
+// - Popup-based export using webmap popup elements with arcade expressions
+// - Custom element ordering via customFeatureInfo.export.elements configuration
 // - Dynamic page breaks based on content height
 // - Optional map export integration at the end
 //
@@ -136,6 +137,331 @@ function getDisplayFields(feature, tableColumns = [], searchFields = []) {
 }
 
 /**
+ * Extract popup elements from webmap popup template
+ * Returns array of popup content elements with their names and types
+ * @param {object} feature - The feature with attributes
+ * @param {object} sourceLayer - The source layer with popupTemplate
+ * @param {object} customFeatureInfo - Custom feature info configuration
+ * @returns {Array} Array of popup elements
+ */
+function getPopupElementsFromWebmap(feature, sourceLayer, customFeatureInfo = null) {
+  const popupTemplate = sourceLayer?.popupTemplate || feature?.popupTemplate;
+
+  if (!popupTemplate?.content) {
+    return [];
+  }
+
+  // Get content array
+  const contentArray = Array.isArray(popupTemplate.content)
+    ? popupTemplate.content
+    : [popupTemplate.content];
+
+  // Extract elements with their identifying info
+  const elements = contentArray.map((el, index) => {
+    // Get element name for matching
+    let name = '';
+    if (el.type === 'expression' && el.expressionInfo) {
+      name = el.expressionInfo.name || el.expressionInfo.title || `expression_${index}`;
+    } else if (el.type === 'fields') {
+      name = el.title || 'fields';
+    } else if (el.type === 'text') {
+      name = el.title || `text_${index}`;
+    } else if (el.type === 'attachments') {
+      name = 'attachments';
+    } else if (el.type === 'media') {
+      name = el.title || 'media';
+    } else {
+      name = el.title || el.type || `element_${index}`;
+    }
+
+    return {
+      name,
+      type: el.type,
+      element: el,
+      expressionInfo: el.expressionInfo || null,
+      index
+    };
+  });
+
+  // Check if we should filter/order by customFeatureInfo.export.elements
+  const featureLayerId = feature?.sourceLayerId || sourceLayer?.id;
+  const exportElements = customFeatureInfo?.export?.elements;
+  const shouldUseExportOrder = customFeatureInfo?.layerId &&
+                               featureLayerId === customFeatureInfo.layerId &&
+                               exportElements &&
+                               exportElements.length > 0;
+
+  if (shouldUseExportOrder) {
+    // Filter and order elements by the export elements configuration
+    const orderedElements = [];
+    for (const exportElementName of exportElements) {
+      // Find matching element by name (case-insensitive partial match)
+      const match = elements.find(el =>
+        el.name.toLowerCase().includes(exportElementName.toLowerCase()) ||
+        exportElementName.toLowerCase().includes(el.name.toLowerCase())
+      );
+      if (match && !orderedElements.includes(match)) {
+        orderedElements.push(match);
+      }
+    }
+    return orderedElements;
+  }
+
+  // Return all elements in original order
+  return elements;
+}
+
+/**
+ * Evaluate arcade expression for a feature
+ * @param {object} expressionInfo - The expression info from popup template
+ * @param {object} feature - The feature with geometry and attributes
+ * @param {object} sourceLayer - The source layer
+ * @returns {Promise<string>} Evaluated expression result as string
+ */
+async function evaluateArcadeExpression(expressionInfo, feature, sourceLayer) {
+  if (!expressionInfo?.expression) {
+    return '';
+  }
+
+  try {
+    // Import ArcGIS modules dynamically
+    const [arcade, Graphic] = await Promise.all([
+      import('@arcgis/core/arcade').then(m => m),
+      import('@arcgis/core/Graphic').then(m => m.default)
+    ]);
+
+    // Create a proper graphic from the feature
+    let geometry = feature.geometry;
+    if (geometry && typeof geometry === 'object' && !geometry.declaredClass) {
+      // Plain JSON geometry - needs type
+      geometry = { ...geometry };
+      if (!geometry.type) {
+        if (geometry.rings) geometry.type = 'polygon';
+        else if (geometry.paths) geometry.type = 'polyline';
+        else if (geometry.x !== undefined) geometry.type = 'point';
+        else if (geometry.xmin !== undefined) geometry.type = 'extent';
+        else if (geometry.points) geometry.type = 'multipoint';
+      }
+    }
+
+    const graphic = new Graphic({
+      geometry,
+      attributes: feature.attributes || {},
+      layer: sourceLayer
+    });
+
+    // Create arcade profile for popup
+    const profile = {
+      variables: [
+        {
+          name: '$feature',
+          type: 'feature'
+        }
+      ]
+    };
+
+    // Create executor
+    const executor = await arcade.createArcadeExecutor(expressionInfo.expression, profile);
+
+    // Execute with the feature
+    const result = await executor.executeAsync({
+      '$feature': graphic,
+      '$layer': sourceLayer,
+      '$map': sourceLayer?.parent
+    });
+
+    return result != null ? String(result) : '';
+  } catch (err) {
+    console.warn('[FeatureExport] Could not evaluate arcade expression:', err);
+    // Try to return a simple string if the expression is just a field reference
+    if (expressionInfo.expression) {
+      const fieldMatch = expressionInfo.expression.match(/\$feature\.(\w+)/);
+      if (fieldMatch && feature.attributes?.[fieldMatch[1]]) {
+        return String(feature.attributes[fieldMatch[1]]);
+      }
+    }
+    return '';
+  }
+}
+
+/**
+ * Get evaluated popup content for export
+ * Extracts and evaluates all popup elements from webmap
+ * @param {object} feature - The feature
+ * @param {object} sourceLayer - The source layer with popup template
+ * @param {object} customFeatureInfo - Custom feature info configuration
+ * @returns {Promise<Array>} Array of evaluated content sections
+ */
+async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo = null) {
+  const popupElements = getPopupElementsFromWebmap(feature, sourceLayer, customFeatureInfo);
+
+  if (popupElements.length === 0) {
+    return [];
+  }
+
+  const evaluatedContent = [];
+
+  for (const popupEl of popupElements) {
+    const section = {
+      name: popupEl.name,
+      type: popupEl.type,
+      content: '',
+      isHtml: false
+    };
+
+    if (popupEl.type === 'expression' && popupEl.expressionInfo) {
+      // Evaluate arcade expression
+      const result = await evaluateArcadeExpression(popupEl.expressionInfo, feature, sourceLayer);
+      section.content = result;
+      // Check if result contains HTML
+      section.isHtml = /<[^>]+>/.test(result);
+    } else if (popupEl.type === 'text') {
+      // Text content - may have attribute placeholders
+      let text = popupEl.element.text || '';
+      const attrs = feature.attributes || {};
+
+      // Replace attribute placeholders {FIELD_NAME}
+      text = text.replace(/\{([^}]+)\}/g, (match, fieldName) => {
+        const value = attrs[fieldName];
+        return value != null ? String(value) : '';
+      });
+
+      section.content = text;
+      section.isHtml = /<[^>]+>/.test(text);
+    } else if (popupEl.type === 'fields') {
+      // Field list - convert to formatted content
+      const fieldInfos = popupEl.element.fieldInfos || [];
+      const attrs = feature.attributes || {};
+      const lines = [];
+
+      for (const fieldInfo of fieldInfos) {
+        const fieldName = fieldInfo.fieldName;
+        const label = fieldInfo.label || fieldName;
+        const value = attrs[fieldName];
+        if (value != null) {
+          lines.push(`<b>${label}:</b> ${formatValue(value)}`);
+        }
+      }
+
+      section.content = lines.join('<br/>');
+      section.isHtml = true;
+    }
+
+    if (section.content) {
+      evaluatedContent.push(section);
+    }
+  }
+
+  return evaluatedContent;
+}
+
+/**
+ * Parse HTML content and extract text with line breaks
+ * Handles common HTML elements and converts to structured text
+ * @param {string} htmlContent - HTML string content
+ * @returns {Array<{text: string, style: object}>} Array of text segments with styles
+ */
+function parseHtmlContent(htmlContent) {
+  if (!htmlContent) return [];
+
+  const segments = [];
+
+  // Simple HTML parsing - handle common patterns
+  let content = htmlContent
+    // Normalize line endings
+    .replace(/\r\n/g, '\n')
+    // Handle block-level breaks
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<hr\s*\/?>/gi, '\n---\n');
+
+  // Process bold text
+  const boldPattern = /<b>([^<]*)<\/b>|<strong>([^<]*)<\/strong>/gi;
+  let lastIndex = 0;
+  let match;
+  const parts = [];
+
+  // Split by bold tags
+  const tempContent = content;
+  let processedContent = tempContent;
+
+  // Replace bold tags with markers
+  processedContent = processedContent.replace(/<b>|<strong>/gi, '[[BOLD_START]]');
+  processedContent = processedContent.replace(/<\/b>|<\/strong>/gi, '[[BOLD_END]]');
+
+  // Remove remaining HTML tags
+  processedContent = processedContent.replace(/<[^>]+>/g, '');
+
+  // Decode common HTML entities
+  processedContent = processedContent
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&rsquo;/g, "'")
+    .replace(/&lsquo;/g, "'")
+    .replace(/&rdquo;/g, '"')
+    .replace(/&ldquo;/g, '"')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–');
+
+  // Split into lines
+  const lines = processedContent.split('\n');
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      segments.push({ text: '', style: { lineBreak: true } });
+      continue;
+    }
+
+    // Process bold markers within line
+    let remaining = line;
+    let isBold = false;
+
+    while (remaining.length > 0) {
+      const boldStartIdx = remaining.indexOf('[[BOLD_START]]');
+      const boldEndIdx = remaining.indexOf('[[BOLD_END]]');
+
+      if (boldStartIdx === -1 && boldEndIdx === -1) {
+        // No more markers
+        if (remaining.trim()) {
+          segments.push({ text: remaining, style: { bold: isBold } });
+        }
+        break;
+      }
+
+      if (boldStartIdx !== -1 && (boldEndIdx === -1 || boldStartIdx < boldEndIdx)) {
+        // Bold start comes first
+        const before = remaining.substring(0, boldStartIdx);
+        if (before.trim()) {
+          segments.push({ text: before, style: { bold: isBold } });
+        }
+        remaining = remaining.substring(boldStartIdx + 14); // length of [[BOLD_START]]
+        isBold = true;
+      } else if (boldEndIdx !== -1) {
+        // Bold end comes first
+        const before = remaining.substring(0, boldEndIdx);
+        if (before.trim()) {
+          segments.push({ text: before, style: { bold: isBold } });
+        }
+        remaining = remaining.substring(boldEndIdx + 12); // length of [[BOLD_END]]
+        isBold = false;
+      }
+    }
+
+    // Add line break after each line
+    segments.push({ text: '', style: { lineBreak: true } });
+  }
+
+  return segments;
+}
+
+/**
  * Calculate how many attribute rows can fit on a page
  */
 function calculateRowsPerPage(pageDims, margins, headerHeight = 0, footerHeight = 0.5) {
@@ -226,6 +552,142 @@ function createFallbackTemplate(feature, tableColumns, searchFields) {
     fields,
     mapExportTemplateId: null
   };
+}
+
+// Line height constants for popup content
+const POPUP_LINE_HEIGHT = 0.22; // inches per line
+const POPUP_SECTION_SPACING = 0.3; // inches between sections
+const POPUP_SECTION_HEADER_HEIGHT = 0.35; // inches for section header
+
+/**
+ * Calculate layout for popup content across pages
+ * Returns array of page layouts with sections and their starting positions
+ * @param {Array} popupContent - Array of evaluated popup content sections
+ * @param {number} availableHeight - Available height per page in inches
+ * @param {object} pdf - jsPDF instance for text measurement
+ * @param {number} contentWidth - Available width for content in inches
+ * @returns {Array} Array of page layouts
+ */
+function calculatePopupContentLayout(popupContent, availableHeight, pdf, contentWidth) {
+  const pages = [];
+  let currentPage = { sections: [], usedHeight: 0 };
+
+  for (const section of popupContent) {
+    // Parse content to get text segments
+    const segments = section.isHtml
+      ? parseHtmlContent(section.content)
+      : [{ text: section.content, style: {} }];
+
+    // Calculate height needed for this section
+    let sectionHeight = POPUP_SECTION_HEADER_HEIGHT; // Header
+
+    // Calculate text height
+    pdf.setFontSize(10 * 0.75);
+    for (const segment of segments) {
+      if (segment.style?.lineBreak) {
+        sectionHeight += POPUP_LINE_HEIGHT * 0.5; // Half line for breaks
+      } else if (segment.text) {
+        const lines = pdf.splitTextToSize(segment.text, contentWidth - 0.2);
+        sectionHeight += lines.length * POPUP_LINE_HEIGHT;
+      }
+    }
+
+    sectionHeight += POPUP_SECTION_SPACING; // Spacing after section
+
+    // Check if section fits on current page
+    if (currentPage.usedHeight + sectionHeight > availableHeight && currentPage.sections.length > 0) {
+      // Start new page
+      pages.push(currentPage);
+      currentPage = { sections: [], usedHeight: 0 };
+    }
+
+    // Add section to current page
+    currentPage.sections.push({
+      ...section,
+      segments,
+      estimatedHeight: sectionHeight
+    });
+    currentPage.usedHeight += sectionHeight;
+  }
+
+  // Add last page if has content
+  if (currentPage.sections.length > 0) {
+    pages.push(currentPage);
+  }
+
+  return pages;
+}
+
+/**
+ * Draw popup content sections on PDF
+ * @param {object} pdf - jsPDF instance
+ * @param {Array} sections - Array of sections to draw on this page
+ * @param {number} startX - Starting X position
+ * @param {number} startY - Starting Y position
+ * @param {number} width - Available width
+ * @param {number} maxHeight - Maximum height available
+ * @param {object} scaleRatio - Optional scale ratio from customFeatureInfo
+ * @returns {number} Final Y position after drawing
+ */
+function drawPopupContentSections(pdf, sections, startX, startY, width, maxHeight, scaleRatio = 1.0) {
+  let currentY = startY;
+  const baseFontSize = 10 * scaleRatio;
+  const headerFontSize = 11 * scaleRatio;
+
+  for (const section of sections) {
+    // Draw section header
+    pdf.setFontSize(headerFontSize * 0.75);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(30, 41, 59); // slate-800
+
+    // Section header background
+    pdf.setFillColor(241, 245, 249); // slate-100
+    pdf.rect(startX, currentY, width, POPUP_SECTION_HEADER_HEIGHT * scaleRatio, 'F');
+
+    // Section name
+    pdf.text(section.name, startX + 0.1, currentY + (POPUP_SECTION_HEADER_HEIGHT * scaleRatio) / 2 + (headerFontSize * 0.75) / 72 / 3);
+    currentY += POPUP_SECTION_HEADER_HEIGHT * scaleRatio;
+
+    // Draw section content
+    pdf.setFontSize(baseFontSize * 0.75);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(51, 65, 85); // slate-700
+
+    const lineHeight = POPUP_LINE_HEIGHT * scaleRatio;
+    const contentStartY = currentY + 0.1;
+    currentY = contentStartY;
+
+    for (const segment of section.segments) {
+      if (currentY > startY + maxHeight) break;
+
+      if (segment.style?.lineBreak) {
+        currentY += lineHeight * 0.5;
+        continue;
+      }
+
+      if (!segment.text) continue;
+
+      // Set font style
+      if (segment.style?.bold) {
+        pdf.setFont('helvetica', 'bold');
+      } else {
+        pdf.setFont('helvetica', 'normal');
+      }
+
+      // Word wrap and draw text
+      const lines = pdf.splitTextToSize(segment.text.trim(), width - 0.2);
+      for (const line of lines) {
+        if (currentY > startY + maxHeight) break;
+        pdf.text(line, startX + 0.1, currentY + (baseFontSize * 0.75) / 72);
+        currentY += lineHeight;
+      }
+    }
+
+    // Add spacing after section
+    currentY += POPUP_SECTION_SPACING * scaleRatio;
+  }
+
+  return currentY;
 }
 
 /**
@@ -348,12 +810,14 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
 /**
  * Main export function
  * Generates a multi-page PDF for a feature using the specified template or popup fallback
+ * Always uses popup elements from webmap when available
  */
 export async function exportFeatureToPDF({
   feature,
   atlasConfig,
   mapConfig,
   mapView = null,
+  sourceLayer = null,
   onProgress = () => {}
 }) {
   if (!feature) {
@@ -368,8 +832,14 @@ export async function exportFeatureToPDF({
 
   // Check if feature layer matches customFeatureInfo configuration
   const customFeatureInfo = mapConfig?.customFeatureInfo;
-  const featureLayerId = feature?.sourceLayerId;
+  const featureLayerId = feature?.sourceLayerId || sourceLayer?.id;
   const featureExportTemplateId = mapConfig?.featureExportTemplateId;
+
+  // Determine if we should use popup elements from webmap
+  // This happens when the layer matches customFeatureInfo.layerId
+  const usePopupElements = customFeatureInfo?.layerId &&
+                           featureLayerId === customFeatureInfo.layerId &&
+                           (sourceLayer?.popupTemplate || feature?.popupTemplate);
 
   // Use custom template if:
   // 1. A feature export template is configured for the map
@@ -395,7 +865,19 @@ export async function exportFeatureToPDF({
   // Get display fields for the feature
   const tableColumns = mapConfig?.tableColumns || [];
   const searchFields = mapConfig?.searchFields || [];
-  const displayFields = getDisplayFields(feature, tableColumns, searchFields);
+  let displayFields = getDisplayFields(feature, tableColumns, searchFields);
+
+  // Get evaluated popup content if using popup elements
+  let popupContent = [];
+  if (usePopupElements) {
+    onProgress('Evaluating popup expressions...');
+    try {
+      popupContent = await getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo);
+      console.log('[FeatureExport] Got popup content:', popupContent.length, 'sections');
+    } catch (err) {
+      console.warn('[FeatureExport] Could not evaluate popup content:', err);
+    }
+  }
 
   // If no custom template, create fallback from popup elements
   if (!template) {
@@ -446,19 +928,48 @@ export async function exportFeatureToPDF({
     ? Math.min(...footerElements.map(e => e.y / 100 * pageDims.height))
     : pageDims.height - margins.bottom;
 
-  // Calculate available height for attribute data
-  const attributeStartY = attributeElement ? (attributeElement.y / 100 * pageDims.height) : headerMaxY + 0.1;
-  const attributeEndY = footerMinY - 0.1;
-  const availableHeight = attributeEndY - attributeStartY;
+  // Calculate available height for content
+  const contentStartY = attributeElement ? (attributeElement.y / 100 * pageDims.height) : headerMaxY + 0.1;
+  const contentEndY = footerMinY - 0.1;
+  const availableHeight = contentEndY - contentStartY;
+  const contentWidth = attributeElement
+    ? (attributeElement.width / 100 * pageDims.width)
+    : pageDims.width - margins.left - margins.right;
+  const contentStartX = attributeElement
+    ? (attributeElement.x / 100 * pageDims.width)
+    : margins.left;
 
-  // Calculate rows per page
-  const rowsPerPage = Math.floor((availableHeight - HEADER_HEIGHT) / ROW_HEIGHT);
-  const totalPages = Math.ceil(displayFields.length / rowsPerPage);
-
-  console.log(`[FeatureExport] ${displayFields.length} fields, ${rowsPerPage} rows/page, ${totalPages} pages`);
+  // Get scale ratio from customFeatureInfo if available
+  const scaleRatio = customFeatureInfo?.export?.scaleRatio || 1.0;
 
   // Get feature title
   const featureTitle = getFeatureTitle(feature, tableColumns, searchFields);
+
+  // Determine page layout based on content type
+  let pageLayouts = [];
+  let totalPages = 1;
+
+  if (popupContent.length > 0) {
+    // Use popup content - calculate layout across pages
+    pageLayouts = calculatePopupContentLayout(popupContent, availableHeight, pdf, contentWidth);
+    totalPages = pageLayouts.length;
+    console.log(`[FeatureExport] Popup content: ${popupContent.length} sections across ${totalPages} pages`);
+  } else {
+    // Use attribute table - calculate rows per page
+    const rowsPerPage = Math.floor((availableHeight - HEADER_HEIGHT) / ROW_HEIGHT);
+    totalPages = Math.max(1, Math.ceil(displayFields.length / rowsPerPage));
+
+    // Create page layouts for attribute table
+    for (let i = 0; i < totalPages; i++) {
+      const startIndex = i * rowsPerPage;
+      const endIndex = Math.min(startIndex + rowsPerPage, displayFields.length);
+      pageLayouts.push({
+        type: 'attributeTable',
+        fields: displayFields.slice(startIndex, endIndex)
+      });
+    }
+    console.log(`[FeatureExport] ${displayFields.length} fields, ${rowsPerPage} rows/page, ${totalPages} pages`);
+  }
 
   // Draw each page
   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
@@ -493,13 +1004,27 @@ export async function exportFeatureToPDF({
       }
     }
 
-    // Draw attribute data for this page
-    const startIndex = (pageNum - 1) * rowsPerPage;
-    const endIndex = Math.min(startIndex + rowsPerPage, displayFields.length);
-    const pageFields = displayFields.slice(startIndex, endIndex);
+    // Draw content for this page
+    const pageLayout = pageLayouts[pageNum - 1];
 
-    if (attributeElement && pageFields.length > 0) {
-      drawAttributeTable(pdf, attributeElement, pageDims, pageFields);
+    if (pageLayout) {
+      if (pageLayout.type === 'attributeTable') {
+        // Draw attribute table
+        if (attributeElement && pageLayout.fields?.length > 0) {
+          drawAttributeTable(pdf, attributeElement, pageDims, pageLayout.fields);
+        }
+      } else if (pageLayout.sections?.length > 0) {
+        // Draw popup content sections
+        drawPopupContentSections(
+          pdf,
+          pageLayout.sections,
+          contentStartX,
+          contentStartY,
+          contentWidth,
+          availableHeight,
+          scaleRatio
+        );
+      }
     }
 
     // Draw footer elements

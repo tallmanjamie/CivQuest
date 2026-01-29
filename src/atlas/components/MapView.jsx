@@ -1169,6 +1169,7 @@ const MapView = forwardRef(function MapView(props, ref) {
         atlasConfig: config,
         mapConfig: activeMap,
         mapView: viewRef.current,
+        sourceLayer: selectedFeatureLayer,
         onProgress: (status) => {
           console.log('[MapView] PDF Export:', status);
         }
@@ -1177,7 +1178,7 @@ const MapView = forwardRef(function MapView(props, ref) {
       console.error('[MapView] PDF export failed:', err);
       // Could add a toast notification here in the future
     }
-  }, [selectedFeature, config, activeMap]);
+  }, [selectedFeature, selectedFeatureLayer, config, activeMap]);
 
   /**
    * Close feature panel
