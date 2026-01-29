@@ -640,6 +640,39 @@ async function getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo 
 }
 
 /**
+ * Extract fixed width from HTML content if specified in a root element's style
+ * Looks for width styles like "width: 600px" or "width:600px" in the outermost container
+ * @param {string} htmlContent - HTML string content
+ * @returns {number|null} Width in pixels if found, null otherwise
+ */
+function extractFixedWidthFromHtml(htmlContent) {
+  if (!htmlContent) return null;
+
+  // Look for width in style attribute of the first/outermost element
+  // Match patterns like: <div style="width: 600px"> or <div style="...;width:600px;...">
+  const styleMatch = htmlContent.match(/^[\s]*<[^>]+style\s*=\s*["'][^"']*width\s*:\s*(\d+(?:\.\d+)?)\s*px[^"']*["']/i);
+
+  if (styleMatch && styleMatch[1]) {
+    const widthPx = parseFloat(styleMatch[1]);
+    if (!isNaN(widthPx) && widthPx > 0) {
+      return widthPx;
+    }
+  }
+
+  // Also check for width attribute directly (e.g., <table width="600">)
+  const widthAttrMatch = htmlContent.match(/^[\s]*<[^>]+width\s*=\s*["']?(\d+(?:\.\d+)?)(?:px)?["']?/i);
+
+  if (widthAttrMatch && widthAttrMatch[1]) {
+    const widthPx = parseFloat(widthAttrMatch[1]);
+    if (!isNaN(widthPx) && widthPx > 0) {
+      return widthPx;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Extract tables from HTML content and return structured table data
  * @param {string} htmlContent - HTML string content
  * @returns {{tables: Array, contentWithoutTables: string}} Extracted tables and remaining content
@@ -744,10 +777,13 @@ function stripHtmlTags(html) {
  * Handles common HTML elements and converts to structured text
  * Enhanced to handle Feature widget HTML output (Esri-specific classes, tables, etc.)
  * @param {string} htmlContent - HTML string content
- * @returns {{segments: Array<{text: string, style: object}>, tables: Array}} Array of text segments with styles and tables
+ * @returns {{segments: Array<{text: string, style: object}>, tables: Array, fixedWidthPx: number|null}} Array of text segments with styles, tables, and optional fixed width
  */
 function parseHtmlContent(htmlContent) {
-  if (!htmlContent) return { segments: [], tables: [] };
+  if (!htmlContent) return { segments: [], tables: [], fixedWidthPx: null };
+
+  // Extract any fixed width specified in the HTML (e.g., from arcade output)
+  const fixedWidthPx = extractFixedWidthFromHtml(htmlContent);
 
   // First extract tables to handle them separately
   const { tables, contentWithoutTables } = extractTablesFromHtml(htmlContent);
@@ -872,7 +908,7 @@ function parseHtmlContent(htmlContent) {
     segments.push({ text: '', style: { lineBreak: true } });
   }
 
-  return { segments, tables };
+  return { segments, tables, fixedWidthPx };
 }
 
 /**
@@ -988,18 +1024,31 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
   const pages = [];
   let currentPage = { sections: [], usedHeight: 0 };
 
+  // Standard web DPI for converting HTML pixel widths to inches
+  const WEB_DPI = 96;
+
   for (const section of popupContent) {
-    // Parse content to get text segments and tables
+    // Parse content to get text segments, tables, and any fixed width
     const parsed = section.isHtml
       ? parseHtmlContent(section.content)
-      : { segments: [{ text: section.content, style: {} }], tables: [] };
+      : { segments: [{ text: section.content, style: {} }], tables: [], fixedWidthPx: null };
 
-    const { segments, tables } = parsed;
+    const { segments, tables, fixedWidthPx } = parsed;
+
+    // Calculate effective width for this section
+    // If HTML specifies a fixed width, convert to inches and use it (capped at available width)
+    let effectiveWidth = contentWidth;
+    let fixedWidthInches = null;
+    if (fixedWidthPx && fixedWidthPx > 0) {
+      fixedWidthInches = fixedWidthPx / WEB_DPI;
+      // Use the HTML-specified width, but don't exceed available content width
+      effectiveWidth = Math.min(fixedWidthInches, contentWidth);
+    }
 
     // Calculate height needed for this section
     let sectionHeight = POPUP_SECTION_HEADER_HEIGHT; // Header
 
-    // Calculate text height
+    // Calculate text height using effective width
     pdf.setFontSize(10 * 0.75);
     for (const segment of segments) {
       if (segment.style?.lineBreak) {
@@ -1014,7 +1063,7 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
           sectionHeight += POPUP_LINE_HEIGHT; // Spacing after table
         }
       } else if (segment.text) {
-        const lines = pdf.splitTextToSize(segment.text, contentWidth - 0.2);
+        const lines = pdf.splitTextToSize(segment.text, effectiveWidth - 0.2);
         sectionHeight += lines.length * POPUP_LINE_HEIGHT;
       }
     }
@@ -1028,11 +1077,12 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
       currentPage = { sections: [], usedHeight: 0 };
     }
 
-    // Add section to current page
+    // Add section to current page, including the fixed width if specified
     currentPage.sections.push({
       ...section,
       segments,
       tables,
+      fixedWidthInches,
       estimatedHeight: sectionHeight
     });
     currentPage.usedHeight += sectionHeight;
@@ -1146,12 +1196,18 @@ function drawPopupContentSections(pdf, sections, startX, startY, width, maxHeigh
   const headerFontSize = 11 * scaleRatio;
 
   for (const section of sections) {
+    // Determine effective width for this section's content
+    // If HTML specified a fixed width, use it (capped at available width)
+    const effectiveWidth = section.fixedWidthInches
+      ? Math.min(section.fixedWidthInches, width)
+      : width;
+
     // Draw section header
     pdf.setFontSize(headerFontSize * 0.75);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(30, 41, 59); // slate-800
 
-    // Section header background
+    // Section header background (always uses full width)
     pdf.setFillColor(241, 245, 249); // slate-100
     pdf.rect(startX, currentY, width, POPUP_SECTION_HEADER_HEIGHT * scaleRatio, 'F');
 
@@ -1176,11 +1232,11 @@ function drawPopupContentSections(pdf, sections, startX, startY, width, maxHeigh
         continue;
       }
 
-      // Handle table segments
+      // Handle table segments (tables use effective width from HTML if specified)
       if (segment.style?.tableIndex !== undefined && section.tables) {
         const table = section.tables[segment.style.tableIndex];
         if (table) {
-          currentY = drawPdfTable(pdf, table, startX, currentY, width, scaleRatio);
+          currentY = drawPdfTable(pdf, table, startX, currentY, effectiveWidth, scaleRatio);
           continue;
         }
       }
@@ -1194,8 +1250,8 @@ function drawPopupContentSections(pdf, sections, startX, startY, width, maxHeigh
         pdf.setFont('helvetica', 'normal');
       }
 
-      // Word wrap and draw text
-      const lines = pdf.splitTextToSize(segment.text.trim(), width - 0.2);
+      // Word wrap and draw text using effective width
+      const lines = pdf.splitTextToSize(segment.text.trim(), effectiveWidth - 0.2);
       for (const line of lines) {
         if (currentY > startY + maxHeight) break;
         pdf.text(line, startX + 0.1, currentY + (baseFontSize * 0.75) / 72);
