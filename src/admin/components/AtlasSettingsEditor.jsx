@@ -38,7 +38,7 @@ import {
   BookOpen,
   Video,
   FileImage,
-  Tag
+  Tag,
   Type
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
