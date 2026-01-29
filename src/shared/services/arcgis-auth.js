@@ -297,6 +297,77 @@ export function generateSecurePassword() {
   return password;
 }
 
+/**
+ * Checks if a webmap is publicly accessible (no authentication required)
+ * @param {string} itemId - The ArcGIS Portal item ID
+ * @param {string} portalUrl - The portal URL (default: https://www.arcgis.com)
+ * @returns {Promise<{isPublic: boolean, item: object|null, error: string|null}>}
+ */
+export async function checkWebmapPublicAccess(itemId, portalUrl = 'https://www.arcgis.com') {
+  if (!itemId) {
+    return { isPublic: false, item: null, error: 'No item ID provided' };
+  }
+
+  try {
+    // Query the item without authentication
+    const response = await fetch(
+      `${portalUrl}/sharing/rest/content/items/${itemId}?f=json`
+    );
+
+    const data = await response.json();
+
+    if (data.error) {
+      // If we get an error, the item is likely private or doesn't exist
+      return {
+        isPublic: false,
+        item: null,
+        error: data.error.message || 'Item not accessible'
+      };
+    }
+
+    // Check the access level - "public" means anyone can view
+    const isPublic = data.access === 'public';
+
+    return {
+      isPublic,
+      item: data,
+      error: null
+    };
+  } catch (err) {
+    console.warn('[ArcGIS Auth] Error checking webmap access:', err);
+    return {
+      isPublic: false,
+      item: null,
+      error: err.message
+    };
+  }
+}
+
+/**
+ * Checks accessibility of multiple webmaps at once
+ * @param {Array<{itemId: string, portalUrl?: string}>} webmaps - Array of webmap configs
+ * @returns {Promise<Map<string, {isPublic: boolean, item: object|null, error: string|null}>>}
+ */
+export async function checkMultipleWebmapsAccess(webmaps) {
+  const results = new Map();
+
+  const checks = webmaps.map(async (webmap) => {
+    const itemId = webmap.itemId || webmap.webMap?.itemId;
+    const portalUrl = webmap.portalUrl || webmap.webMap?.portalUrl || 'https://www.arcgis.com';
+
+    if (!itemId) {
+      results.set(itemId, { isPublic: false, item: null, error: 'No item ID' });
+      return;
+    }
+
+    const result = await checkWebmapPublicAccess(itemId, portalUrl);
+    results.set(itemId, result);
+  });
+
+  await Promise.all(checks);
+  return results;
+}
+
 // Default export for convenience
 export default {
   getOAuthRedirectUri,
@@ -313,5 +384,7 @@ export default {
   getOAuthMode,
   initiateArcGISLogin,
   generateSecurePassword,
-  generateDeterministicPassword
+  generateDeterministicPassword,
+  checkWebmapPublicAccess,
+  checkMultipleWebmapsAccess
 };

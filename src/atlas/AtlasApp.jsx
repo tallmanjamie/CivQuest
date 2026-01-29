@@ -60,6 +60,7 @@ import { sendWelcomeEmail } from '@shared/services/email';
 // Hooks
 import { useAtlasConfig, useActiveMap, detectOrganizationId } from './hooks/useAtlasConfig';
 import { useArcGISAuth } from './hooks/useArcGISAuth';
+import { useWebmapAccessibility } from './hooks/useWebmapAccessibility';
 import PreviewBanner, { usePreviewBannerPadding } from './components/PreviewBanner';
 
 // Components
@@ -666,13 +667,19 @@ function SearchToolbar({
 
 /**
  * AtlasApp - Main application entry point
+ *
+ * Authentication Workflow:
+ * 1. Check each webmap in config for public accessibility
+ * 2. If user not logged in AND there are public maps: show them and open app
+ * 3. If user logged in: show public maps + check if user has ArcGIS account linked
+ *    - If linked, check remaining webmaps for access and make accessible ones available
+ * 4. If user not logged in AND no public maps: show login screen
  */
 export default function AtlasApp() {
   // Configuration & Auth
-  const { config, loading: configLoading, error: configError, orgId, setOrgId, availableMaps, isPreviewMode } = useAtlasConfig();
-  const { activeMap, activeMapIndex, setActiveMap } = useActiveMap(config);
+  const { config, loading: configLoading, error: configError, orgId, setOrgId, availableMaps: configMaps, isPreviewMode } = useAtlasConfig();
   // ArcGIS Portal auth - used for map access control (separate from user account auth)
-  const { user: arcgisUser, loading: arcgisAuthLoading, signIn: arcgisSignIn, signOut: arcgisSignOut, isAuthenticated: isArcGISAuthenticated } = useArcGISAuth();
+  const { user: arcgisUser, loading: arcgisAuthLoading, signIn: arcgisSignIn, signOut: arcgisSignOut, isAuthenticated: isArcGISAuthenticated, portal: arcgisPortal } = useArcGISAuth();
 
   // Firebase Auth State - user account authentication
   const [firebaseUser, setFirebaseUser] = useState(null);
@@ -680,6 +687,28 @@ export default function AtlasApp() {
   const [authLoading, setAuthLoading] = useState(true);
   const [oauthProcessing, setOauthProcessing] = useState(false);
   const [oauthError, setOauthError] = useState(null);
+
+  // Webmap accessibility check - determines which maps user can access
+  const {
+    accessibleMaps,
+    publicMaps,
+    privateMaps,
+    loading: accessCheckLoading,
+    requiresLogin,
+    hasCheckedAccess
+  } = useWebmapAccessibility({
+    allMaps: configMaps,
+    firebaseUser,
+    firebaseUserData,
+    arcgisPortal,
+    arcgisAuthLoading
+  });
+
+  // Use accessible maps for the active map selection
+  const { activeMap, activeMapIndex, setActiveMap } = useActiveMap({
+    ...config,
+    data: { ...config?.data, maps: accessibleMaps }
+  });
 
   // Add padding to body when preview banner is shown
   usePreviewBannerPadding(isPreviewMode);
@@ -1097,7 +1126,9 @@ export default function AtlasApp() {
     activeMap,
     activeMapIndex,
     setActiveMap,
-    availableMaps,
+    availableMaps: accessibleMaps,  // Maps the user can actually access
+    publicMaps,                      // Maps available to everyone
+    privateMaps,                     // Maps requiring authentication
 
     // Theme colors (for child components)
     themeColor,
@@ -1107,6 +1138,7 @@ export default function AtlasApp() {
     user: firebaseUser,
     userData: firebaseUserData,
     signOut: handleSignOut,
+    isLoggedIn: !!firebaseUser,
 
     // ArcGIS Portal Auth (map access)
     arcgisUser,
@@ -1158,17 +1190,20 @@ export default function AtlasApp() {
     setShowHelpPanel
   };
   
-  // Loading state
-  if (configLoading || authLoading || oauthProcessing) {
+  // Loading state - wait for config, auth, OAuth processing, and webmap access check
+  if (configLoading || authLoading || oauthProcessing || (configMaps?.length > 0 && !hasCheckedAccess)) {
     return (
       <LoadingScreen
-        message={oauthProcessing ? "Signing in with ArcGIS..." : "Loading Atlas..."}
+        message={oauthProcessing ? "Signing in with ArcGIS..." : accessCheckLoading ? "Checking map access..." : "Loading Atlas..."}
       />
     );
   }
 
-  // Not authenticated - show auth screen
-  if (!firebaseUser) {
+  // Authentication required - show auth screen ONLY if:
+  // - No public maps are available AND
+  // - User is not logged in
+  // This implements the workflow: if there are public maps, show them without requiring login
+  if (requiresLogin) {
     return (
       <div className="h-dvh flex flex-col bg-slate-100 font-sans">
         {/* Simple header for auth screen */}
@@ -1223,23 +1258,49 @@ export default function AtlasApp() {
     );
   }
   
-  // No maps available
+  // No maps available - user is authenticated but has no accessible maps
   if (!activeMap) {
-    return (
-      <ErrorScreen
-        title="No Maps Available"
-        message={isArcGISAuthenticated
-          ? "You don't have access to any maps in this organization."
-          : "Sign in with ArcGIS to access protected maps."}
-        action={!isArcGISAuthenticated && (
+    // Determine the appropriate message and action based on auth state
+    const hasLinkedArcGIS = firebaseUserData?.arcgisProfile?.username ||
+                            firebaseUserData?.linkedArcGISUsername;
+
+    let message = "No maps are configured for this organization.";
+    let action = null;
+
+    if (privateMaps?.length > 0) {
+      // There are private maps but user can't access them
+      if (!firebaseUser) {
+        message = "All maps in this organization require authentication. Please sign in to access them.";
+        action = (
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 flex items-center gap-2"
+          >
+            <LogIn className="w-4 h-4" />
+            Sign In
+          </button>
+        );
+      } else if (!hasLinkedArcGIS) {
+        message = "Some maps require an ArcGIS account. Link your ArcGIS account to access protected maps.";
+        action = (
           <button
             onClick={arcgisSignIn}
             className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 flex items-center gap-2"
           >
             <LogIn className="w-4 h-4" />
-            Sign in with ArcGIS
+            Link ArcGIS Account
           </button>
-        )}
+        );
+      } else {
+        message = "You don't have access to any maps in this organization. Contact the administrator for access.";
+      }
+    }
+
+    return (
+      <ErrorScreen
+        title="No Maps Available"
+        message={message}
+        action={action}
       />
     );
   }
