@@ -120,7 +120,8 @@ function SearchToolbar({
   searchHistory,
   onClearHistory,
   onShowAdvanced,
-  position = 'top'
+  position = 'top',
+  helpModeEnabled = false
 }) {
   const [inputValue, setInputValue] = useState('');
   const [showMenu, setShowMenu] = useState(false);
@@ -523,7 +524,7 @@ function SearchToolbar({
                 setShowSuggestions(true);
               }
             }}
-            placeholder={activeMap?.searchPlaceholder || config?.ui?.searchPlaceholder || "Search properties..."}
+            placeholder={helpModeEnabled ? "Ask for help." : (activeMap?.searchPlaceholder || config?.ui?.searchPlaceholder || "Search properties...")}
             className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:bg-white transition"
             style={{
               '--tw-ring-color': colors.bg500,
@@ -604,10 +605,12 @@ function SearchToolbar({
               : 'bg-slate-100 text-slate-400'
           }`}
           style={inputValue.trim() ? { backgroundColor: colors.bg600 } : {}}
-          title="Search"
+          title={helpModeEnabled ? "Ask for help" : "Search"}
         >
           {isSearching ? (
             <Loader2 className="w-5 h-5 animate-spin" />
+          ) : helpModeEnabled ? (
+            <HelpCircle className="w-5 h-5" />
           ) : (
             <Send className="w-5 h-5" />
           )}
@@ -889,6 +892,9 @@ export default function AtlasApp() {
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
 
+  // Help mode state (shared with ChatView and SearchToolbar)
+  const [helpModeEnabled, setHelpModeEnabled] = useState(false);
+
   // Search History State (shared across all views)
   const [searchHistory, setSearchHistory] = useState([]);
 
@@ -1096,7 +1102,11 @@ export default function AtlasApp() {
     // Search History (shared across all views)
     searchHistory,
     saveToHistory,
-    clearHistory
+    clearHistory,
+
+    // Help mode (shared with ChatView and SearchToolbar)
+    helpModeEnabled,
+    setHelpModeEnabled
   };
   
   // Loading state
@@ -1203,6 +1213,7 @@ export default function AtlasApp() {
       onClearHistory={clearHistory}
       onShowAdvanced={() => setShowAdvanced(true)}
       position={searchBarPosition}
+      helpModeEnabled={helpModeEnabled}
     />
   );
   

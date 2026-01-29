@@ -133,7 +133,10 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     enabledModes,
     mapViewRef,
     // Use shared search history from context
-    saveToHistory
+    saveToHistory,
+    // Use shared help mode state from context
+    helpModeEnabled,
+    setHelpModeEnabled
   } = useAtlas();
 
   const [messages, setMessages] = useState([]);
@@ -142,9 +145,6 @@ const ChatView = forwardRef(function ChatView(props, ref) {
 
   // Session memory for context-aware searches
   const [sessionMemory, setSessionMemory] = useState([]);
-
-  // Help mode toggle
-  const [helpModeEnabled, setHelpModeEnabled] = useState(false);
 
   // Mobile view state for results
   const [isMobile, setIsMobile] = useState(false);
