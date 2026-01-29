@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
+import { exportFeatureToPDF } from '../utils/FeatureExportService';
 
 // Centralized Gemini configuration - update model in one place
 import { getGeminiUrl, getGeminiFallbackUrl, GEMINI_QUERY_CONFIG, GEMINI_CONFIG } from '../../config/geminiConfig';
@@ -633,77 +634,28 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
 
   /**
    * Export single feature to PDF
+   * Uses FeatureExportService for consistent multi-page PDF generation
    */
-  const exportPDF = useCallback((feature) => {
+  const exportPDF = useCallback(async (feature) => {
     if (!feature) return;
 
-    const tableColumns = activeMap?.tableColumns || [];
-    let fields;
-    if (tableColumns.length > 0) {
-      fields = tableColumns
-        .filter(col => feature.attributes?.[col.field] != null)
-        .map(col => ({
-          label: col.headerName || col.field,
-          value: feature.attributes[col.field]
-        }));
-    } else {
-      // Auto-generate from attributes
-      fields = Object.entries(feature.attributes || {})
-        .filter(([k, v]) => !k.startsWith('_') && v != null && k !== 'OBJECTID' && k !== 'Shape__Area' && k !== 'Shape__Length')
-        .map(([key, value]) => ({
-          label: key.replace(/_/g, ' '),
-          value
-        }));
+    console.log('[ChatView] Starting PDF export for feature:', feature);
+
+    try {
+      await exportFeatureToPDF({
+        feature,
+        atlasConfig: config,
+        mapConfig: activeMap,
+        mapView: mapViewRef?.current?.view || null,
+        onProgress: (status) => {
+          console.log('[ChatView] PDF Export:', status);
+        }
+      });
+    } catch (err) {
+      console.error('[ChatView] PDF export failed:', err);
+      // Could add error handling/notification here
     }
-
-    // Get address for title
-    const { addressField } = getFieldNames();
-    const title = feature.attributes?.[addressField] || feature.attributes?.PROPERTYADDRESS || feature.attributes?.ADDRESS || 'Property Details';
-
-    // Create printable HTML and open in new window for PDF export
-    const printContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${title}</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
-          h1 { color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
-          .details { margin-top: 20px; }
-          .field { display: flex; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
-          .label { font-weight: 600; color: #64748b; width: 200px; text-transform: uppercase; font-size: 12px; }
-          .value { color: #1e293b; flex: 1; }
-          .footer { margin-top: 40px; color: #94a3b8; font-size: 12px; text-align: center; }
-          @media print {
-            body { padding: 20px; }
-            .no-print { display: none; }
-          }
-        </style>
-      </head>
-      <body>
-        <h1>${title}</h1>
-        <div class="details">
-          ${fields.map(f => `
-            <div class="field">
-              <span class="label">${f.label}</span>
-              <span class="value">${String(f.value)}</span>
-            </div>
-          `).join('')}
-        </div>
-        <div class="footer">
-          Exported on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}
-        </div>
-        <script>
-          window.onload = function() { window.print(); }
-        </script>
-      </body>
-      </html>
-    `;
-
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(printContent);
-    printWindow.document.close();
-  }, [activeMap?.tableColumns, getFieldNames]);
+  }, [config, activeMap, mapViewRef]);
 
   useImperativeHandle(ref, () => ({ handleSearch, addMessage }), [handleSearch, addMessage]);
 
