@@ -406,7 +406,8 @@ export default function AtlasSettingsEditor({
         title: '',
         content: '',
         tags: [],
-        media: []
+        media: [],
+        links: []
       }]
     }));
   };
@@ -480,6 +481,34 @@ export default function AtlasSettingsEditor({
   const removeMediaTag = (docIndex, mediaIndex, tagIndex) => {
     const updated = [...config.helpDocumentation];
     updated[docIndex].media[mediaIndex].tags = updated[docIndex].media[mediaIndex].tags.filter((_, i) => i !== tagIndex);
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  // Help Documentation link handlers (external links tied to specific articles)
+  const addHelpDocLink = (docIndex) => {
+    const updated = [...config.helpDocumentation];
+    const currentLinks = updated[docIndex].links || [];
+    updated[docIndex] = {
+      ...updated[docIndex],
+      links: [...currentLinks, {
+        id: `link_${Date.now()}`,
+        title: '',
+        url: '',
+        description: ''
+      }]
+    };
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  const updateHelpDocLink = (docIndex, linkIndex, field, value) => {
+    const updated = [...config.helpDocumentation];
+    updated[docIndex].links[linkIndex] = { ...updated[docIndex].links[linkIndex], [field]: value };
+    setConfig(prev => ({ ...prev, helpDocumentation: updated }));
+  };
+
+  const removeHelpDocLink = (docIndex, linkIndex) => {
+    const updated = [...config.helpDocumentation];
+    updated[docIndex].links = updated[docIndex].links.filter((_, i) => i !== linkIndex);
     setConfig(prev => ({ ...prev, helpDocumentation: updated }));
   };
 
@@ -1621,6 +1650,9 @@ export default function AtlasSettingsEditor({
                       onRemoveMedia={removeHelpDocMedia}
                       onAddMediaTag={addMediaTag}
                       onRemoveMediaTag={removeMediaTag}
+                      onAddLink={addHelpDocLink}
+                      onUpdateLink={updateHelpDocLink}
+                      onRemoveLink={removeHelpDocLink}
                     />
                   ))}
 
@@ -1781,7 +1813,7 @@ function Section({ title, icon: Icon, expanded, onToggle, children, accentColor 
 
 /**
  * Help Documentation Editor Component
- * Handles individual help article editing with media attachments
+ * Handles individual help article editing with media attachments and external links
  */
 function HelpDocEditor({
   doc,
@@ -1794,7 +1826,10 @@ function HelpDocEditor({
   onUpdateMedia,
   onRemoveMedia,
   onAddMediaTag,
-  onRemoveMediaTag
+  onRemoveMediaTag,
+  onAddLink,
+  onUpdateLink,
+  onRemoveLink
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [newTag, setNewTag] = useState('');
@@ -1939,6 +1974,69 @@ function HelpDocEditor({
               className="mt-2 w-full py-1.5 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
             >
               <Plus className="w-3 h-3" /> Add Image or Video
+            </button>
+          </div>
+
+          {/* External Links Section */}
+          <div className="pt-3 border-t border-slate-100">
+            <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
+              <Link className="w-4 h-4" />
+              External Links
+              <span className="text-xs text-slate-400 font-normal">(opens in new window)</span>
+            </label>
+
+            {/* Link Items */}
+            {(doc.links || []).map((link, linkIdx) => (
+              <div
+                key={link.id || linkIdx}
+                className="p-3 bg-slate-50 rounded-lg mb-2"
+              >
+                <div className="flex items-start gap-2">
+                  <div className="w-8 h-8 bg-emerald-100 rounded flex items-center justify-center flex-shrink-0">
+                    <Link className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={link.title}
+                        onChange={(e) => onUpdateLink(docIndex, linkIdx, 'title', e.target.value)}
+                        placeholder="Link Title"
+                        className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onRemoveLink(docIndex, linkIdx)}
+                        className="p-1 text-red-500 hover:bg-red-50 rounded"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <input
+                      type="url"
+                      value={link.url}
+                      onChange={(e) => onUpdateLink(docIndex, linkIdx, 'url', e.target.value)}
+                      placeholder="URL (https://...)"
+                      className="w-full px-2 py-1 border border-slate-300 rounded text-xs"
+                    />
+                    <input
+                      type="text"
+                      value={link.description || ''}
+                      onChange={(e) => onUpdateLink(docIndex, linkIdx, 'description', e.target.value)}
+                      placeholder="Description (optional)"
+                      className="w-full px-2 py-1 border border-slate-300 rounded text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => onAddLink(docIndex)}
+              className="mt-2 w-full py-1.5 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500 hover:border-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
+            >
+              <Plus className="w-3 h-3" /> Add External Link
             </button>
           </div>
         </div>

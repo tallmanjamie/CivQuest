@@ -14,10 +14,19 @@ import {
 
 /**
  * Default system configuration structure
+ *
+ * Help article structure:
+ * {
+ *   id: string,
+ *   title: string,
+ *   content: string,
+ *   tags: string[],
+ *   media: Array<{ id, type: 'image'|'video', url, title, thumbnail?, tags }>,
+ *   links: Array<{ id, title, url, description? }>  // External links tied to this article
+ * }
  */
 export const DEFAULT_SYSTEM_CONFIG = {
   globalHelpDocumentation: [],
-  globalHelpLinks: [],
   updatedAt: null,
   updatedBy: null
 };
@@ -101,12 +110,10 @@ export async function updateSystemConfig(data, userId = null) {
 
 /**
  * Update global help documentation
+ * External links are now stored within each help article's 'links' array
  */
-export async function updateGlobalHelpDocumentation(helpDocs, userId = null, helpLinks = null) {
+export async function updateGlobalHelpDocumentation(helpDocs, userId = null) {
   const updateData = { globalHelpDocumentation: helpDocs };
-  if (helpLinks !== null) {
-    updateData.globalHelpLinks = helpLinks;
-  }
   await updateSystemConfig(updateData, userId);
 }
 
