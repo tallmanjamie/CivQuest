@@ -10,11 +10,13 @@ import {
   Download,
   Layers,
   GripVertical,
-  Loader2
+  Loader2,
+  Eye
 } from 'lucide-react';
 
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
+import { useIntegrations } from '../hooks/useIntegrations';
 
 /**
  * FeatureInfoPanel Component
@@ -38,9 +40,12 @@ export default function FeatureInfoPanel({
   isExportingPDF = false,
   exportPDFProgress = ''
 }) {
-  const { config: atlasConfig } = useAtlas();
+  const { config: atlasConfig, orgId } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
+
+  // Integrations (EagleView/Pictometry)
+  const { isPictometryEnabled, openEagleView } = useIntegrations(orgId);
 
   // Layout State
   const [activeTab, setActiveTab] = useState(null);
@@ -325,6 +330,17 @@ export default function FeatureInfoPanel({
     </div>
   );
 
+  // Handle EagleView button click
+  const handleOpenEagleView = useCallback(() => {
+    if (!feature?.geometry) return;
+
+    openEagleView({
+      geometry: feature.geometry,
+      title: displayTitle,
+      themeColor: colors.bg500
+    });
+  }, [feature, displayTitle, colors.bg500, openEagleView]);
+
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
       <ActionButton icon={Bookmark} label="Save to Markup" onClick={() => onSaveAsMarkup?.(feature, displayTitle)} />
@@ -336,6 +352,14 @@ export default function FeatureInfoPanel({
         isLoading={isExportingPDF}
       />
       <ActionButton icon={Target} label="Zoom To" onClick={() => onZoomTo?.(feature)} />
+      {isPictometryEnabled && (
+        <ActionButton
+          icon={Eye}
+          label="EagleView"
+          onClick={handleOpenEagleView}
+          themeColor={colors.bg500}
+        />
+      )}
     </div>
   );
 
@@ -411,18 +435,24 @@ export default function FeatureInfoPanel({
   );
 }
 
-function ActionButton({ icon: Icon, label, onClick, disabled = false, isLoading = false }) {
+function ActionButton({ icon: Icon, label, onClick, disabled = false, isLoading = false, themeColor = null }) {
+  // If themeColor is provided, use it for a highlighted button style
+  const isHighlighted = !!themeColor;
+
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border border-slate-200 ${
+      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border ${
         disabled
-          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-          : 'text-slate-600 bg-white hover:bg-slate-50 hover:shadow-sm active:scale-95'
+          ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
+          : isHighlighted
+            ? 'text-white hover:opacity-90 active:scale-95'
+            : 'text-slate-600 bg-white hover:bg-slate-50 hover:shadow-sm active:scale-95 border-slate-200'
       }`}
+      style={isHighlighted && !disabled ? { backgroundColor: themeColor, borderColor: themeColor } : {}}
     >
-      <Icon className={`w-4 h-4 ${disabled ? 'text-slate-300' : 'text-slate-400'} ${isLoading ? 'animate-spin' : ''}`} />
+      <Icon className={`w-4 h-4 ${disabled ? 'text-slate-300' : isHighlighted ? 'text-white' : 'text-slate-400'} ${isLoading ? 'animate-spin' : ''}`} />
       <span className="truncate">{label}</span>
     </button>
   );

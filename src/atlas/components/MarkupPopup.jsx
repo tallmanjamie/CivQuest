@@ -12,7 +12,8 @@ import {
   Type,
   Tag,
   FileText,
-  GripVertical
+  GripVertical,
+  Eye
 } from 'lucide-react';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 import Point from '@arcgis/core/geometry/Point';
@@ -20,6 +21,7 @@ import Polyline from '@arcgis/core/geometry/Polyline';
 import Polygon from '@arcgis/core/geometry/Polygon';
 import { getThemeColors } from '../utils/themeColors';
 import { useAtlas } from '../AtlasApp';
+import { useIntegrations } from '../hooks/useIntegrations';
 
 /**
  * Ensures the geometry is a proper ArcGIS Geometry class instance.
@@ -107,9 +109,12 @@ export default function MarkupPopup({
   onWidthChange,
   refreshKey = 0
 }) {
-  const { config: atlasConfig } = useAtlas();
+  const { config: atlasConfig, orgId } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
+
+  // Integrations (EagleView/Pictometry)
+  const { isPictometryEnabled, openEagleView } = useIntegrations(orgId);
 
   // State
   const [name, setName] = useState(markup?.attributes?.name || '');
@@ -273,6 +278,17 @@ export default function MarkupPopup({
     onCancelEditing?.();
   }, [onCancelEditing]);
 
+  // Handle EagleView button click
+  const handleOpenEagleView = useCallback(() => {
+    if (!markup?.geometry) return;
+
+    openEagleView({
+      geometry: markup.geometry,
+      title: name || 'Markup',
+      themeColor: colors.bg500
+    });
+  }, [markup, name, colors.bg500, openEagleView]);
+
   // Desktop resizing
   const startResizingDesktop = useCallback((e) => {
     e.preventDefault();
@@ -399,6 +415,16 @@ export default function MarkupPopup({
               <Edit3 className="w-4 h-4 text-slate-400" />
               <span>Edit</span>
             </button>
+            {isPictometryEnabled && (
+              <button
+                onClick={handleOpenEagleView}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-white rounded-lg transition border hover:opacity-90"
+                style={{ backgroundColor: colors.bg500, borderColor: colors.bg500 }}
+              >
+                <Eye className="w-4 h-4 text-white" />
+                <span>EagleView</span>
+              </button>
+            )}
           </>
         )}
       </div>

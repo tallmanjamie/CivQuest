@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EagleView - CivQuest Atlas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        #eagleview-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f5f5f5;
+            z-index: 1000;
+        }
+
+        .status-overlay.hidden {
+            display: none;
+        }
+
+        .error-container {
+            max-width: 500px;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .error-icon {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 20px;
+        }
+
+        .error-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #d32f2f;
+            margin-bottom: 10px;
+        }
+
+        .error-message {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .error-details {
+            font-size: 12px;
+            color: #888;
+            text-align: left;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 12px;
+            margin-top: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .retry-button {
+            background: #0079c1;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .retry-button:hover {
+            background: #005a8c;
+        }
+
+        .loading-container {
+            text-align: center;
+        }
+
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #ddd;
+            border-top-color: #0079c1;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        .loading-text {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .loading-subtext {
+            font-size: 12px;
+            color: #999;
+            margin-top: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Feature info panel */
+        .feature-info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            padding: 12px 15px;
+            font-size: 13px;
+            z-index: 500;
+            max-width: 300px;
+        }
+
+        .feature-info-panel.hidden {
+            display: none;
+        }
+
+        .feature-info-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .feature-color-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .feature-info-subtitle {
+            font-size: 11px;
+            color: #888;
+        }
+
+        /* Hide measure, annotation, and layers buttons but keep navigation */
+        [data-testid="measure-button"],
+        [data-testid="annotation-button"],
+        [data-testid="layers-button"],
+        [data-testid="measure-tool"],
+        [data-testid="annotation-tool"],
+        [data-testid="layers-tool"],
+        [data-testid="location-button"],
+        [data-testid="image-info-button"],
+        [data-testid="export-button"],
+        [data-testid="dual-pane-button"],
+        [data-testid="more-button"],
+        [data-testid="info-button"],
+        [data-testid="share-button"],
+        [data-testid="download-button"],
+        [data-testid="split-button"],
+        [data-testid="sidebar"],
+        [data-testid="left-sidebar"],
+        [aria-label="Measure"],
+        [aria-label="Annotate"],
+        [aria-label="Layers"],
+        [aria-label="Measurement"],
+        [aria-label="Annotations"],
+        [aria-label="Location"],
+        [aria-label="Image Info"],
+        [aria-label="Image info"],
+        [aria-label="Export"],
+        [aria-label="Dual Pane"],
+        [aria-label="Dual pane"],
+        [aria-label="Split View"],
+        [aria-label="More"],
+        [aria-label="Info"],
+        [aria-label="Share"],
+        [aria-label="Download"],
+        [aria-label="Sidebar"],
+        [title="Measure"],
+        [title="Annotate"],
+        [title="Layers"],
+        [title="Measurement"],
+        [title="Annotations"],
+        [title="Location"],
+        [title="Image Info"],
+        [title="Image info"],
+        [title="Export"],
+        [title="Dual Pane"],
+        [title="Dual pane"],
+        [title="Split View"],
+        [title="More"],
+        [title="Info"],
+        [title="Share"],
+        [title="Download"],
+        [title="Sidebar"],
+        button[class*="measure" i],
+        button[class*="annotation" i],
+        button[class*="layer" i],
+        button[class*="location" i],
+        button[class*="info" i],
+        button[class*="export" i],
+        button[class*="dual" i],
+        button[class*="split" i],
+        button[class*="more" i],
+        button[class*="share" i],
+        button[class*="download" i] {
+            display: none !important;
+        }
+
+        /* Hide left sidebar */
+        [class*="sidebar" i],
+        [class*="left-panel" i],
+        [class*="leftPanel" i],
+        [class*="side-panel" i],
+        [class*="sidePanel" i],
+        div[class*="Sidebar" i],
+        aside {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="eagleview-container">
+        <div id="map"></div>
+        <div id="status-overlay" class="status-overlay">
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Loading EagleView...</div>
+                <div class="loading-subtext" id="loading-status">Initializing...</div>
+            </div>
+        </div>
+        <div id="feature-info-panel" class="feature-info-panel hidden"></div>
+    </div>
+
+    <!-- React (required by EagleView Embedded Explorer) -->
+    <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+
+    <!-- EagleView Embedded Explorer Widget -->
+    <script crossorigin src="https://embedded-explorer.eagleview.com/static/embedded-explorer-widget.js"></script>
+
+    <script>
+        // ============================================
+        // Logger
+        // ============================================
+        const Logger = {
+            log(level, msg, data) {
+                const time = new Date().toISOString().split('T')[1].split('.')[0];
+                console[level === 'ERROR' ? 'error' : level === 'WARN' ? 'warn' : 'log'](`[${time}] ${level}: ${msg}`, data || '');
+            },
+
+            info(msg, data) { this.log('INFO', msg, data); },
+            warn(msg, data) { this.log('WARN', msg, data); },
+            error(msg, data) { this.log('ERROR', msg, data); }
+        };
+
+        // ============================================
+        // UI
+        // ============================================
+        const UI = {
+            overlay: null,
+            featureInfoPanel: null,
+
+            init() {
+                this.overlay = document.getElementById('status-overlay');
+                this.featureInfoPanel = document.getElementById('feature-info-panel');
+            },
+
+            showLoading(msg, submsg) {
+                this.overlay.innerHTML = `
+                    <div class="loading-container">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">${msg}</div>
+                        <div class="loading-subtext">${submsg}</div>
+                    </div>
+                `;
+                this.overlay.classList.remove('hidden');
+            },
+
+            showError(title, message, details, recoverable = true) {
+                let detailsHtml = details ? `
+                    <details class="error-details" open>
+                        <summary>Technical Details</summary>
+                        <pre style="white-space:pre-wrap;word-break:break-all;font-size:11px">${
+                            typeof details === 'string' ? details : JSON.stringify(details, null, 2)
+                        }</pre>
+                    </details>
+                ` : '';
+
+                this.overlay.innerHTML = `
+                    <div class="error-container">
+                        <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="#d32f2f" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="12"/>
+                            <line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        <div class="error-title">${title}</div>
+                        <div class="error-message">${message}</div>
+                        ${detailsHtml}
+                        ${recoverable ? '<button class="retry-button" onclick="location.reload()">Try Again</button>' : ''}
+                    </div>
+                `;
+                this.overlay.classList.remove('hidden');
+            },
+
+            hideOverlay() {
+                this.overlay.classList.add('hidden');
+            },
+
+            showFeatureInfo(title, themeColor) {
+                if (!title) {
+                    this.featureInfoPanel.classList.add('hidden');
+                    return;
+                }
+
+                this.featureInfoPanel.innerHTML = `
+                    <div class="feature-info-title">
+                        <div class="feature-color-indicator" style="background: ${themeColor || '#0ea5e9'};"></div>
+                        <span>${title}</span>
+                    </div>
+                    <div class="feature-info-subtitle">Feature highlighted on imagery</div>
+                `;
+                this.featureInfoPanel.classList.remove('hidden');
+            }
+        };
+
+        // ============================================
+        // URL Params
+        // ============================================
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                apiKey: params.get('apiKey'),
+                lat: parseFloat(params.get('lat') || params.get('latitude') || params.get('y')),
+                lon: parseFloat(params.get('lon') || params.get('lng') || params.get('longitude') || params.get('x')),
+                zoom: parseInt(params.get('zoom') || params.get('z')) || 19,
+                themeColor: params.get('themeColor') || '#0ea5e9',
+                title: params.get('title') || 'Feature',
+                geometryType: params.get('geometryType'),
+                // Geometry is passed via sessionStorage due to URL length limits
+            };
+        }
+
+        // ============================================
+        // Geometry Processing
+        // ============================================
+        function calculateCentroid(geometry) {
+            if (!geometry) return null;
+
+            const type = geometry.type;
+
+            if (type === 'point') {
+                return { lat: geometry.y || geometry.latitude, lon: geometry.x || geometry.longitude };
+            }
+
+            if (type === 'polygon' && geometry.rings && geometry.rings[0]) {
+                const ring = geometry.rings[0];
+                let sumLon = 0, sumLat = 0;
+                for (const pt of ring) {
+                    sumLon += pt[0];
+                    sumLat += pt[1];
+                }
+                return { lon: sumLon / ring.length, lat: sumLat / ring.length };
+            }
+
+            if (type === 'polyline' && geometry.paths && geometry.paths[0]) {
+                const path = geometry.paths[0];
+                const midIndex = Math.floor(path.length / 2);
+                return { lon: path[midIndex][0], lat: path[midIndex][1] };
+            }
+
+            // Fallback for extent
+            if (geometry.xmin !== undefined) {
+                return {
+                    lon: (geometry.xmin + geometry.xmax) / 2,
+                    lat: (geometry.ymin + geometry.ymax) / 2
+                };
+            }
+
+            return null;
+        }
+
+        function geometryToGeoJSON(geometry, themeColor = '#0ea5e9') {
+            if (!geometry) return null;
+
+            const type = geometry.type;
+            const color = themeColor;
+
+            if (type === 'point') {
+                return {
+                    type: 'Feature',
+                    properties: {
+                        'marker-color': color,
+                        'marker-size': 'medium'
+                    },
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [geometry.x || geometry.longitude, geometry.y || geometry.latitude]
+                    }
+                };
+            }
+
+            if (type === 'polygon' && geometry.rings) {
+                // Convert to MultiLineString for outline only (no fill)
+                return {
+                    type: 'Feature',
+                    properties: {
+                        stroke: color,
+                        'stroke-width': 3,
+                        'stroke-opacity': 1
+                    },
+                    geometry: {
+                        type: 'MultiLineString',
+                        coordinates: geometry.rings
+                    }
+                };
+            }
+
+            if (type === 'polyline' && geometry.paths) {
+                return {
+                    type: 'Feature',
+                    properties: {
+                        stroke: color,
+                        'stroke-width': 3,
+                        'stroke-opacity': 1
+                    },
+                    geometry: {
+                        type: 'MultiLineString',
+                        coordinates: geometry.paths
+                    }
+                };
+            }
+
+            return null;
+        }
+
+        function calculateExtent(geometry) {
+            if (!geometry) return null;
+
+            let minLon = Infinity, maxLon = -Infinity;
+            let minLat = Infinity, maxLat = -Infinity;
+
+            const type = geometry.type;
+
+            if (type === 'point') {
+                const lon = geometry.x || geometry.longitude;
+                const lat = geometry.y || geometry.latitude;
+                // Small buffer around point
+                return {
+                    minLon: lon - 0.001,
+                    maxLon: lon + 0.001,
+                    minLat: lat - 0.001,
+                    maxLat: lat + 0.001
+                };
+            }
+
+            const coords = type === 'polygon' ? geometry.rings : (type === 'polyline' ? geometry.paths : null);
+
+            if (coords) {
+                for (const ring of coords) {
+                    for (const pt of ring) {
+                        minLon = Math.min(minLon, pt[0]);
+                        maxLon = Math.max(maxLon, pt[0]);
+                        minLat = Math.min(minLat, pt[1]);
+                        maxLat = Math.max(maxLat, pt[1]);
+                    }
+                }
+            }
+
+            if (minLon === Infinity) return null;
+
+            return { minLon, maxLon, minLat, maxLat };
+        }
+
+        function calculateZoomFromExtent(extent) {
+            if (!extent) return 18;
+            const latDiff = extent.maxLat - extent.minLat;
+            const lonDiff = extent.maxLon - extent.minLon;
+            const maxDiff = Math.max(latDiff, lonDiff);
+
+            if (maxDiff > 0.01) return 15;
+            if (maxDiff > 0.005) return 16;
+            if (maxDiff > 0.002) return 17;
+            if (maxDiff > 0.001) return 18;
+            return 18;
+        }
+
+        // ============================================
+        // Main
+        // ============================================
+        async function main() {
+            UI.init();
+
+            Logger.info('Starting EagleView viewer');
+
+            const params = getUrlParams();
+            Logger.info('URL params', params);
+
+            // Get geometry from sessionStorage
+            let geometry = null;
+            const geometryKey = 'eagleview_geometry';
+            try {
+                const storedGeometry = sessionStorage.getItem(geometryKey);
+                if (storedGeometry) {
+                    geometry = JSON.parse(storedGeometry);
+                    Logger.info('Geometry loaded from sessionStorage', geometry);
+                    // Clean up
+                    sessionStorage.removeItem(geometryKey);
+                }
+            } catch (e) {
+                Logger.warn('Could not parse geometry from sessionStorage', e);
+            }
+
+            try {
+                // Validate API key
+                if (!params.apiKey) {
+                    UI.showError('API Key Missing', 'No EagleView API key provided. Please configure the Pictometry integration in your organization settings.', null, false);
+                    return;
+                }
+
+                // Determine coordinates
+                let coords = null;
+
+                if (geometry) {
+                    coords = calculateCentroid(geometry);
+                }
+
+                if (!coords && !isNaN(params.lat) && !isNaN(params.lon)) {
+                    coords = { lat: params.lat, lon: params.lon };
+                }
+
+                if (!coords) {
+                    UI.showError('Location Required', 'No valid location provided. Please try again from Atlas.', null, false);
+                    return;
+                }
+
+                Logger.info('Using coordinates', coords);
+
+                // Initialize EagleView Embedded Explorer
+                UI.showLoading('Loading...', 'Initializing EagleView viewer...');
+
+                // Check if EagleView widget loaded
+                if (!window.ev || !window.ev.EmbeddedExplorer) {
+                    UI.showError('SDK Load Failed', 'EagleView Embedded Explorer failed to load.', 'The widget script may not have loaded correctly. Please check your internet connection.');
+                    return;
+                }
+
+                // Calculate zoom level from geometry extent if available
+                let zoomLevel = params.zoom || 18;
+                if (geometry) {
+                    const extent = calculateExtent(geometry);
+                    zoomLevel = calculateZoomFromExtent(extent);
+                    Logger.info('Calculated zoom from extent', { extent, zoomLevel });
+                }
+
+                Logger.info('Mounting EagleView viewer', { coords, zoomLevel, apiKey: params.apiKey.substring(0, 8) + '...' });
+
+                const mountConfig = {
+                    apiKey: params.apiKey,
+                    view: {
+                        lonLat: {
+                            lon: coords.lon,
+                            lat: coords.lat
+                        },
+                        zoom: zoomLevel
+                    }
+                };
+
+                const evMap = new window.ev.EmbeddedExplorer().mount('map', mountConfig);
+
+                Logger.info('EagleView viewer mounted');
+
+                // Try to set oblique view after mount
+                setTimeout(() => {
+                    try {
+                        if (typeof evMap.setView === 'function') {
+                            try {
+                                evMap.setView({ direction: 'north' });
+                                Logger.info('setView({ direction: north }) called');
+                            } catch (e) {
+                                Logger.warn('setView direction failed', e.message);
+                            }
+                        }
+                    } catch (e) {
+                        Logger.warn('Post-mount API calls failed', e.message);
+                    }
+                }, 1500);
+
+                // Add feature boundary if we have geometry
+                if (geometry) {
+                    const geoJson = geometryToGeoJSON(geometry, params.themeColor);
+
+                    if (geoJson) {
+                        Logger.info('Adding feature boundary');
+
+                        // Give the map a moment to initialize
+                        setTimeout(() => {
+                            try {
+                                evMap.addFeatures({
+                                    geoJson: [geoJson]
+                                });
+                                Logger.info('Feature boundary added');
+                            } catch (e) {
+                                Logger.warn('Could not add boundary', e);
+                            }
+                        }, 1000);
+                    }
+
+                    // Show feature info panel
+                    UI.showFeatureInfo(params.title, params.themeColor);
+                }
+
+                // Hide loading overlay
+                UI.hideOverlay();
+                Logger.info('EagleView viewer ready');
+
+                // Listen for postMessage updates from parent window
+                window.addEventListener('message', async (event) => {
+                    const data = event.data;
+                    if (!data || typeof data !== 'object') return;
+
+                    Logger.info('Message received', data);
+
+                    if (data.type === 'updateLocation' && data.lat && data.lon) {
+                        evMap.setLonLat({ lon: parseFloat(data.lon), lat: parseFloat(data.lat) });
+                    }
+
+                    if (data.type === 'updateFeature' && data.geometry) {
+                        const newCoords = calculateCentroid(data.geometry);
+                        if (newCoords) {
+                            evMap.setLonLat({ lon: newCoords.lon, lat: newCoords.lat });
+
+                            const geoJson = geometryToGeoJSON(data.geometry, data.themeColor || params.themeColor);
+                            if (geoJson) {
+                                try {
+                                    evMap.addFeatures({ geoJson: [geoJson] });
+                                } catch (e) {
+                                    Logger.warn('Could not add feature', e);
+                                }
+                            }
+
+                            UI.showFeatureInfo(data.title || params.title, data.themeColor || params.themeColor);
+                        }
+                    }
+                });
+
+            } catch (error) {
+                Logger.error('Unhandled error', error);
+                UI.showError('Unexpected Error', 'An unexpected error occurred.', error.message || error);
+            }
+        }
+
+        // Start when DOM ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', main);
+        } else {
+            main();
+        }
+    </script>
+</body>
+</html>

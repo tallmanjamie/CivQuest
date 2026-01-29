@@ -61,7 +61,8 @@ import {
   PanelLeft,
   Layers,
   Printer,
-  BookOpen
+  BookOpen,
+  Puzzle
 } from 'lucide-react';
 
 // Import admin components
@@ -72,6 +73,7 @@ import ConfigurationPanel from './components/NotifyConfiguration';
 import NotificationWizard from './components/NotificationWizard';
 import AtlasAdminSection from './components/AtlasAdminSection';
 import SystemHelpEditor from './components/SystemHelpEditor';
+import IntegrationsManagement from './components/IntegrationsManagement';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
@@ -454,6 +456,7 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
   // System-level items (super_admin only)
   const systemItems = [
     { id: 'organizations', label: 'Organizations', icon: Building2 },
+    { id: 'integrations', label: 'Integrations', icon: Puzzle },
     { id: 'licensing', label: 'Licensing', icon: Shield },
     { id: 'globalhelp', label: 'Global Help', icon: BookOpen },
     { id: 'orgadmins', label: 'Org Admins', icon: UserPlus },
@@ -766,6 +769,16 @@ function SuperAdminDashboard({ user }) {
       switch (activeTab) {
         case 'organizations':
           return <OrganizationManagement />;
+        case 'integrations':
+          return (
+            <IntegrationsManagement
+              db={db}
+              addToast={addToast}
+              confirm={confirm}
+              adminEmail={user.email}
+              accentColor="#004E7C"
+            />
+          );
         case 'orgadmins':
           return <OrgAdminManagement />;
         case 'globalhelp':
