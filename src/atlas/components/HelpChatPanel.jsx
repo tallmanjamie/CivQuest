@@ -555,7 +555,7 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                   type="submit"
                   disabled={!chatInput.trim() || isLoading}
                   className="px-3 py-2 rounded-lg transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: chatInput.trim() && !isLoading ? colors.bg600 : colors.bg300 }}
+                  style={{ backgroundColor: colors.bg600 }}
                 >
                   <HelpCircle className="w-5 h-5" />
                 </button>
