@@ -1027,11 +1027,11 @@ const MarkupTool = forwardRef(function MarkupTool({
                   </div>
                   <div className={`flex items-center gap-1 transition-opacity ${isBeingEdited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                     <button onClick={() => zoomTo(m)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="Zoom to"><ZoomIn className="w-3.5 h-3.5" /></button>
-                    {m.attributes?.savedFrom === 'feature-info-panel' ? (
+                    {['feature-info-panel', 'nearby-search', 'nearby-search-popup'].includes(m.attributes?.savedFrom) ? (
                       <button
                         disabled
                         className="p-1.5 rounded bg-slate-100 text-slate-400 cursor-not-allowed"
-                        title="Saved features cannot be edited"
+                        title={m.attributes?.savedFrom === 'feature-info-panel' ? "Saved features cannot be edited" : "Nearby buffer markup cannot be edited"}
                       >
                         <Lock className="w-3.5 h-3.5" />
                       </button>
