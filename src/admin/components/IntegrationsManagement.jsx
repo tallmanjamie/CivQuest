@@ -381,11 +381,14 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
   const [integrationType, setIntegrationType] = useState(INTEGRATION_TYPES.ATLAS);
   const [selectedOrgs, setSelectedOrgs] = useState([]);
   const [saving, setSaving] = useState(false);
-  // Window dimension defaults for pictometry
+  // Window dimension defaults for pictometry/nearmap
   const [windowWidth, setWindowWidth] = useState(80);
   const [windowWidthUnit, setWindowWidthUnit] = useState('%');
   const [windowHeight, setWindowHeight] = useState(80);
   const [windowHeightUnit, setWindowHeightUnit] = useState('%');
+
+  // Helper to check if integration type supports window configuration
+  const supportsWindowConfig = (type) => ['pictometry', 'nearmap'].includes(type);
 
   const integrationOptions = Object.values(AVAILABLE_INTEGRATIONS);
 
@@ -419,8 +422,8 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
       enabled: true
     };
 
-    // Add window dimension defaults for pictometry
-    if (selectedType === 'pictometry') {
+    // Add window dimension defaults for integrations that support it
+    if (supportsWindowConfig(selectedType)) {
       integrationData.defaultWindowConfig = {
         windowWidth,
         windowWidthUnit,
@@ -568,15 +571,15 @@ function AddIntegrationModal({ organizations, onClose, onSave, accentColor }) {
                 </div>
               </div>
 
-              {/* Window Size Configuration (Pictometry only) */}
-              {selectedType === 'pictometry' && (
+              {/* Window Size Configuration (Pictometry/Nearmap) */}
+              {supportsWindowConfig(selectedType) && (
                 <div className="border border-slate-200 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <Maximize2 className="w-4 h-4 text-slate-400" />
                     <span className="text-sm font-medium text-slate-700">Default Popup Window Size</span>
                   </div>
                   <p className="text-xs text-slate-500 mb-3">
-                    Configure the default size of the EagleView popup window. Organizations can override these defaults in their own configuration. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
+                    Configure the default size of the {selectedType === 'pictometry' ? 'EagleView' : 'Nearmap'} popup window. Organizations can override these defaults in their own configuration. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
                   </p>
                   <div className="grid grid-cols-2 gap-4">
                     {/* Width */}
@@ -667,13 +670,16 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
   const [name, setName] = useState(integration.name || '');
   const [selectedOrgs, setSelectedOrgs] = useState(integration.organizations || []);
   const [saving, setSaving] = useState(false);
-  // Window dimension defaults for pictometry
+  // Window dimension defaults for pictometry/nearmap
   const [windowWidth, setWindowWidth] = useState(integration.defaultWindowConfig?.windowWidth ?? 80);
   const [windowWidthUnit, setWindowWidthUnit] = useState(integration.defaultWindowConfig?.windowWidthUnit || '%');
   const [windowHeight, setWindowHeight] = useState(integration.defaultWindowConfig?.windowHeight ?? 80);
   const [windowHeightUnit, setWindowHeightUnit] = useState(integration.defaultWindowConfig?.windowHeightUnit || '%');
 
   const definition = AVAILABLE_INTEGRATIONS[integration.type];
+
+  // Helper to check if integration type supports window configuration
+  const supportsWindowConfig = (type) => ['pictometry', 'nearmap'].includes(type);
 
   const toggleOrg = (orgId) => {
     setSelectedOrgs(prev =>
@@ -693,8 +699,8 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
       organizations: selectedOrgs
     };
 
-    // Add window dimension defaults for pictometry
-    if (integration.type === 'pictometry') {
+    // Add window dimension defaults for integrations that support it
+    if (supportsWindowConfig(integration.type)) {
       updates.defaultWindowConfig = {
         windowWidth,
         windowWidthUnit,
@@ -786,15 +792,15 @@ function EditIntegrationModal({ integration, organizations, onClose, onSave, acc
             </div>
           </div>
 
-          {/* Window Size Configuration (Pictometry only) */}
-          {integration.type === 'pictometry' && (
+          {/* Window Size Configuration (Pictometry/Nearmap) */}
+          {supportsWindowConfig(integration.type) && (
             <div className="border border-slate-200 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Maximize2 className="w-4 h-4 text-slate-400" />
                 <span className="text-sm font-medium text-slate-700">Default Popup Window Size</span>
               </div>
               <p className="text-xs text-slate-500 mb-3">
-                Configure the default size of the EagleView popup window. Organizations can override these defaults in their own configuration. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
+                Configure the default size of the {integration.type === 'pictometry' ? 'EagleView' : 'Nearmap'} popup window. Organizations can override these defaults in their own configuration. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
               </p>
               <div className="grid grid-cols-2 gap-4">
                 {/* Width */}

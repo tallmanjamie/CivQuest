@@ -72,10 +72,57 @@ export const AVAILABLE_INTEGRATIONS = {
         options: ['px', '%']
       }
     }
+  },
+  nearmap: {
+    id: 'nearmap',
+    name: 'Nearmap',
+    description: 'High-resolution aerial imagery integration. Adds a Nearmap button to feature popups that opens the location in the Nearmap viewer with the feature geometry highlighted.',
+    type: INTEGRATION_TYPES.ATLAS,
+    icon: 'map-pin', // lucide icon name
+    configSchema: {
+      apiKey: {
+        type: 'string',
+        label: 'API Key',
+        description: 'Your Nearmap API key',
+        required: true,
+        placeholder: 'e.g., your-nearmap-api-key'
+      },
+      windowWidth: {
+        type: 'number',
+        label: 'Window Width',
+        description: 'Width of the Nearmap popup window',
+        required: false,
+        default: 80,
+        placeholder: '80'
+      },
+      windowWidthUnit: {
+        type: 'select',
+        label: 'Width Unit',
+        description: 'Unit for window width (pixels or percentage)',
+        required: false,
+        default: '%',
+        options: ['px', '%']
+      },
+      windowHeight: {
+        type: 'number',
+        label: 'Window Height',
+        description: 'Height of the Nearmap popup window',
+        required: false,
+        default: 80,
+        placeholder: '80'
+      },
+      windowHeightUnit: {
+        type: 'select',
+        label: 'Height Unit',
+        description: 'Unit for window height (pixels or percentage)',
+        required: false,
+        default: '%',
+        options: ['px', '%']
+      }
+    }
   }
   // Future integrations can be added here:
   // googleStreetView: { ... },
-  // nearMap: { ... },
 };
 
 /**
