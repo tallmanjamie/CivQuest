@@ -13,7 +13,8 @@ import {
   CheckCircle,
   Info,
   ExternalLink,
-  Map
+  Map,
+  Maximize2
 } from 'lucide-react';
 import { doc, updateDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { PATHS } from '../../shared/services/paths';
@@ -274,6 +275,72 @@ function IntegrationConfigCard({
               className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent font-mono text-sm"
               style={{ '--tw-ring-color': accentColor }}
             />
+          </div>
+
+          {/* Window Size Configuration */}
+          <div className="border border-slate-200 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Maximize2 className="w-4 h-4 text-slate-400" />
+              <span className="text-sm font-medium text-slate-700">Popup Window Size</span>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              Configure the size of the EagleView popup window that appears within Atlas. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              {/* Width */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Width</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={config?.windowWidth ?? 80}
+                    onChange={(e) => handleFieldChange('windowWidth', parseInt(e.target.value) || 80)}
+                    min="100"
+                    max="100"
+                    placeholder="80"
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                    style={{ '--tw-ring-color': accentColor }}
+                  />
+                  <select
+                    value={config?.windowWidthUnit || '%'}
+                    onChange={(e) => handleFieldChange('windowWidthUnit', e.target.value)}
+                    className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
+                    style={{ '--tw-ring-color': accentColor }}
+                  >
+                    <option value="%">%</option>
+                    <option value="px">px</option>
+                  </select>
+                </div>
+              </div>
+              {/* Height */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Height</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={config?.windowHeight ?? 80}
+                    onChange={(e) => handleFieldChange('windowHeight', parseInt(e.target.value) || 80)}
+                    min="100"
+                    max="100"
+                    placeholder="80"
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                    style={{ '--tw-ring-color': accentColor }}
+                  />
+                  <select
+                    value={config?.windowHeightUnit || '%'}
+                    onChange={(e) => handleFieldChange('windowHeightUnit', e.target.value)}
+                    className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
+                    style={{ '--tw-ring-color': accentColor }}
+                  >
+                    <option value="%">%</option>
+                    <option value="px">px</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">
+              Default: 80% width x 80% height. For percentage values, the popup will be sized relative to the browser viewport.
+            </p>
           </div>
 
           {/* Domain Requirement Note */}

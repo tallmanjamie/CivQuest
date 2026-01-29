@@ -18,7 +18,6 @@ import {
 
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
-import { useIntegrations } from '../hooks/useIntegrations';
 
 /**
  * FeatureInfoPanel Component
@@ -42,12 +41,9 @@ export default function FeatureInfoPanel({
   isExportingPDF = false,
   exportPDFProgress = ''
 }) {
-  const { config: atlasConfig, orgId } = useAtlas();
+  const { config: atlasConfig, orgId, isPictometryEnabled, openEagleView } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
-
-  // Integrations (EagleView/Pictometry)
-  const { isPictometryEnabled, openEagleView } = useIntegrations(orgId);
 
   // Layout State
   const [activeTab, setActiveTab] = useState(null);

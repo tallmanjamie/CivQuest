@@ -21,7 +21,6 @@ import Polyline from '@arcgis/core/geometry/Polyline';
 import Polygon from '@arcgis/core/geometry/Polygon';
 import { getThemeColors } from '../utils/themeColors';
 import { useAtlas } from '../AtlasApp';
-import { useIntegrations } from '../hooks/useIntegrations';
 
 /**
  * Ensures the geometry is a proper ArcGIS Geometry class instance.
@@ -109,12 +108,9 @@ export default function MarkupPopup({
   onWidthChange,
   refreshKey = 0
 }) {
-  const { config: atlasConfig, orgId } = useAtlas();
+  const { config: atlasConfig, orgId, isPictometryEnabled, openEagleView } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
-
-  // Integrations (EagleView/Pictometry)
-  const { isPictometryEnabled, openEagleView } = useIntegrations(orgId);
 
   // State
   const [name, setName] = useState(markup?.attributes?.name || '');

@@ -61,6 +61,7 @@ import { sendWelcomeEmail } from '@shared/services/email';
 import { useAtlasConfig, useActiveMap, detectOrganizationId } from './hooks/useAtlasConfig';
 import { useArcGISAuth } from './hooks/useArcGISAuth';
 import { useWebmapAccessibility } from './hooks/useWebmapAccessibility';
+import { useIntegrations } from './hooks/useIntegrations';
 import PreviewBanner, { usePreviewBannerPadding } from './components/PreviewBanner';
 
 // Components
@@ -77,6 +78,7 @@ import AuthScreen from './components/AuthScreen';
 import AccountSettings from './components/AccountSettings';
 import DisclaimerPopup from './components/DisclaimerPopup';
 import HelpChatPanel from './components/HelpChatPanel';
+import EagleViewModal from './components/EagleViewModal';
 
 // Theme utility for proper dynamic theming
 import { getThemeColors, getThemeCssVars } from './utils/themeColors';
@@ -713,6 +715,14 @@ export default function AtlasApp() {
   // Add padding to body when preview banner is shown
   usePreviewBannerPadding(isPreviewMode);
 
+  // Integrations (EagleView, etc.)
+  const {
+    isPictometryEnabled,
+    openEagleView,
+    closeEagleView,
+    eagleViewModal
+  } = useIntegrations(orgId);
+
   // Handle OAuth callback on mount
   useEffect(() => {
     const handleOAuthCallback = async () => {
@@ -1187,7 +1197,13 @@ export default function AtlasApp() {
 
     // Help panel
     showHelpPanel,
-    setShowHelpPanel
+    setShowHelpPanel,
+
+    // EagleView / Integrations
+    isPictometryEnabled,
+    openEagleView,
+    closeEagleView,
+    eagleViewModal
   };
   
   // Loading state - wait for config, auth, OAuth processing, and webmap access check
@@ -1434,6 +1450,16 @@ export default function AtlasApp() {
             onAccept={() => setDisclaimerAccepted(true)}
           />
         )}
+
+        {/* EagleView Modal - embedded aerial imagery viewer */}
+        <EagleViewModal
+          isOpen={eagleViewModal.isOpen}
+          onClose={closeEagleView}
+          url={eagleViewModal.url}
+          title={eagleViewModal.title}
+          themeColor={eagleViewModal.themeColor}
+          windowConfig={eagleViewModal.windowConfig}
+        />
       </div>
     </AtlasContext.Provider>
   );
