@@ -356,21 +356,20 @@ export default function FeatureInfoPanel({
 
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
-      <ActionButton icon={Bookmark} label="Save to Markup" onClick={() => onSaveAsMarkup?.(feature, displayTitle)} />
+      <ActionButton icon={Bookmark} label="Markup" onClick={() => onSaveAsMarkup?.(feature, displayTitle)} />
       <ActionButton
         icon={isExportingPDF ? Loader2 : Download}
-        label={isExportingPDF ? (exportPDFProgress || 'Exporting...') : 'Export PDF'}
+        label={isExportingPDF ? (exportPDFProgress || 'Exporting...') : 'Export'}
         onClick={() => !isExportingPDF && onExportPDF?.(feature, displayTitle)}
         disabled={isExportingPDF}
         isLoading={isExportingPDF}
       />
-      <ActionButton icon={Target} label="Zoom To" onClick={() => onZoomTo?.(feature)} />
+      <ActionButton icon={Target} label="Zoom" onClick={() => onZoomTo?.(feature)} />
       {isPictometryEnabled && (
         <ActionButton
           icon={Eye}
           label="EagleView"
           onClick={handleOpenEagleView}
-          themeColor={colors.bg500}
         />
       )}
     </div>
