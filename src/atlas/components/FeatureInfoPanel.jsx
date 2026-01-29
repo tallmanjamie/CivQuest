@@ -332,14 +332,14 @@ export default function FeatureInfoPanel({
         className="fixed inset-x-0 bottom-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300"
         style={{ top: '64px' }}
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-white shadow-sm border border-slate-100">
-              <MapPin className="w-4 h-4" style={{ color: colors.bg500 }} />
+        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50/50 sticky top-0 z-20">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-white shadow-sm border border-slate-100">
+              <MapPin className="w-3 h-3" style={{ color: colors.bg500 }} />
             </div>
-            <h3 className="font-bold text-slate-800 truncate text-lg">{displayTitle}</h3>
+            <h3 className="font-semibold text-slate-800 truncate text-base">{displayTitle}</h3>
           </div>
-          <button onClick={onClose} className="p-2.5 hover:bg-slate-100 rounded-full transition active:scale-90"><X className="w-6 h-6 text-slate-500" /></button>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"><X className="w-5 h-5 text-slate-500" /></button>
         </div>
         <ActionButtons />
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -367,12 +367,12 @@ export default function FeatureInfoPanel({
         <div className="hidden group-hover:block"><GripVertical className="w-3 h-3" style={{ color: colors.text600 }} /></div>
       </div>
 
-      <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50/50">
-        <div className="flex items-center gap-3 min-w-0">
-          <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: colors.bg500 }} />
-          <h3 className="font-bold text-slate-800 truncate text-base">{displayTitle}</h3>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50/50">
+        <div className="flex items-center gap-2 min-w-0">
+          <MapPin className="w-4 h-4 flex-shrink-0" style={{ color: colors.bg500 }} />
+          <h3 className="font-semibold text-slate-800 truncate text-sm">{displayTitle}</h3>
         </div>
-        <button onClick={onClose} className="p-2 hover:bg-white rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>
+        <button onClick={onClose} className="p-1.5 hover:bg-white rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>
       </div>
 
       <ActionButtons />
