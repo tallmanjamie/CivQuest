@@ -630,6 +630,15 @@ function SearchToolbar({
           )}
         </div>
 
+        {/* Help Button - Always visible beside the search input */}
+        <button
+          onClick={onShowHelp}
+          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg flex-shrink-0"
+          title="Help"
+        >
+          <HelpCircle className="w-5 h-5" />
+        </button>
+
         {/* Submit Button */}
         <button
           onClick={handleSubmit}
