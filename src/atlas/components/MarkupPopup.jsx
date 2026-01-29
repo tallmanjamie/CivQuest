@@ -15,8 +15,47 @@ import {
   GripVertical
 } from 'lucide-react';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
+import Point from '@arcgis/core/geometry/Point';
+import Polyline from '@arcgis/core/geometry/Polyline';
+import Polygon from '@arcgis/core/geometry/Polygon';
 import { getThemeColors } from '../utils/themeColors';
 import { useAtlas } from '../AtlasApp';
+
+/**
+ * Ensures the geometry is a proper ArcGIS Geometry class instance.
+ * Plain JSON objects need to be converted to class instances for geometryEngine to work.
+ */
+const ensureGeometry = (geom) => {
+  if (!geom) return null;
+
+  // If it's already a proper geometry instance with declaredClass, return as-is
+  if (geom.declaredClass) return geom;
+
+  // Otherwise, construct the appropriate geometry class based on type
+  const type = geom.type;
+  const spatialReference = geom.spatialReference || { wkid: 4326 };
+
+  if (type === 'point') {
+    return new Point({
+      x: geom.x,
+      y: geom.y,
+      spatialReference
+    });
+  } else if (type === 'polyline') {
+    return new Polyline({
+      paths: geom.paths,
+      spatialReference
+    });
+  } else if (type === 'polygon') {
+    return new Polygon({
+      rings: geom.rings,
+      spatialReference
+    });
+  }
+
+  // Fallback - return the original
+  return geom;
+};
 
 // Unit configurations for different geometry types
 const POINT_UNITS = [
@@ -119,7 +158,9 @@ export default function MarkupPopup({
     if (!markup?.geometry || !selectedUnit) return;
 
     try {
-      const geometry = markup.geometry;
+      // Ensure geometry is a proper ArcGIS Geometry class instance
+      const geometry = ensureGeometry(markup.geometry);
+      if (!geometry) return;
 
       if (markupType === 'point' || markupType === 'text') {
         const lon = geometry.longitude ?? geometry.x;
