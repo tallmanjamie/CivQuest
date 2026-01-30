@@ -63,7 +63,13 @@ import {
   Printer,
   BookOpen,
   Puzzle,
-  MapPin
+  MapPin,
+  LayoutDashboard,
+  Activity,
+  BarChart3,
+  ExternalLink,
+  MessageSquare,
+  Sparkles
 } from 'lucide-react';
 
 // Import admin components
@@ -650,6 +656,26 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
       </div>
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        {/* Dashboard Section (Org Admin only) */}
+        {role === 'org_admin' && (
+          <div className="mb-2">
+            <button
+              onClick={() => onNavigate('dashboard', 'home')}
+              className={`
+                w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all
+                ${activeSection === 'dashboard'
+                  ? 'text-white font-medium'
+                  : 'text-slate-700 hover:bg-slate-100'
+                }
+              `}
+              style={activeSection === 'dashboard' ? { backgroundColor: accentColor } : {}}
+            >
+              <LayoutDashboard className="w-5 h-5 shrink-0" />
+              {!collapsed && <span className="flex-1 text-left font-medium">Dashboard</span>}
+            </button>
+          </div>
+        )}
+
         {/* Notify Section */}
         <div className="mb-2">
           <button
@@ -827,7 +853,7 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
 }
 
 // --- HEADER COMPONENT ---
-function AdminHeader({ user, title, subtitle, accentColor, atlasThemeColor, onSignOut }) {
+function AdminHeader({ user, title, subtitle, accentColor, atlasThemeColor, logoUrl, onSignOut }) {
   // Calculate header background color (darker shade)
   const getHeaderBgColor = () => {
     // Super admin uses dark blue
@@ -842,26 +868,29 @@ function AdminHeader({ user, title, subtitle, accentColor, atlasThemeColor, onSi
     return '#164524';
   };
 
+  // Use atlas logo if available, otherwise default CivQuest logo
+  const displayLogo = logoUrl || "https://geoplan.nyc3.digitaloceanspaces.com/CivQuest/CVG_Logo_Medium.jpg";
+
   return (
     <header
       className="text-white px-6 py-4 flex items-center justify-between shadow-md"
       style={{ backgroundColor: getHeaderBgColor() }}
     >
       <div className="flex items-center gap-3">
-        <img 
-          src="https://geoplan.nyc3.digitaloceanspaces.com/CivQuest/CVG_Logo_Medium.jpg" 
-          alt="CivQuest Logo"
-          className="h-10 w-auto object-contain rounded"
+        <img
+          src={displayLogo}
+          alt="Logo"
+          className="h-10 w-auto object-contain rounded bg-white p-0.5"
         />
         <div>
           <h1 className="font-bold text-xl tracking-tight">{title}</h1>
           {subtitle && <p className="text-xs opacity-80">{subtitle}</p>}
         </div>
       </div>
-      
+
       <div className="flex items-center gap-4">
         <span className="text-sm opacity-80">{user.email}</span>
-        <button 
+        <button
           onClick={onSignOut}
           className="p-2 rounded-lg hover:bg-white/10 transition-colors"
           title="Sign Out"
@@ -1014,10 +1043,297 @@ function SuperAdminDashboard({ user }) {
   );
 }
 
+// --- ORG ADMIN DASHBOARD HOME ---
+function OrgAdminDashboardHome({ orgId, orgData, accentColor, onNavigate }) {
+  const [stats, setStats] = useState({
+    subscribers: 0,
+    notifications: 0,
+    maps: 0,
+    atlasUsers: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [recentActivity, setRecentActivity] = useState([]);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      if (!orgId) return;
+
+      try {
+        // Count subscribers
+        const subscribersSnap = await getDocs(
+          query(collection(db, PATHS.users), where('orgMemberships', 'array-contains', orgId))
+        );
+
+        // Count notifications from orgData
+        const notificationCount = orgData?.notifications?.length || 0;
+
+        // Count maps
+        const mapsCount = orgData?.atlasConfig?.data?.maps?.length || 0;
+
+        // Count atlas users
+        const atlasUsersSnap = await getDocs(
+          collection(db, PATHS.organizations, orgId, 'atlasUsers')
+        );
+
+        setStats({
+          subscribers: subscribersSnap.size,
+          notifications: notificationCount,
+          maps: mapsCount,
+          atlasUsers: atlasUsersSnap.size
+        });
+      } catch (err) {
+        console.error('Error fetching dashboard stats:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, [orgId, orgData]);
+
+  const statCards = [
+    {
+      label: 'Subscribers',
+      value: stats.subscribers,
+      icon: Users,
+      color: 'bg-blue-500',
+      onClick: () => onNavigate('notify', 'subscribers')
+    },
+    {
+      label: 'Notifications',
+      value: stats.notifications,
+      icon: Bell,
+      color: 'bg-amber-500',
+      onClick: () => onNavigate('notify', 'notifications')
+    },
+    {
+      label: 'Atlas Maps',
+      value: stats.maps,
+      icon: Layers,
+      color: 'bg-emerald-500',
+      onClick: () => onNavigate('atlas', 'maps')
+    },
+    {
+      label: 'Atlas Users',
+      value: stats.atlasUsers,
+      icon: Users,
+      color: 'bg-purple-500',
+      onClick: () => onNavigate('atlas', 'users')
+    }
+  ];
+
+  const quickActions = [
+    {
+      label: 'Manage Subscribers',
+      description: 'View and manage notification subscribers',
+      icon: Users,
+      onClick: () => onNavigate('notify', 'subscribers')
+    },
+    {
+      label: 'Configure Notifications',
+      description: 'Set up and edit notification rules',
+      icon: Bell,
+      onClick: () => onNavigate('notify', 'notifications')
+    },
+    {
+      label: 'Manage Atlas Maps',
+      description: 'Configure map layers and data sources',
+      icon: Layers,
+      onClick: () => onNavigate('atlas', 'maps')
+    },
+    {
+      label: 'Preview Atlas',
+      description: 'Preview your atlas configuration',
+      icon: Eye,
+      onClick: () => onNavigate('atlas', 'preview')
+    }
+  ];
+
+  // Get atlas preview URL
+  const atlasPreviewUrl = orgId ? `/${orgId}` : null;
+  const hasDraft = !!orgData?.atlasConfigDraft;
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-slate-800">Dashboard</h1>
+        <p className="text-slate-600 mt-1">
+          Welcome to your CivQuest admin dashboard
+        </p>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCards.map((stat, index) => (
+          <button
+            key={index}
+            onClick={stat.onClick}
+            className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:shadow-md transition-shadow text-left group"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">{stat.label}</p>
+                <p className="text-3xl font-bold text-slate-800 mt-1">
+                  {loading ? (
+                    <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  ) : (
+                    stat.value
+                  )}
+                </p>
+              </div>
+              <div className={`${stat.color} p-3 rounded-xl text-white group-hover:scale-110 transition-transform`}>
+                <stat.icon className="w-6 h-6" />
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Quick Actions */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">Quick Actions</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {quickActions.map((action, index) => (
+            <button
+              key={index}
+              onClick={action.onClick}
+              className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:shadow-md transition-all text-left group flex items-center gap-4"
+            >
+              <div
+                className="p-3 rounded-xl text-white group-hover:scale-110 transition-transform"
+                style={{ backgroundColor: accentColor }}
+              >
+                <action.icon className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="font-medium text-slate-800 group-hover:text-slate-900">
+                  {action.label}
+                </p>
+                <p className="text-sm text-slate-500">{action.description}</p>
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-400 ml-auto group-hover:translate-x-1 transition-transform" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Atlas Status & Quick Links */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Atlas Configuration Status */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <Map className="w-5 h-5" style={{ color: accentColor }} />
+            Atlas Configuration
+          </h2>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between py-2 border-b border-slate-100">
+              <span className="text-slate-600">Title</span>
+              <span className="font-medium text-slate-800">
+                {orgData?.atlasConfig?.ui?.title || 'Not configured'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2 border-b border-slate-100">
+              <span className="text-slate-600">Theme</span>
+              <span className="font-medium text-slate-800 capitalize">
+                {orgData?.atlasConfig?.ui?.themeColor || 'Default'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-2 border-b border-slate-100">
+              <span className="text-slate-600">Maps Configured</span>
+              <span className="font-medium text-slate-800">{stats.maps}</span>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-slate-600">Draft Changes</span>
+              <span className={`font-medium ${hasDraft ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {hasDraft ? 'Unpublished changes' : 'Up to date'}
+              </span>
+            </div>
+
+            {atlasPreviewUrl && (
+              <div className="pt-2 flex gap-2">
+                <a
+                  href={atlasPreviewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors text-white"
+                  style={{ backgroundColor: accentColor }}
+                >
+                  <Globe className="w-4 h-4" />
+                  View Live Atlas
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+                {hasDraft && (
+                  <a
+                    href={`${atlasPreviewUrl}?preview=draft`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-100 text-amber-700 rounded-lg font-medium hover:bg-amber-200 transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Preview Draft
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Getting Started / Help */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <Sparkles className="w-5 h-5" style={{ color: accentColor }} />
+            Getting Started
+          </h2>
+          <div className="space-y-3">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
+              <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-medium flex-shrink-0">
+                1
+              </div>
+              <div>
+                <p className="font-medium text-slate-800">Configure Your Atlas</p>
+                <p className="text-sm text-slate-500">Set up your map title, theme colors, and logo</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
+              <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-medium flex-shrink-0">
+                2
+              </div>
+              <div>
+                <p className="font-medium text-slate-800">Add Map Layers</p>
+                <p className="text-sm text-slate-500">Connect your ArcGIS data sources and configure layers</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
+              <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-medium flex-shrink-0">
+                3
+              </div>
+              <div>
+                <p className="font-medium text-slate-800">Set Up Notifications</p>
+                <p className="text-sm text-slate-500">Create notification rules to alert subscribers</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
+              <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-medium flex-shrink-0">
+                4
+              </div>
+              <div>
+                <p className="font-medium text-slate-800">Preview & Publish</p>
+                <p className="text-sm text-slate-500">Preview your changes and publish when ready</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- ORG ADMIN DASHBOARD ---
 function OrgAdminDashboard({ user, orgConfig }) {
-  const [activeSection, setActiveSection] = useState('notify');
-  const [activeTab, setActiveTab] = useState('subscribers');
+  const [activeSection, setActiveSection] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('home');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const { addToast, confirm } = useUI();
@@ -1042,6 +1358,17 @@ function OrgAdminDashboard({ user, orgConfig }) {
   };
 
   const renderContent = () => {
+    if (activeSection === 'dashboard') {
+      return (
+        <OrgAdminDashboardHome
+          orgId={orgId}
+          orgData={orgData}
+          accentColor={accentColor}
+          onNavigate={handleNavigate}
+        />
+      );
+    }
+
     if (activeSection === 'notify') {
       switch (activeTab) {
         case 'subscribers':
@@ -1086,7 +1413,7 @@ function OrgAdminDashboard({ user, orgConfig }) {
           return null;
       }
     }
-    
+
     if (activeSection === 'atlas') {
       return (
         <AtlasAdminSection
@@ -1114,6 +1441,7 @@ function OrgAdminDashboard({ user, orgConfig }) {
         subtitle="Organization Admin"
         accentColor={accentColor}
         atlasThemeColor={atlasThemeColor}
+        logoUrl={orgData?.atlasConfig?.ui?.logoLeft}
         onSignOut={() => signOut(auth)}
       />
 
