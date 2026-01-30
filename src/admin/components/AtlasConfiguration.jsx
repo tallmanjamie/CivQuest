@@ -102,7 +102,10 @@ export default function AtlasConfiguration({
       logoRight: "",
       botAvatar: "",
       themeColor: "sky",
-      defaultMode: "chat"
+      defaultMode: "chat",
+      // Map tools position and layout configuration
+      mapToolsPosition: "upper-left", // upper-left, center, lower-left, lower-center
+      mapToolsLayout: "stacked"       // stacked or horizontal
     },
     messages: {
       welcomeTitle: "Welcome!",
