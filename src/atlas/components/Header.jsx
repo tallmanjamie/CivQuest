@@ -134,10 +134,10 @@ export default function Header({
             <div className="relative">
               <button
                 onClick={() => setShowInfoPopup(!showInfoPopup)}
-                className="p-1.5 bg-white rounded-full shadow-sm hover:shadow-md hover:scale-105 transition-all"
+                className="p-2 bg-white rounded-full shadow-md hover:shadow-lg hover:scale-110 transition-all"
                 title="Information"
               >
-                <Info className="w-5 h-5" style={{ color: colors.bg700 }} />
+                <Info className="w-6 h-6" strokeWidth={2.5} style={{ color: colors.bg700 }} />
               </button>
               <InfoPopup
                 isOpen={showInfoPopup}
