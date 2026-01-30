@@ -43,12 +43,13 @@ export default function NearmapModal({
   } = windowConfig;
 
   // Calculate dimensions (supports both pixels and percentage)
+  // Subtract 100px from calculated size for a more compact embed
   const getWidth = () => {
-    return widthUnit === '%' ? `${width}vw` : `${width}px`;
+    return widthUnit === '%' ? `calc(${width}vw - 100px)` : `${width - 100}px`;
   };
 
   const getHeight = () => {
-    return heightUnit === '%' ? `${height}vh` : `${height}px`;
+    return heightUnit === '%' ? `calc(${height}vh - 100px)` : `${height - 100}px`;
   };
 
   // Handle ESC key to close
