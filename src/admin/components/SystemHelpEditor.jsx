@@ -81,19 +81,17 @@ export default function SystemHelpEditor({
   };
 
   // Remove help article
-  const removeHelpDoc = async (index) => {
+  const removeHelpDoc = (index) => {
     const doc = helpDocs[index];
-    const confirmed = await confirm({
+    confirm({
       title: 'Delete Help Article',
       message: `Are you sure you want to delete "${doc.title || 'Untitled Article'}"? This action cannot be undone.`,
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
-      danger: true
+      confirmLabel: 'Delete',
+      destructive: true,
+      onConfirm: () => {
+        setHelpDocs(prev => prev.filter((_, i) => i !== index));
+      }
     });
-
-    if (confirmed) {
-      setHelpDocs(prev => prev.filter((_, i) => i !== index));
-    }
   };
 
   // Tag management
@@ -213,20 +211,18 @@ export default function SystemHelpEditor({
   };
 
   // Discard changes
-  const handleDiscard = async () => {
+  const handleDiscard = () => {
     if (!hasChanges) return;
 
-    const confirmed = await confirm({
+    confirm({
       title: 'Discard Changes',
       message: 'Are you sure you want to discard all unsaved changes?',
-      confirmText: 'Discard',
-      cancelText: 'Keep Editing',
-      danger: true
+      confirmLabel: 'Discard',
+      destructive: true,
+      onConfirm: () => {
+        setHelpDocs(JSON.parse(JSON.stringify(originalDocs)));
+      }
     });
-
-    if (confirmed) {
-      setHelpDocs(JSON.parse(JSON.stringify(originalDocs)));
-    }
   };
 
   if (loading) {
