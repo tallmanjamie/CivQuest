@@ -1770,11 +1770,14 @@ const MapView = forwardRef(function MapView(props, ref) {
     if (!viewRef.current || !markup?.geometry) return;
 
     const geometry = markup.geometry;
-    const target = geometry.type === 'point'
-      ? { target: geometry, zoom: 16 }
-      : geometry.extent.expand(1.5);
-
-    viewRef.current.goTo(target);
+    if (geometry.type === 'point') {
+      viewRef.current.goTo({ target: geometry, zoom: 16 }, { duration: 500 });
+    } else {
+      // Clone the extent before expanding to avoid modifying the original
+      const extent = geometry.extent?.clone?.() || geometry.extent;
+      const expandedExtent = extent?.expand?.(1.5) || extent;
+      viewRef.current.goTo({ target: expandedExtent }, { duration: 500 });
+    }
   }, []);
 
   /**

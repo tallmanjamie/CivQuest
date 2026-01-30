@@ -602,8 +602,15 @@ const MarkupTool = forwardRef(function MarkupTool({
 
   const zoomTo = (graphic) => {
     if (!view || !graphic.geometry) return;
-    const target = graphic.geometry.type === 'point' ? { target: graphic.geometry, zoom: 16 } : graphic.geometry.extent.expand(1.5);
-    view.goTo(target);
+    const geometry = graphic.geometry;
+    if (geometry.type === 'point') {
+      view.goTo({ target: geometry, zoom: 16 }, { duration: 500 });
+    } else {
+      // Clone the extent before expanding to avoid modifying the original
+      const extent = geometry.extent?.clone?.() || geometry.extent;
+      const expandedExtent = extent?.expand?.(1.5) || extent;
+      view.goTo({ target: expandedExtent }, { duration: 500 });
+    }
   };
 
   // Start editing a markup - enables geometry editing and opens settings panel
