@@ -14,7 +14,6 @@ import {
   Search,
   ArrowLeft,
   Image as ImageIcon,
-  PlayCircle,
   ExternalLink
 } from 'lucide-react';
 import { getThemeColors } from '../utils/themeColors';
@@ -519,13 +518,18 @@ Provide a clear, helpful answer. Do not include article references or citations 
                                   className="w-full max-h-32 object-contain bg-slate-100"
                                 />
                               ) : item.type === 'video' && (
-                                <div className="relative">
-                                  <img
-                                    src={item.thumbnail || item.url}
-                                    alt={item.title || 'Video'}
-                                    className="w-full max-h-32 object-cover bg-slate-100"
+                                <div>
+                                  <video
+                                    src={item.url}
+                                    controls
+                                    className="w-full max-h-48"
+                                    poster={item.thumbnail}
                                   />
-                                  <PlayCircle className="absolute inset-0 m-auto w-10 h-10 text-white opacity-80" />
+                                  {item.title && (
+                                    <div className="p-2 bg-slate-50 text-xs text-slate-600">
+                                      {item.title}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
