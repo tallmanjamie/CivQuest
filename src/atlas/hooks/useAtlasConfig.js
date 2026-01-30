@@ -256,6 +256,9 @@ export function useAtlasConfig(providedOrgId = null) {
             basemaps: atlasConfig.basemaps || DEFAULT_CONFIG.basemaps || [],
             exportTemplates: atlasConfig.exportTemplates || [],
             featureExportTemplates: atlasConfig.featureExportTemplates || [],
+            // Explicitly preserve service URLs
+            printServiceUrl: atlasConfig.printServiceUrl || null,
+            elevationServiceUrl: atlasConfig.elevationServiceUrl || null,
             // Help documentation - uses global or org-specific based on setting
             helpDocumentation: effectiveHelpDocumentation,
             useGlobalHelp: useGlobalHelpSetting,
@@ -270,6 +273,8 @@ export function useAtlasConfig(providedOrgId = null) {
           console.log('[useAtlasConfig] Final themeColor:', mergedConfig.ui.themeColor);
           console.log('[useAtlasConfig] exportTemplates:', mergedConfig.exportTemplates);
           console.log('[useAtlasConfig] featureExportTemplates:', mergedConfig.featureExportTemplates);
+          console.log('[useAtlasConfig] elevationServiceUrl:', mergedConfig.elevationServiceUrl);
+          console.log('[useAtlasConfig] printServiceUrl:', mergedConfig.printServiceUrl);
           
           setConfig(mergedConfig);
           setAvailableMaps(mergedConfig.data?.maps || []);
