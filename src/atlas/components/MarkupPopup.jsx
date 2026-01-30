@@ -25,6 +25,7 @@ import { getThemeColors } from '../utils/themeColors';
 import { useAtlas } from '../AtlasApp';
 import { useIntegrations } from '../hooks/useIntegrations';
 import NearbySearchTool from './NearbySearchTool';
+import ElevationSection from './ElevationSection';
 
 /**
  * Ensures the geometry is a proper ArcGIS Geometry class instance.
@@ -117,6 +118,7 @@ export default function MarkupPopup({
   const { config: atlasConfig, orgId, activeMap, isPictometryEnabled, openEagleView, isNearmapEnabled, openNearmap } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
+  const elevationServiceUrl = atlasConfig?.elevationServiceUrl || 'https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer';
 
   // State
   const [name, setName] = useState(markup?.attributes?.name || '');
@@ -564,6 +566,16 @@ export default function MarkupPopup({
           Display the measurement value on the map
         </p>
       </div>
+
+      {/* Elevation Section */}
+      <ElevationSection
+        markup={markup}
+        markupType={markupType}
+        elevationServiceUrl={elevationServiceUrl}
+        themeColor={themeColor}
+        view={view}
+        refreshKey={refreshKey}
+      />
 
       {/* Notes Section */}
       <div className="p-4 flex-1 overflow-y-auto">

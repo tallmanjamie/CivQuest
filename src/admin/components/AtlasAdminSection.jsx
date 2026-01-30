@@ -37,7 +37,8 @@ import {
   Save,
   RotateCcw,
   FileOutput,
-  Puzzle
+  Puzzle,
+  Mountain
 } from 'lucide-react';
 import { doc, updateDoc, collection, onSnapshot } from 'firebase/firestore';
 import { PATHS } from '../../shared/services/paths';
@@ -88,6 +89,10 @@ export default function AtlasAdminSection({
   const [printServiceUrl, setPrintServiceUrl] = useState('');
   const [savingPrintService, setSavingPrintService] = useState(false);
 
+  // Elevation service URL state for org_admin
+  const [elevationServiceUrl, setElevationServiceUrl] = useState('');
+  const [savingElevationService, setSavingElevationService] = useState(false);
+
   // Check if Atlas is initialized (live or draft)
   const hasAtlasConfig = !!orgData?.atlasConfig || !!orgData?.atlasConfigDraft;
   
@@ -102,6 +107,15 @@ export default function AtlasAdminSection({
       setPrintServiceUrl(DEFAULT_PRINT_SERVICE_URL);
     }
   }, [workingConfig?.printServiceUrl]);
+
+  // Initialize elevation service URL from config
+  useEffect(() => {
+    if (workingConfig?.elevationServiceUrl) {
+      setElevationServiceUrl(workingConfig.elevationServiceUrl);
+    } else {
+      setElevationServiceUrl(DEFAULT_ELEVATION_SERVICE_URL);
+    }
+  }, [workingConfig?.elevationServiceUrl]);
 
   // Handle service finder selection
   const handleOpenServiceFinder = (callback) => {
@@ -143,6 +157,35 @@ export default function AtlasAdminSection({
       addToast?.('Failed to save print service URL', 'error');
     } finally {
       setSavingPrintService(false);
+    }
+  };
+
+  // Handle elevation service URL save (org_admin)
+  const handleSaveElevationServiceUrl = async () => {
+    if (!db || !orgId) {
+      addToast?.('Unable to save: missing database connection', 'error');
+      return;
+    }
+
+    try {
+      setSavingElevationService(true);
+      const configField = orgData?.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
+      const currentConfig = orgData?.[configField] || {};
+
+      const updatedConfig = {
+        ...currentConfig,
+        elevationServiceUrl: elevationServiceUrl || DEFAULT_ELEVATION_SERVICE_URL
+      };
+
+      const orgRef = doc(db, PATHS.organizations, orgId);
+      await updateDoc(orgRef, { [configField]: updatedConfig });
+
+      addToast?.('Elevation service URL saved', 'success');
+    } catch (error) {
+      console.error('Error saving elevation service URL:', error);
+      addToast?.('Failed to save elevation service URL', 'error');
+    } finally {
+      setSavingElevationService(false);
     }
   };
 
@@ -279,6 +322,10 @@ export default function AtlasAdminSection({
             setPrintServiceUrl={setPrintServiceUrl}
             savingPrintService={savingPrintService}
             handleSavePrintServiceUrl={handleSavePrintServiceUrl}
+            elevationServiceUrl={elevationServiceUrl}
+            setElevationServiceUrl={setElevationServiceUrl}
+            savingElevationService={savingElevationService}
+            handleSaveElevationServiceUrl={handleSaveElevationServiceUrl}
             handleUpdateExportTemplates={handleUpdateExportTemplates}
             handleUpdateFeatureExportTemplates={handleUpdateFeatureExportTemplates}
             addToast={addToast}
@@ -449,6 +496,9 @@ const PAGE_SIZES = {
 // Default print service URL
 const DEFAULT_PRINT_SERVICE_URL = 'https://maps.civ.quest/arcgis/rest/services/Utilities/PrintingTools/GPServer/Export%20Web%20Map%20Task';
 
+// Default elevation service URL
+const DEFAULT_ELEVATION_SERVICE_URL = 'https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer';
+
 // Default starter templates
 const STARTER_TEMPLATES = [
   {
@@ -506,6 +556,8 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
   const [showStarterPicker, setShowStarterPicker] = useState(null); // { orgId, type: 'map' | 'feature' }
   const [editingPrintService, setEditingPrintService] = useState({});
   const [savingPrintService, setSavingPrintService] = useState({});
+  const [editingElevationService, setEditingElevationService] = useState({});
+  const [savingElevationService, setSavingElevationService] = useState({});
   const [activeExportTabs, setActiveExportTabs] = useState({}); // { orgId: 'map' | 'feature' }
 
   // Feature export starter templates
@@ -557,6 +609,7 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
   const getMapTemplates = (org) => getWorkingConfig(org)?.exportTemplates || [];
   const getFeatureTemplates = (org) => getWorkingConfig(org)?.featureExportTemplates || [];
   const getPrintServiceUrl = (org) => getWorkingConfig(org)?.printServiceUrl || DEFAULT_PRINT_SERVICE_URL;
+  const getElevationServiceUrl = (org) => getWorkingConfig(org)?.elevationServiceUrl || DEFAULT_ELEVATION_SERVICE_URL;
 
   const toggleOrg = (orgId) => {
     setExpandedOrgs(prev => ({ ...prev, [orgId]: !prev[orgId] }));
@@ -567,14 +620,22 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
     setActiveExportTabs(prev => ({ ...prev, [orgId]: tab }));
   };
 
-  // Initialize print service URL when org is expanded
+  // Initialize print and elevation service URLs when org is expanded
   const handleOrgExpand = (orgId) => {
     const org = organizations.find(o => o.id === orgId);
-    if (org && !editingPrintService[orgId]) {
-      setEditingPrintService(prev => ({
-        ...prev,
-        [orgId]: getPrintServiceUrl(org)
-      }));
+    if (org) {
+      if (!editingPrintService[orgId]) {
+        setEditingPrintService(prev => ({
+          ...prev,
+          [orgId]: getPrintServiceUrl(org)
+        }));
+      }
+      if (!editingElevationService[orgId]) {
+        setEditingElevationService(prev => ({
+          ...prev,
+          [orgId]: getElevationServiceUrl(org)
+        }));
+      }
     }
     toggleOrg(orgId);
   };
@@ -609,6 +670,39 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
     setEditingPrintService(prev => ({
       ...prev,
       [orgId]: DEFAULT_PRINT_SERVICE_URL
+    }));
+  };
+
+  // Save elevation service URL
+  const saveElevationServiceUrl = async (orgId) => {
+    try {
+      setSavingElevationService(prev => ({ ...prev, [orgId]: true }));
+      const org = organizations.find(o => o.id === orgId);
+      if (!org) return;
+
+      const configField = org.atlasConfigDraft ? 'atlasConfigDraft' : 'atlasConfig';
+      const currentConfig = org[configField] || {};
+
+      const updatedConfig = {
+        ...currentConfig,
+        elevationServiceUrl: editingElevationService[orgId] || DEFAULT_ELEVATION_SERVICE_URL
+      };
+      const orgRef = doc(db, PATHS.organizations, orgId);
+      await updateDoc(orgRef, { [configField]: updatedConfig });
+
+      addToast?.('Elevation service URL saved', 'success');
+    } catch (error) {
+      console.error('Error saving elevation service URL:', error);
+      addToast?.('Failed to save elevation service URL', 'error');
+    } finally {
+      setSavingElevationService(prev => ({ ...prev, [orgId]: false }));
+    }
+  };
+
+  const resetElevationServiceUrl = (orgId) => {
+    setEditingElevationService(prev => ({
+      ...prev,
+      [orgId]: DEFAULT_ELEVATION_SERVICE_URL
     }));
   };
 
@@ -953,6 +1047,49 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
                                 </div>
                               </div>
 
+                              {/* Elevation Service Configuration */}
+                              <div className="bg-white rounded-lg border border-slate-200 p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Mountain className="w-4 h-4 text-slate-500" />
+                                  <h4 className="text-sm font-medium text-slate-700">Elevation Service</h4>
+                                </div>
+                                <div className="flex gap-2">
+                                  <div className="flex-1 relative">
+                                    <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <input
+                                      type="url"
+                                      value={editingElevationService[org.id] ?? getElevationServiceUrl(org)}
+                                      onChange={(e) => setEditingElevationService(prev => ({
+                                        ...prev,
+                                        [org.id]: e.target.value
+                                      }))}
+                                      placeholder={DEFAULT_ELEVATION_SERVICE_URL}
+                                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs"
+                                    />
+                                  </div>
+                                  <button
+                                    onClick={() => resetElevationServiceUrl(org.id)}
+                                    className="px-3 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-300"
+                                    title="Reset to default"
+                                  >
+                                    <RotateCcw className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => saveElevationServiceUrl(org.id)}
+                                    disabled={savingElevationService[org.id]}
+                                    className="px-3 py-2 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+                                    style={{ backgroundColor: accentColor }}
+                                    title="Save elevation service URL"
+                                  >
+                                    {savingElevationService[org.id] ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Save className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+
                               {/* Add Template Buttons */}
                               <div className="flex gap-2">
                                 <button
@@ -1237,6 +1374,10 @@ function OrgAdminExportTemplates({
   setPrintServiceUrl,
   savingPrintService,
   handleSavePrintServiceUrl,
+  elevationServiceUrl,
+  setElevationServiceUrl,
+  savingElevationService,
+  handleSaveElevationServiceUrl,
   handleUpdateExportTemplates,
   handleUpdateFeatureExportTemplates,
   addToast,
@@ -1327,6 +1468,50 @@ function OrgAdminExportTemplates({
                 </div>
                 <p className="text-xs text-slate-500 mt-2">
                   ArcGIS Print Service endpoint used to generate map exports.
+                </p>
+              </div>
+
+              {/* Elevation Service Configuration */}
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Mountain className="w-4 h-4 text-slate-500" />
+                  <h4 className="text-sm font-medium text-slate-700">Elevation Service</h4>
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="url"
+                      value={elevationServiceUrl}
+                      onChange={(e) => setElevationServiceUrl(e.target.value)}
+                      placeholder={DEFAULT_ELEVATION_SERVICE_URL}
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs bg-white"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setElevationServiceUrl(DEFAULT_ELEVATION_SERVICE_URL)}
+                    className="px-3 py-2 text-slate-500 hover:text-slate-700 hover:bg-white rounded-lg border border-slate-300"
+                    title="Reset to default"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSaveElevationServiceUrl}
+                    disabled={savingElevationService}
+                    className="px-4 py-2 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+                    style={{ backgroundColor: accentColor }}
+                  >
+                    {savingElevationService ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Save
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  ArcGIS Elevation Service endpoint used for Z mapping tools in Atlas markup.
                 </p>
               </div>
 
