@@ -186,6 +186,7 @@ export default function NotifyConfiguration({
       message: `Are you sure you want to delete "${notifName}"? Subscribers will no longer receive this notification.`,
       destructive: true,
       confirmLabel: "Delete",
+      requireTypedConfirmation: notifName,
       onConfirm: async () => {
         const updated = allNotifications.filter((_, i) => i !== idx);
         try {

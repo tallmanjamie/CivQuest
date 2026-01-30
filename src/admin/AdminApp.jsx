@@ -128,6 +128,8 @@ function UIProvider({ children }) {
     message: '',
     confirmLabel: 'Confirm',
     destructive: false,
+    requireTypedConfirmation: '', // Text user must type to confirm
+    typedValue: '', // What user has typed
     onConfirm: () => {},
     onCancel: () => {}
   });
@@ -140,18 +142,20 @@ function UIProvider({ children }) {
     }, 4000);
   }, []);
 
-  const confirm = useCallback(({ title, message, confirmLabel = 'Confirm', destructive = false, onConfirm }) => {
+  const confirm = useCallback(({ title, message, confirmLabel = 'Confirm', destructive = false, requireTypedConfirmation = '', onConfirm }) => {
     setConfirmState({
       isOpen: true,
       title,
       message,
       confirmLabel,
       destructive,
+      requireTypedConfirmation,
+      typedValue: '',
       onConfirm: () => {
         onConfirm();
-        setConfirmState(prev => ({ ...prev, isOpen: false }));
+        setConfirmState(prev => ({ ...prev, isOpen: false, typedValue: '' }));
       },
-      onCancel: () => setConfirmState(prev => ({ ...prev, isOpen: false }))
+      onCancel: () => setConfirmState(prev => ({ ...prev, isOpen: false, typedValue: '' }))
     });
   }, []);
 
@@ -186,7 +190,25 @@ function UIProvider({ children }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in zoom-in-95 duration-200">
             <h3 className="text-lg font-bold text-slate-800 mb-2">{confirmState.title}</h3>
-            <p className="text-slate-600 mb-6">{confirmState.message}</p>
+            <p className="text-slate-600 mb-4">{confirmState.message}</p>
+
+            {/* Typed confirmation input */}
+            {confirmState.requireTypedConfirmation && (
+              <div className="mb-6">
+                <label className="block text-sm text-slate-600 mb-2">
+                  Type <span className="font-semibold text-slate-800">"{confirmState.requireTypedConfirmation}"</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={confirmState.typedValue}
+                  onChange={(e) => setConfirmState(prev => ({ ...prev, typedValue: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  placeholder="Type the name here..."
+                  autoFocus
+                />
+              </div>
+            )}
+
             <div className="flex justify-end gap-3">
               <button
                 onClick={confirmState.onCancel}
@@ -196,10 +218,11 @@ function UIProvider({ children }) {
               </button>
               <button
                 onClick={confirmState.onConfirm}
+                disabled={confirmState.requireTypedConfirmation && confirmState.typedValue !== confirmState.requireTypedConfirmation}
                 className={`px-4 py-2 text-white rounded-lg font-medium ${
-                  confirmState.destructive 
-                    ? 'bg-red-600 hover:bg-red-700' 
-                    : 'bg-[#004E7C] hover:bg-[#003B5C]'
+                  confirmState.destructive
+                    ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed'
+                    : 'bg-[#004E7C] hover:bg-[#003B5C] disabled:bg-slate-300 disabled:cursor-not-allowed'
                 }`}
               >
                 {confirmState.confirmLabel}
