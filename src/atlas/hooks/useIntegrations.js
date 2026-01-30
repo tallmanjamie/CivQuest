@@ -278,6 +278,32 @@ export function useIntegrations(orgId) {
   );
 
   /**
+   * Convert coordinates from Web Mercator (EPSG:3857) to WGS84 (EPSG:4326)
+   * @param {number} x - X coordinate in Web Mercator
+   * @param {number} y - Y coordinate in Web Mercator
+   * @returns {{ lon: number, lat: number }} - Geographic coordinates
+   */
+  const webMercatorToWGS84 = (x, y) => {
+    const lon = (x * 180) / 20037508.34;
+    const lat = (Math.atan(Math.exp((y * Math.PI) / 20037508.34)) * 360) / Math.PI - 90;
+    return { lon, lat };
+  };
+
+  /**
+   * Check if coordinates appear to be in Web Mercator projection
+   * Web Mercator coordinates are typically large numbers (millions for x, y)
+   * while WGS84 coordinates are -180 to 180 for lon and -90 to 90 for lat
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate
+   * @returns {boolean} - True if coordinates appear to be in Web Mercator
+   */
+  const isWebMercator = (x, y) => {
+    // Web Mercator bounds approximately: x: -20037508 to 20037508, y: -20037508 to 20037508
+    // WGS84 bounds: lon: -180 to 180, lat: -90 to 90
+    return Math.abs(x) > 180 || Math.abs(y) > 90;
+  };
+
+  /**
    * Open Nearmap in an embedded modal within the Atlas application
    *
    * @param {object} params - Parameters for opening Nearmap
@@ -308,60 +334,81 @@ export function useIntegrations(orgId) {
         else if (geometry.points) geometryType = 'multipoint';
       }
 
-      // Calculate center coordinates from geometry
-      let lat, lon;
+      // Calculate center coordinates from geometry (may be in Web Mercator or WGS84)
+      let x, y;
 
       if (geometryType === 'point') {
-        lat = geometry.y || geometry.latitude;
-        lon = geometry.x || geometry.longitude;
+        y = geometry.y || geometry.latitude;
+        x = geometry.x || geometry.longitude;
       } else if (geometryType === 'polygon' && geometry.rings?.[0]) {
         // Calculate centroid of first ring
         const ring = geometry.rings[0];
-        let sumLon = 0,
-          sumLat = 0;
+        let sumX = 0,
+          sumY = 0;
         for (const pt of ring) {
-          sumLon += pt[0];
-          sumLat += pt[1];
+          sumX += pt[0];
+          sumY += pt[1];
         }
-        lon = sumLon / ring.length;
-        lat = sumLat / ring.length;
+        x = sumX / ring.length;
+        y = sumY / ring.length;
       } else if (geometryType === 'polyline' && geometry.paths?.[0]) {
         // Use midpoint of first path
         const path = geometry.paths[0];
         const midIndex = Math.floor(path.length / 2);
-        lon = path[midIndex][0];
-        lat = path[midIndex][1];
+        x = path[midIndex][0];
+        y = path[midIndex][1];
       } else if (geometryType === 'extent' || geometry.extent) {
         // Use center of extent
         const ext = geometryType === 'extent' ? geometry : geometry.extent;
-        lat = (ext.ymin + ext.ymax) / 2;
-        lon = (ext.xmin + ext.xmax) / 2;
+        y = (ext.ymin + ext.ymax) / 2;
+        x = (ext.xmin + ext.xmax) / 2;
       } else if (geometryType === 'multipoint' && geometry.points?.[0]) {
         // Use first point of multipoint
-        lon = geometry.points[0][0];
-        lat = geometry.points[0][1];
+        x = geometry.points[0][0];
+        y = geometry.points[0][1];
       }
 
-      if (!lat || !lon) {
+      if (x === undefined || y === undefined || x === null || y === null) {
         console.warn('[useIntegrations] Could not calculate coordinates from geometry');
         return;
       }
 
+      // Convert from Web Mercator to WGS84 if needed
+      // Check spatial reference or detect based on coordinate values
+      const spatialRef = geometry.spatialReference?.wkid || geometry.spatialReference?.latestWkid;
+      const needsTransform = spatialRef === 3857 || spatialRef === 102100 || isWebMercator(x, y);
+
+      let lat, lon;
+      if (needsTransform) {
+        const transformed = webMercatorToWGS84(x, y);
+        lon = transformed.lon;
+        lat = transformed.lat;
+      } else {
+        // Already in WGS84
+        lon = x;
+        lat = y;
+      }
+
+      // Get window size configuration from org config, with defaults (pixels only for Nearmap)
+      const windowWidth = nearmapConfig?.windowWidth ?? 1000;
+      const windowHeight = nearmapConfig?.windowHeight ?? 700;
+
       // Build URL by replacing placeholders in the embed URL
-      // Supports {lat}, {lon}, {latitude}, {longitude} placeholders
+      // Supports {lat}, {lon}, {latitude}, {longitude}, {width}, {height} placeholders
       let url = nearmapConfig.embedUrl
         .replace(/\{lat\}/gi, lat.toString())
         .replace(/\{latitude\}/gi, lat.toString())
         .replace(/\{lon\}/gi, lon.toString())
         .replace(/\{lng\}/gi, lon.toString())
-        .replace(/\{longitude\}/gi, lon.toString());
+        .replace(/\{longitude\}/gi, lon.toString())
+        .replace(/\{width\}/gi, windowWidth.toString())
+        .replace(/\{height\}/gi, windowHeight.toString());
 
-      // Get window size configuration from org config, with defaults
       const windowConfig = {
-        width: nearmapConfig?.windowWidth ?? 80,
-        widthUnit: nearmapConfig?.windowWidthUnit || '%',
-        height: nearmapConfig?.windowHeight ?? 80,
-        heightUnit: nearmapConfig?.windowHeightUnit || '%'
+        width: windowWidth,
+        widthUnit: 'px',
+        height: windowHeight,
+        heightUnit: 'px'
       };
 
       // Open in embedded modal

@@ -467,12 +467,12 @@ function IntegrationConfigCard({
               type="text"
               value={config?.embedUrl || ''}
               onChange={(e) => handleFieldChange('embedUrl', e.target.value)}
-              placeholder="e.g., https://example.com/nearmap/index.html?lat={lat}&lon={lon}&w=1000&h=700"
+              placeholder="e.g., https://example.com/nearmap/index.html?lat={lat}&lon={lon}&w={width}&h={height}"
               className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent font-mono text-sm"
               style={{ '--tw-ring-color': accentColor }}
             />
             <p className="text-xs text-slate-500 mt-1">
-              Use <code className="bg-slate-100 px-1 rounded">{'{lat}'}</code> and <code className="bg-slate-100 px-1 rounded">{'{lon}'}</code> as placeholders for coordinates.
+              Use <code className="bg-slate-100 px-1 rounded">{'{lat}'}</code>, <code className="bg-slate-100 px-1 rounded">{'{lon}'}</code>, <code className="bg-slate-100 px-1 rounded">{'{width}'}</code>, and <code className="bg-slate-100 px-1 rounded">{'{height}'}</code> as placeholders.
             </p>
           </div>
 
@@ -483,8 +483,14 @@ function IntegrationConfigCard({
               <div className="text-sm">
                 <p className="font-medium text-blue-800 mb-1">Embed URL Required</p>
                 <p className="text-blue-700">
-                  Enter the URL for your organization's Nearmap viewer. The URL should include <code className="bg-blue-100 px-1 rounded">{'{lat}'}</code> and <code className="bg-blue-100 px-1 rounded">{'{lon}'}</code> placeholders which will be replaced with the feature's coordinates when opening the viewer.
+                  Enter the URL for your organization's Nearmap viewer. The URL should include placeholders that will be replaced when opening the viewer:
                 </p>
+                <ul className="text-blue-700 mt-1 ml-4 list-disc">
+                  <li><code className="bg-blue-100 px-1 rounded">{'{lat}'}</code> / <code className="bg-blue-100 px-1 rounded">{'{latitude}'}</code> - WGS84 latitude</li>
+                  <li><code className="bg-blue-100 px-1 rounded">{'{lon}'}</code> / <code className="bg-blue-100 px-1 rounded">{'{lng}'}</code> / <code className="bg-blue-100 px-1 rounded">{'{longitude}'}</code> - WGS84 longitude</li>
+                  <li><code className="bg-blue-100 px-1 rounded">{'{width}'}</code> - Window width in pixels</li>
+                  <li><code className="bg-blue-100 px-1 rounded">{'{height}'}</code> - Window height in pixels</li>
+                </ul>
               </div>
             </div>
           </div>
@@ -493,65 +499,43 @@ function IntegrationConfigCard({
           <div className="border border-slate-200 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-3">
               <Maximize2 className="w-4 h-4 text-slate-400" />
-              <span className="text-sm font-medium text-slate-700">Popup Window Size</span>
+              <span className="text-sm font-medium text-slate-700">Popup Window Size (pixels)</span>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              Configure the size of the Nearmap popup window that appears within Atlas. Use pixels (px) for fixed sizes or percentage (%) for responsive sizing.
+              Configure the size of the Nearmap popup window in pixels. These values are also passed to the embed URL via the <code className="bg-slate-100 px-1 rounded">{'{width}'}</code> and <code className="bg-slate-100 px-1 rounded">{'{height}'}</code> placeholders.
             </p>
             <div className="grid grid-cols-2 gap-4">
               {/* Width */}
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Width</label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    value={config?.windowWidth ?? 80}
-                    onChange={(e) => handleFieldChange('windowWidth', parseInt(e.target.value) || 80)}
-                    min="1"
-                    max={config?.windowWidthUnit === 'px' ? 3000 : 100}
-                    placeholder="80"
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
-                    style={{ '--tw-ring-color': accentColor }}
-                  />
-                  <select
-                    value={config?.windowWidthUnit || '%'}
-                    onChange={(e) => handleFieldChange('windowWidthUnit', e.target.value)}
-                    className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
-                    style={{ '--tw-ring-color': accentColor }}
-                  >
-                    <option value="%">%</option>
-                    <option value="px">px</option>
-                  </select>
-                </div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Width (px)</label>
+                <input
+                  type="number"
+                  value={config?.windowWidth ?? 1000}
+                  onChange={(e) => handleFieldChange('windowWidth', parseInt(e.target.value) || 1000)}
+                  min="400"
+                  max="3000"
+                  placeholder="1000"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                  style={{ '--tw-ring-color': accentColor }}
+                />
               </div>
               {/* Height */}
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Height</label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    value={config?.windowHeight ?? 80}
-                    onChange={(e) => handleFieldChange('windowHeight', parseInt(e.target.value) || 80)}
-                    min="1"
-                    max={config?.windowHeightUnit === 'px' ? 3000 : 100}
-                    placeholder="80"
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
-                    style={{ '--tw-ring-color': accentColor }}
-                  />
-                  <select
-                    value={config?.windowHeightUnit || '%'}
-                    onChange={(e) => handleFieldChange('windowHeightUnit', e.target.value)}
-                    className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm bg-white"
-                    style={{ '--tw-ring-color': accentColor }}
-                  >
-                    <option value="%">%</option>
-                    <option value="px">px</option>
-                  </select>
-                </div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Height (px)</label>
+                <input
+                  type="number"
+                  value={config?.windowHeight ?? 700}
+                  onChange={(e) => handleFieldChange('windowHeight', parseInt(e.target.value) || 700)}
+                  min="300"
+                  max="3000"
+                  placeholder="700"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                  style={{ '--tw-ring-color': accentColor }}
+                />
               </div>
             </div>
             <p className="text-xs text-slate-400 mt-2">
-              Default: 80% width x 80% height. For percentage values, the popup will be sized relative to the browser viewport.
+              Default: 1000px width x 700px height. Minimum: 400x300px.
             </p>
           </div>
 
