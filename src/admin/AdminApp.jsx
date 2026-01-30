@@ -1055,16 +1055,31 @@ function OrgAdminDashboardHome({ orgId, orgData, accentColor, onNavigate }) {
   const [recentActivity, setRecentActivity] = useState([]);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      if (!orgId) return;
+    if (!orgId) return;
 
-      try {
-        // Count subscribers from org-specific notifySubscribers subcollection
-        // This collection is accessible to org admins (unlike the global users collection)
-        const subscribersSnap = await getDocs(
-          collection(db, PATHS.notifySubscribers(orgId))
-        );
-        const subscriberCount = subscribersSnap.size;
+    // Use real-time listener on users collection to match UserManagement and AtlasUserManagement counts
+    const unsubscribe = onSnapshot(
+      collection(db, PATHS.users),
+      (snapshot) => {
+        const users = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        // Count subscribers - users with any active subscription to this org
+        // Matches UserManagement.jsx countOrgSubscribers() logic
+        const subscriberCount = users.filter(user => {
+          if (!user.subscriptions) return false;
+          return Object.entries(user.subscriptions).some(([key, value]) =>
+            key.startsWith(`${orgId}_`) && value === true
+          );
+        }).length;
+
+        // Count atlas users - users with atlas access who are not suspended
+        // Matches AtlasUserManagement.jsx getAtlasUserCount() logic
+        const atlasUserCount = users.filter(user =>
+          user.atlasAccess?.[orgId]?.enabled === true && !user.suspended
+        ).length;
 
         // Count notifications from orgData
         const notificationCount = orgData?.notifications?.length || 0;
@@ -1072,25 +1087,21 @@ function OrgAdminDashboardHome({ orgId, orgData, accentColor, onNavigate }) {
         // Count maps - check both live config and draft config
         const mapsCount = orgData?.atlasConfig?.data?.maps?.length || orgData?.atlasConfigDraft?.data?.maps?.length || 0;
 
-        // Count atlas users
-        const atlasUsersSnap = await getDocs(
-          collection(db, PATHS.organizations, orgId, 'atlasUsers')
-        );
-
         setStats({
           subscribers: subscriberCount,
           notifications: notificationCount,
           maps: mapsCount,
-          atlasUsers: atlasUsersSnap.size
+          atlasUsers: atlasUserCount
         });
-      } catch (err) {
-        console.error('Error fetching dashboard stats:', err);
-      } finally {
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error fetching dashboard stats:', error);
         setLoading(false);
       }
-    };
+    );
 
-    fetchStats();
+    return () => unsubscribe();
   }, [orgId, orgData]);
 
   const statCards = [
