@@ -14,7 +14,8 @@ import {
   FileText,
   GripVertical,
   Eye,
-  Radar
+  Radar,
+  Lock
 } from 'lucide-react';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 import Point from '@arcgis/core/geometry/Point';
@@ -445,13 +446,23 @@ export default function MarkupPopup({
               <ZoomIn className="w-4 h-4 text-slate-400" />
               <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">Zoom To</span>
             </button>
-            <button
-              onClick={handleEdit}
-              className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
-            >
-              <Edit3 className="w-4 h-4 text-slate-400" />
-              <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">Edit</span>
-            </button>
+            {['feature-info-panel', 'nearby-search', 'nearby-search-popup'].includes(markup?.attributes?.savedFrom) ? (
+              <button
+                disabled
+                className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-slate-400 bg-slate-100 rounded-lg cursor-not-allowed border border-slate-200"
+                title={markup?.attributes?.savedFrom === 'feature-info-panel' ? "Saved features cannot be edited" : "Nearby buffer markup cannot be edited"}
+              >
+                <Lock className="w-4 h-4 text-slate-400" />
+              </button>
+            ) : (
+              <button
+                onClick={handleEdit}
+                className="group flex-1 flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
+              >
+                <Edit3 className="w-4 h-4 text-slate-400" />
+                <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-200">Edit</span>
+              </button>
+            )}
             <button
               onClick={handleNearbyClick}
               className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 rounded-lg transition border border-slate-200"
