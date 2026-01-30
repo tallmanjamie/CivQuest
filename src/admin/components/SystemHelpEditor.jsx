@@ -432,14 +432,18 @@ function HelpDocCard({
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Content
+              <span className="text-xs text-slate-400 font-normal ml-2">(HTML formatting supported)</span>
             </label>
             <textarea
               value={doc.content}
               onChange={(e) => onUpdate(docIndex, 'content', e.target.value)}
-              placeholder="Write the help content here. This text will be used by the AI to answer user questions."
+              placeholder="Write the help content here. HTML tags like <p>, <ul>, <li>, <strong>, <em>, <h3>, <br> are supported for rich formatting."
               rows={5}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
             />
+            <p className="mt-1 text-xs text-slate-400">
+              Supported tags: &lt;p&gt;, &lt;br&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;, &lt;ol&gt;, &lt;li&gt;, &lt;h3&gt;, &lt;h4&gt;, &lt;blockquote&gt;, &lt;a href="..."&gt;
+            </p>
           </div>
 
           {/* Tags */}

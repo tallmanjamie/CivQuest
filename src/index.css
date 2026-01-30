@@ -125,6 +125,115 @@ body {
   border-color: #e2e8f0;
 }
 
+/* Help content HTML formatting styles */
+.help-content {
+  line-height: 1.6;
+}
+
+.help-content h1, .help-content h2, .help-content h3, .help-content h4, .help-content h5, .help-content h6 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  color: #1e293b;
+}
+
+.help-content h1 { font-size: 1.5rem; }
+.help-content h2 { font-size: 1.25rem; }
+.help-content h3 { font-size: 1.125rem; }
+.help-content h4 { font-size: 1rem; }
+
+.help-content p {
+  margin-bottom: 0.75em;
+}
+
+.help-content ul, .help-content ol {
+  margin-left: 1.5em;
+  margin-bottom: 0.75em;
+}
+
+.help-content ul {
+  list-style-type: disc;
+}
+
+.help-content ol {
+  list-style-type: decimal;
+}
+
+.help-content li {
+  margin-bottom: 0.25em;
+}
+
+.help-content strong, .help-content b {
+  font-weight: 600;
+}
+
+.help-content em, .help-content i {
+  font-style: italic;
+}
+
+.help-content a {
+  color: #0ea5e9;
+  text-decoration: underline;
+}
+
+.help-content a:hover {
+  color: #0284c7;
+}
+
+.help-content blockquote {
+  border-left: 3px solid #e2e8f0;
+  padding-left: 1em;
+  margin: 0.75em 0;
+  color: #64748b;
+  font-style: italic;
+}
+
+.help-content code {
+  background-color: #e2e8f0;
+  padding: 0.125em 0.375em;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-family: ui-monospace, monospace;
+}
+
+.help-content pre {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  padding: 1em;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+.help-content pre code {
+  background-color: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.help-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+}
+
+.help-content th, .help-content td {
+  border: 1px solid #e2e8f0;
+  padding: 0.5em;
+  text-align: left;
+}
+
+.help-content th {
+  background-color: #f8fafc;
+  font-weight: 600;
+}
+
+.help-content hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1em 0;
+}
+
 /* Animation utilities */
 @layer utilities {
   .animate-in {

@@ -23,6 +23,34 @@ import { getThemeColors } from '../utils/themeColors';
 import { getGeminiUrl, getGeminiFallbackUrl, GEMINI_CONFIG, GEMINI_CREATIVE_CONFIG } from '../../config/geminiConfig';
 
 /**
+ * Format help content for display
+ * Handles both HTML content and markdown-style formatting
+ * @param {string} content - The content to format
+ * @returns {string} - HTML-safe content ready for rendering
+ */
+const formatHelpContent = (content) => {
+  if (!content) return '';
+
+  // Check if content already contains HTML tags (block-level elements)
+  const hasHtmlTags = /<(p|div|ul|ol|li|h[1-6]|br|table|tr|td|th|blockquote)[^>]*>/i.test(content);
+
+  if (hasHtmlTags) {
+    // Content already has HTML, just apply markdown transformations for inline elements
+    return content
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/`(.*?)`/g, '<code class="bg-slate-200 px-1 rounded text-sm">$1</code>');
+  }
+
+  // Plain text or markdown - convert newlines and apply formatting
+  return content
+    .replace(/\n/g, '<br>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`(.*?)`/g, '<code class="bg-slate-200 px-1 rounded text-sm">$1</code>');
+};
+
+/**
  * HelpChatPanel Component
  * Docked panel for help documentation and AI-powered help chat
  */
@@ -331,12 +359,11 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
             <div className="p-4">
               <h3 className="text-lg font-semibold text-slate-800 mb-3">{selectedArticle.title}</h3>
 
-              {/* Article Content */}
-              <div className="prose prose-sm text-slate-600 mb-4">
-                {selectedArticle.content.split('\n').map((paragraph, idx) => (
-                  <p key={idx} className="mb-2">{paragraph}</p>
-                ))}
-              </div>
+              {/* Article Content - Supports HTML formatting */}
+              <div
+                className="prose prose-sm text-slate-600 mb-4 help-content"
+                dangerouslySetInnerHTML={{ __html: formatHelpContent(selectedArticle.content) }}
+              />
 
               {/* Tags */}
               {selectedArticle.tags && selectedArticle.tags.length > 0 && (
@@ -473,12 +500,9 @@ Provide a clear, helpful answer. If there are relevant sections in the documenta
                     <div className="max-w-[85%]">
                       <div className="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">
                         <div
-                          className="prose prose-sm"
+                          className="prose prose-sm help-content"
                           dangerouslySetInnerHTML={{
-                            __html: msg.content
-                              .replace(/\n/g, '<br>')
-                              .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                              .replace(/`(.*?)`/g, '<code class="bg-slate-200 px-1 rounded">$1</code>')
+                            __html: formatHelpContent(msg.content)
                           }}
                         />
                       </div>
