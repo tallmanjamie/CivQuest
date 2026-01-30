@@ -38,7 +38,12 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
-  Info
+  Info,
+  LayoutGrid,
+  AlignVerticalJustifyStart,
+  AlignHorizontalJustifyStart,
+  MoveHorizontal,
+  Layers
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -125,6 +130,9 @@ export default function AtlasSettingsEditor({
       defaultMode: 'chat',
       searchBarPosition: 'top',
       searchPlaceholder: '',
+      // Map tools position and layout
+      mapToolsPosition: 'upper-left',
+      mapToolsLayout: 'stacked',
       // Info popup configuration
       info: {
         enabled: false,
@@ -789,6 +797,78 @@ export default function AtlasSettingsEditor({
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                 />
               </div>
+            </div>
+
+            {/* Map Tools Configuration */}
+            <div className="mt-4 pt-4 border-t border-slate-200">
+              <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                <Layers className="w-4 h-4" /> Map Tools Position & Layout
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Map Tools Position */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Position
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'upper-left', label: 'Upper Left' },
+                      { id: 'center', label: 'Center' },
+                      { id: 'lower-left', label: 'Lower Left' },
+                      { id: 'lower-center', label: 'Lower Center' }
+                    ].map(pos => (
+                      <button
+                        key={pos.id}
+                        type="button"
+                        onClick={() => updateUI('mapToolsPosition', pos.id)}
+                        className={`p-2 border rounded-lg text-center transition-colors ${
+                          config.ui.mapToolsPosition === pos.id
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        <span className="text-sm font-medium">{pos.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Map Tools Layout */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Layout
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateUI('mapToolsLayout', 'stacked')}
+                      className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                        config.ui.mapToolsLayout === 'stacked'
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <AlignVerticalJustifyStart className="w-5 h-5" />
+                      <span className="text-sm font-medium">Stacked</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateUI('mapToolsLayout', 'horizontal')}
+                      className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                        config.ui.mapToolsLayout === 'horizontal'
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <MoveHorizontal className="w-5 h-5" />
+                      <span className="text-sm font-medium">Horizontal</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Controls where and how the map tools (Search Results, Markup, Layers, etc.) are displayed on the map.
+              </p>
             </div>
 
             {/* Logos & Images */}

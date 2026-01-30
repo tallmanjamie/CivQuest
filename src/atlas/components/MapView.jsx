@@ -148,6 +148,35 @@ const MapView = forwardRef(function MapView(props, ref) {
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
+  // Map Tools Position and Layout Configuration
+  const mapToolsPosition = config?.ui?.mapToolsPosition || 'upper-left';
+  const mapToolsLayout = config?.ui?.mapToolsLayout || 'stacked';
+
+  // Compute position classes based on config
+  const getToolsPositionClasses = useCallback(() => {
+    const baseClasses = 'absolute z-20';
+    const layoutClasses = mapToolsLayout === 'horizontal' ? 'flex-row' : 'flex-col';
+
+    let positionClasses;
+    switch (mapToolsPosition) {
+      case 'center':
+        positionClasses = 'top-4 left-1/2 -translate-x-1/2';
+        break;
+      case 'lower-left':
+        positionClasses = 'bottom-4 left-4';
+        break;
+      case 'lower-center':
+        positionClasses = 'bottom-4 left-1/2 -translate-x-1/2';
+        break;
+      case 'upper-left':
+      default:
+        positionClasses = 'top-4 left-4';
+        break;
+    }
+
+    return `${baseClasses} ${positionClasses} flex ${layoutClasses} gap-2`;
+  }, [mapToolsPosition, mapToolsLayout]);
+
   // Detect mobile screen size
   useEffect(() => {
     const checkMobile = () => {
@@ -1900,9 +1929,9 @@ const MapView = forwardRef(function MapView(props, ref) {
         </div>
       )}
 
-      {/* ==================== TOP LEFT CONTROLS ==================== */}
+      {/* ==================== MAP TOOLS CONTROLS ==================== */}
       {mapReady && !isLoading && !error && (
-        <div className="absolute top-4 left-4 flex flex-col gap-2 z-20">
+        <div className={getToolsPositionClasses()}>
           {/* Mobile Tools Menu */}
           {isMobile ? (
             <>
