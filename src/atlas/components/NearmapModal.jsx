@@ -95,7 +95,8 @@ export default function NearmapModal({
           maxWidth: '92vw',
           maxHeight: '92vh',
           minWidth: '400px',
-          minHeight: '300px'
+          minHeight: '300px',
+          border: `5px solid ${themeColor}`
         }}
       >
         {/* Header */}
