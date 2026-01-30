@@ -83,6 +83,9 @@ import {
   AVAILABLE_INTEGRATIONS
 } from '../shared/services/integrations';
 
+// Import theme utilities for Atlas theming
+import { getThemeColors } from '../atlas/utils/themeColors';
+
 // Import ArcGIS OAuth services
 import {
   initiateArcGISLogin,
@@ -565,7 +568,7 @@ function AccessDenied({ error, onSignOut }) {
 }
 
 // --- SIDEBAR NAVIGATION ---
-function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onToggleCollapse }) {
+function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onToggleCollapse, atlasThemeColor }) {
   const [expandedSections, setExpandedSections] = useState({ notify: true, atlas: true, system: role === 'super_admin' });
 
   const toggleSection = (section) => {
@@ -608,8 +611,20 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
     { id: 'orgadmins', label: 'Org Admins', icon: UserPlus },
   ];
 
-  const accentColor = role === 'super_admin' ? '#004E7C' : '#1E5631';
-  const accentColorLight = role === 'super_admin' ? '#E6F0F6' : '#E8F5E9';
+  // Use Atlas theme color for org_admin when available, otherwise fall back to defaults
+  const getAccentColors = () => {
+    if (role === 'super_admin') {
+      return { accent: '#004E7C', accentLight: '#E6F0F6' };
+    }
+    // For org_admin, use Atlas theme if configured
+    if (atlasThemeColor) {
+      const themeColors = getThemeColors(atlasThemeColor);
+      return { accent: themeColors.bg700, accentLight: themeColors.bg100 };
+    }
+    // Default org_admin colors
+    return { accent: '#1E5631', accentLight: '#E8F5E9' };
+  };
+  const { accent: accentColor, accentLight: accentColorLight } = getAccentColors();
 
   return (
     <aside 
@@ -812,11 +827,25 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
 }
 
 // --- HEADER COMPONENT ---
-function AdminHeader({ user, title, subtitle, accentColor, onSignOut }) {
+function AdminHeader({ user, title, subtitle, accentColor, atlasThemeColor, onSignOut }) {
+  // Calculate header background color (darker shade)
+  const getHeaderBgColor = () => {
+    // Super admin uses dark blue
+    if (accentColor === '#004E7C') {
+      return '#002A4D';
+    }
+    // If Atlas theme is configured, use its darker shade
+    if (atlasThemeColor) {
+      return getThemeColors(atlasThemeColor).bg700;
+    }
+    // Default org admin dark green
+    return '#164524';
+  };
+
   return (
-    <header 
+    <header
       className="text-white px-6 py-4 flex items-center justify-between shadow-md"
-      style={{ backgroundColor: accentColor === '#1E5631' ? '#164524' : '#002A4D' }}
+      style={{ backgroundColor: getHeaderBgColor() }}
     >
       <div className="flex items-center gap-3">
         <img 
@@ -994,6 +1023,12 @@ function OrgAdminDashboard({ user, orgConfig }) {
   const { addToast, confirm } = useUI();
   const { orgId, orgData, isNewAccount, clearNewAccountFlag } = useAdmin();
 
+  // Get Atlas theme color if configured, use it for the admin panel accent
+  const atlasThemeColor = orgData?.atlasConfig?.ui?.themeColor || null;
+  const accentColor = atlasThemeColor
+    ? getThemeColors(atlasThemeColor).bg700
+    : '#1E5631';
+
   const handleNavigate = (section, tab) => {
     setActiveSection(section);
     setActiveTab(tab);
@@ -1011,7 +1046,7 @@ function OrgAdminDashboard({ user, orgConfig }) {
       switch (activeTab) {
         case 'subscribers':
           return (
-            <UserManagementPanel 
+            <UserManagementPanel
               db={db}
               auth={null}
               role="org_admin"
@@ -1019,32 +1054,32 @@ function OrgAdminDashboard({ user, orgConfig }) {
               orgData={orgData}
               addToast={addToast}
               confirm={confirm}
-              accentColor="#1E5631"
+              accentColor={accentColor}
             />
           );
         case 'notifications':
           return (
-            <ConfigurationPanel 
+            <ConfigurationPanel
               db={db}
               role="org_admin"
               orgId={orgId}
               orgData={orgData}
               addToast={addToast}
               confirm={confirm}
-              accentColor="#1E5631"
+              accentColor={accentColor}
               NotificationEditModal={NotificationEditModal}
               onOpenWizard={() => setShowWizard(true)}
             />
           );
         case 'archive':
           return (
-            <Archive 
+            <Archive
               db={db}
               role="org_admin"
               orgId={orgId}
               orgData={orgData}
               addToast={addToast}
-              accentColor="#1E5631"
+              accentColor={accentColor}
             />
           );
         default:
@@ -1062,7 +1097,7 @@ function OrgAdminDashboard({ user, orgConfig }) {
           orgData={orgData}
           addToast={addToast}
           confirm={confirm}
-          accentColor="#1E5631"
+          accentColor={accentColor}
           adminEmail={user?.email}
         />
       );
@@ -1073,24 +1108,26 @@ function OrgAdminDashboard({ user, orgConfig }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <AdminHeader 
+      <AdminHeader
         user={user}
         title={orgConfig.name}
         subtitle="Organization Admin"
-        accentColor="#1E5631"
+        accentColor={accentColor}
+        atlasThemeColor={atlasThemeColor}
         onSignOut={() => signOut(auth)}
       />
-      
+
       <div className="flex-1 flex">
-        <Sidebar 
+        <Sidebar
           role="org_admin"
           activeSection={activeSection}
           activeTab={activeTab}
           onNavigate={handleNavigate}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          atlasThemeColor={atlasThemeColor}
         />
-        
+
         <main className="flex-1 p-8 overflow-auto">
           <div className="max-w-7xl mx-auto">
             {renderContent()}
@@ -1109,7 +1146,7 @@ function OrgAdminDashboard({ user, orgConfig }) {
           addToast={addToast}
           userEmail={user?.email}
           onNotificationsCreated={handleNotificationsCreated}
-          accentColor="#1E5631"
+          accentColor={accentColor}
         />
       )}
     </div>
