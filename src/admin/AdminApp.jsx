@@ -1059,19 +1059,12 @@ function OrgAdminDashboardHome({ orgId, orgData, accentColor, onNavigate }) {
       if (!orgId) return;
 
       try {
-        // Count subscribers - users have subscriptions object with keys like "${orgId}_${notificationId}"
-        const usersSnap = await getDocs(collection(db, PATHS.users));
-        let subscriberCount = 0;
-        usersSnap.forEach(doc => {
-          const userData = doc.data();
-          if (userData.subscriptions) {
-            // Check if user has any active subscription to this org
-            const hasOrgSubscription = Object.entries(userData.subscriptions).some(
-              ([key, value]) => key.startsWith(`${orgId}_`) && value === true
-            );
-            if (hasOrgSubscription) subscriberCount++;
-          }
-        });
+        // Count subscribers from org-specific notifySubscribers subcollection
+        // This collection is accessible to org admins (unlike the global users collection)
+        const subscribersSnap = await getDocs(
+          collection(db, PATHS.notifySubscribers(orgId))
+        );
+        const subscriberCount = subscribersSnap.size;
 
         // Count notifications from orgData
         const notificationCount = orgData?.notifications?.length || 0;
