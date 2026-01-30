@@ -4,7 +4,7 @@
 // Supports configurable width/height in pixels or percentage of screen
 
 import React, { useEffect, useRef } from 'react';
-import { X, MapPin, Maximize2, Minimize2 } from 'lucide-react';
+import { X, MapPin } from 'lucide-react';
 
 /**
  * NearmapModal Component
@@ -33,7 +33,6 @@ export default function NearmapModal({
   windowConfig = {}
 }) {
   const iframeRef = useRef(null);
-  const [isMaximized, setIsMaximized] = React.useState(false);
 
   // Default window configuration
   const {
@@ -45,12 +44,10 @@ export default function NearmapModal({
 
   // Calculate dimensions (supports both pixels and percentage)
   const getWidth = () => {
-    if (isMaximized) return '100vw';
     return widthUnit === '%' ? `${width}vw` : `${width}px`;
   };
 
   const getHeight = () => {
-    if (isMaximized) return '100vh';
     return heightUnit === '%' ? `${height}vh` : `${height}px`;
   };
 
@@ -90,14 +87,12 @@ export default function NearmapModal({
 
       {/* Modal Container */}
       <div
-        className={`relative bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${
-          isMaximized ? 'rounded-none' : ''
-        }`}
+        className="relative bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
         style={{
           width: getWidth(),
           height: getHeight(),
-          maxWidth: isMaximized ? '100vw' : '95vw',
-          maxHeight: isMaximized ? '100vh' : '95vh',
+          maxWidth: '92vw',
+          maxHeight: '92vh',
           minWidth: '400px',
           minHeight: '300px'
         }}
@@ -116,28 +111,14 @@ export default function NearmapModal({
               <p className="text-xs text-white/70">Nearmap Aerial Imagery</p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
-            {/* Maximize/Minimize Button */}
-            <button
-              onClick={() => setIsMaximized(!isMaximized)}
-              className="p-2 rounded-lg hover:bg-white/20 transition-colors"
-              title={isMaximized ? 'Restore' : 'Maximize'}
-            >
-              {isMaximized ? (
-                <Minimize2 className="w-5 h-5 text-white" />
-              ) : (
-                <Maximize2 className="w-5 h-5 text-white" />
-              )}
-            </button>
-            {/* Close Button */}
-            <button
-              onClick={onClose}
-              className="p-2 rounded-lg hover:bg-white/20 transition-colors"
-              title="Close (Esc)"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-          </div>
+          {/* Close Button */}
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-white/20 transition-colors"
+            title="Close (Esc)"
+          >
+            <X className="w-5 h-5 text-white" />
+          </button>
         </div>
 
         {/* Iframe Content */}
