@@ -8,7 +8,6 @@ import {
   Check,
   Trash2,
   Edit2,
-  Search,
   Loader2,
   Eye,
   EyeOff,
@@ -43,7 +42,6 @@ export default function IntegrationsManagement({ db, addToast, confirm, adminEma
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingIntegration, setEditingIntegration] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [expandedIntegrations, setExpandedIntegrations] = useState({});
 
   // Load integrations
@@ -63,11 +61,6 @@ export default function IntegrationsManagement({ db, addToast, confirm, adminEma
     });
     return () => unsubscribe();
   }, [db]);
-
-  const filteredIntegrations = integrations.filter(integration =>
-    integration.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    integration.type?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const handleAddIntegration = async (integrationData) => {
     try {
@@ -147,44 +140,12 @@ export default function IntegrationsManagement({ db, addToast, confirm, adminEma
         </button>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-        <input
-          type="text"
-          placeholder="Search integrations..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2"
-          style={{ '--tw-ring-color': accentColor }}
-        />
-      </div>
-
-      {/* Available Integrations Info */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <h4 className="font-medium text-blue-800">Available Integrations</h4>
-            <div className="mt-2 space-y-1">
-              {Object.values(AVAILABLE_INTEGRATIONS).map(def => (
-                <div key={def.id} className="flex items-center gap-2 text-sm text-blue-700">
-                  <span className="font-medium">{def.name}</span>
-                  <span className="text-blue-500">({def.type})</span>
-                  <span className="text-blue-400">- {def.description.slice(0, 80)}...</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Integrations List */}
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
         </div>
-      ) : filteredIntegrations.length === 0 ? (
+      ) : integrations.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
           <Puzzle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h3 className="font-medium text-slate-700">No integrations configured</h3>
@@ -192,7 +153,7 @@ export default function IntegrationsManagement({ db, addToast, confirm, adminEma
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredIntegrations.map(integration => {
+          {integrations.map(integration => {
             const definition = getIntegrationDefinition(integration.type);
             const isExpanded = expandedIntegrations[integration.id];
 
