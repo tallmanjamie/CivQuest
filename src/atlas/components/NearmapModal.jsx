@@ -3,8 +3,8 @@
 // Opens as a centered popup window on top of the map
 // Supports configurable width/height in pixels or percentage of screen
 
-import React, { useEffect, useRef } from 'react';
-import { X, MapPin } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, MapPin, Loader2 } from 'lucide-react';
 
 /**
  * NearmapModal Component
@@ -33,6 +33,8 @@ export default function NearmapModal({
   windowConfig = {}
 }) {
   const iframeRef = useRef(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [fixedDimensions, setFixedDimensions] = useState(null);
 
   // Default window configuration
   const {
@@ -42,14 +44,44 @@ export default function NearmapModal({
     heightUnit = '%'
   } = windowConfig;
 
-  // Calculate dimensions (supports both pixels and percentage)
-  // Add 20px for width (percentage-based or pixel), 40px for height
-  const getWidth = () => {
-    return widthUnit === '%' ? `calc(${width}vw + 20px)` : `${width + 20}px`;
-  };
+  // Calculate and fix dimensions when modal opens (not responsive to browser resize)
+  useEffect(() => {
+    if (isOpen && !fixedDimensions) {
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
 
-  const getHeight = () => {
-    return heightUnit === '%' ? `calc(${height}vh + 40px)` : `${height + 40}px`;
+      // Calculate pixel dimensions based on config
+      const calculatedWidth = widthUnit === '%'
+        ? Math.round((width / 100) * viewportWidth) + 20
+        : width + 20;
+      const calculatedHeight = heightUnit === '%'
+        ? Math.round((height / 100) * viewportHeight) + 40
+        : height + 40;
+
+      // Apply constraints
+      const maxWidth = Math.round(viewportWidth * 0.92);
+      const maxHeight = Math.round(viewportHeight * 0.92);
+      const minWidth = 400;
+      const minHeight = 300;
+
+      setFixedDimensions({
+        width: Math.max(minWidth, Math.min(calculatedWidth, maxWidth)),
+        height: Math.max(minHeight, Math.min(calculatedHeight, maxHeight))
+      });
+    }
+  }, [isOpen, fixedDimensions, width, widthUnit, height, heightUnit]);
+
+  // Reset states when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setIsLoading(true);
+      setFixedDimensions(null);
+    }
+  }, [isOpen]);
+
+  // Handle iframe load completion
+  const handleIframeLoad = () => {
+    setIsLoading(false);
   };
 
   // Handle ESC key to close
@@ -76,7 +108,7 @@ export default function NearmapModal({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !fixedDimensions) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
@@ -86,16 +118,12 @@ export default function NearmapModal({
         onClick={onClose}
       />
 
-      {/* Modal Container */}
+      {/* Modal Container - fixed pixel dimensions calculated on open */}
       <div
         className="relative bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
         style={{
-          width: getWidth(),
-          height: getHeight(),
-          maxWidth: '92vw',
-          maxHeight: '92vh',
-          minWidth: '400px',
-          minHeight: '300px'
+          width: `${fixedDimensions.width}px`,
+          height: `${fixedDimensions.height}px`
         }}
       >
         {/* Header */}
@@ -124,12 +152,22 @@ export default function NearmapModal({
 
         {/* Iframe Content */}
         <div className="flex-1 relative bg-slate-100">
+          {/* Loading Overlay */}
+          {isLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-10 h-10 animate-spin text-sky-500" />
+                <p className="text-sm text-slate-600">Loading Nearmap...</p>
+              </div>
+            </div>
+          )}
           <iframe
             ref={iframeRef}
             src={url}
             className="w-full h-full border-0"
             title="Nearmap Viewer"
             allow="fullscreen"
+            onLoad={handleIframeLoad}
           />
         </div>
       </div>
