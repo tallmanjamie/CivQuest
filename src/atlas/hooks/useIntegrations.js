@@ -393,8 +393,9 @@ export function useIntegrations(orgId) {
       // Supports both fixed pixels and percentage-based sizing
       const sizeMode = nearmapConfig?.sizeMode ?? 'pixels';
 
-      // Modal header height (px-4 py-3 = ~56px including content)
-      const MODAL_HEADER_HEIGHT = 56;
+      // Modal header height (py-3 = 24px padding + ~20px content = ~44px actual)
+      // Use slightly smaller value to ensure iframe content fills available space
+      const MODAL_HEADER_HEIGHT = 44;
 
       let windowWidth, windowHeight;
       let widthUnit = 'px';
@@ -414,12 +415,15 @@ export function useIntegrations(orgId) {
 
         // Calculate actual pixel values for the URL
         // Use window.innerWidth/innerHeight for the viewport size
+        // Note: When modal opens, body overflow is hidden which may slightly change viewport
         const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
         const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
 
         // Calculate modal dimensions based on percentage
-        const modalWidth = Math.floor((viewportWidth * widthPercent) / 100);
-        const modalHeight = Math.floor((viewportHeight * heightPercent) / 100);
+        // Use Math.ceil and add small buffer to ensure content fills the iframe area
+        // This prevents scrollbars from appearing due to rounding differences
+        const modalWidth = Math.ceil((viewportWidth * widthPercent) / 100) + 16;
+        const modalHeight = Math.ceil((viewportHeight * heightPercent) / 100) + 16;
 
         // For the URL width/height, we need the iframe content area dimensions
         // Subtract the modal header height from the total modal height
@@ -431,8 +435,9 @@ export function useIntegrations(orgId) {
         windowHeight = nearmapConfig?.windowHeight ?? 700;
 
         // For fixed pixels, the URL dimensions need to subtract the header
-        urlWidth = windowWidth;
-        urlHeight = Math.max(300, windowHeight - MODAL_HEADER_HEIGHT);
+        // Add small buffer to ensure content fills the iframe area without scrollbars
+        urlWidth = windowWidth + 16;
+        urlHeight = Math.max(300, windowHeight - MODAL_HEADER_HEIGHT + 16);
       }
 
       // Build URL by replacing placeholders in the embed URL
