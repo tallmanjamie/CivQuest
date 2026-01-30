@@ -371,7 +371,7 @@ function HelpDocCard({
   onRemoveLink,
   accentColor
 }) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [newTag, setNewTag] = useState('');
 
   const handleAddTag = () => {
