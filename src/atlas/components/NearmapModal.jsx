@@ -43,13 +43,13 @@ export default function NearmapModal({
   } = windowConfig;
 
   // Calculate dimensions (supports both pixels and percentage)
-  // Add 50px for percentage-based, or 50px for pixel-based sizes
+  // Add 20px for width (percentage-based or pixel), 40px for height
   const getWidth = () => {
-    return widthUnit === '%' ? `calc(${width}vw + 50px)` : `${width + 50}px`;
+    return widthUnit === '%' ? `calc(${width}vw + 20px)` : `${width + 20}px`;
   };
 
   const getHeight = () => {
-    return heightUnit === '%' ? `calc(${height}vh + 50px)` : `${height + 50}px`;
+    return heightUnit === '%' ? `calc(${height}vh + 40px)` : `${height + 40}px`;
   };
 
   // Handle ESC key to close
