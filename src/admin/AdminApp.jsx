@@ -1059,16 +1059,25 @@ function OrgAdminDashboardHome({ orgId, orgData, accentColor, onNavigate }) {
       if (!orgId) return;
 
       try {
-        // Count subscribers
-        const subscribersSnap = await getDocs(
-          query(collection(db, PATHS.users), where('orgMemberships', 'array-contains', orgId))
-        );
+        // Count subscribers - users have subscriptions object with keys like "${orgId}_${notificationId}"
+        const usersSnap = await getDocs(collection(db, PATHS.users));
+        let subscriberCount = 0;
+        usersSnap.forEach(doc => {
+          const userData = doc.data();
+          if (userData.subscriptions) {
+            // Check if user has any active subscription to this org
+            const hasOrgSubscription = Object.entries(userData.subscriptions).some(
+              ([key, value]) => key.startsWith(`${orgId}_`) && value === true
+            );
+            if (hasOrgSubscription) subscriberCount++;
+          }
+        });
 
         // Count notifications from orgData
         const notificationCount = orgData?.notifications?.length || 0;
 
-        // Count maps
-        const mapsCount = orgData?.atlasConfig?.data?.maps?.length || 0;
+        // Count maps - check both live config and draft config
+        const mapsCount = orgData?.atlasConfig?.data?.maps?.length || orgData?.atlasConfigDraft?.data?.maps?.length || 0;
 
         // Count atlas users
         const atlasUsersSnap = await getDocs(
@@ -1076,7 +1085,7 @@ function OrgAdminDashboardHome({ orgId, orgData, accentColor, onNavigate }) {
         );
 
         setStats({
-          subscribers: subscribersSnap.size,
+          subscribers: subscriberCount,
           notifications: notificationCount,
           maps: mapsCount,
           atlasUsers: atlasUsersSnap.size
