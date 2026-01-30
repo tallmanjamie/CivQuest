@@ -164,7 +164,7 @@ ${helpContext}
 
 User Question: ${trimmedQuery}
 
-Provide a clear, helpful answer. If there are relevant sections in the documentation, reference them.`;
+Provide a clear, helpful answer. Do not include article references or citations in your response.`;
 
       const data = await callGeminiApi(prompt);
       const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text ||
