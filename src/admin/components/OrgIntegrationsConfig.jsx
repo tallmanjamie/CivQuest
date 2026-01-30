@@ -415,11 +415,10 @@ function IntegrationConfigCard({
   }
 
   // Render Nearmap-specific configuration
-  // Note: Nearmap doesn't require an API key - authentication is handled in the embed widget
+  // Note: Nearmap requires an embedUrl to be configured
   if (integration.type === 'nearmap') {
-    // For Nearmap, it's always "configured" since no API key is needed
-    // We just need to track if window dimensions have been customized
-    const nearmapConfigured = true;
+    // Nearmap is configured when embedUrl is set
+    const nearmapConfigured = config?.embedUrl && config.embedUrl.trim() !== '';
 
     return (
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -435,10 +434,17 @@ function IntegrationConfigCard({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3">
                 <h3 className="font-semibold text-slate-800 text-lg">{integration.name}</h3>
-                <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
-                  <CheckCircle className="w-3 h-3" />
-                  Ready
-                </span>
+                {nearmapConfigured ? (
+                  <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                    <CheckCircle className="w-3 h-3" />
+                    Configured
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+                    <AlertCircle className="w-3 h-3" />
+                    Setup Required
+                  </span>
+                )}
               </div>
               <p className="text-sm text-slate-500 mt-1">
                 {definition?.description || 'High-resolution aerial imagery integration'}
@@ -449,14 +455,35 @@ function IntegrationConfigCard({
 
         {/* Configuration Form */}
         <div className="p-5 space-y-4">
-          {/* Info about no API key needed */}
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          {/* Embed URL Configuration */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              <div className="flex items-center gap-2">
+                <ExternalLink className="w-4 h-4 text-slate-400" />
+                Nearmap Embed URL
+              </div>
+            </label>
+            <input
+              type="text"
+              value={config?.embedUrl || ''}
+              onChange={(e) => handleFieldChange('embedUrl', e.target.value)}
+              placeholder="e.g., https://example.com/nearmap/index.html?lat={lat}&lon={lon}&w=1000&h=700"
+              className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent font-mono text-sm"
+              style={{ '--tw-ring-color': accentColor }}
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Use <code className="bg-slate-100 px-1 rounded">{'{lat}'}</code> and <code className="bg-slate-100 px-1 rounded">{'{lon}'}</code> as placeholders for coordinates.
+            </p>
+          </div>
+
+          {/* Info about configuration */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm">
-                <p className="font-medium text-green-800 mb-1">No API Key Required</p>
-                <p className="text-green-700">
-                  Nearmap authentication is handled directly in the embedded viewer. No API key configuration is needed here.
+                <p className="font-medium text-blue-800 mb-1">Embed URL Required</p>
+                <p className="text-blue-700">
+                  Enter the URL for your organization's Nearmap viewer. The URL should include <code className="bg-blue-100 px-1 rounded">{'{lat}'}</code> and <code className="bg-blue-100 px-1 rounded">{'{lon}'}</code> placeholders which will be replaced with the feature's coordinates when opening the viewer.
                 </p>
               </div>
             </div>
@@ -548,8 +575,10 @@ function IntegrationConfigCard({
           <div className="text-sm text-slate-500">
             {hasChanges ? (
               <span className="text-amber-600 font-medium">You have unsaved changes</span>
-            ) : (
+            ) : nearmapConfigured ? (
               <span className="text-green-600">Configuration saved</span>
+            ) : (
+              <span>Enter your embed URL to enable Nearmap integration</span>
             )}
           </div>
           <button

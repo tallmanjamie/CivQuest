@@ -287,6 +287,11 @@ export function useIntegrations(orgId) {
    */
   const openNearmap = useCallback(
     ({ geometry, title, themeColor }) => {
+      if (!nearmapConfig?.embedUrl) {
+        console.warn('[useIntegrations] No Nearmap embed URL configured');
+        return;
+      }
+
       if (!geometry) {
         console.warn('[useIntegrations] No geometry provided');
         return;
@@ -342,46 +347,14 @@ export function useIntegrations(orgId) {
         return;
       }
 
-      // Store geometry in sessionStorage (URL might be too long)
-      const geometryKey = 'nearmap_geometry';
-      try {
-        // Serialize geometry properly
-        const geoData = {
-          type: geometryType,
-          spatialReference: geometry.spatialReference || { wkid: 4326 }
-        };
-
-        if (geometryType === 'point') {
-          geoData.x = geometry.x || geometry.longitude;
-          geoData.y = geometry.y || geometry.latitude;
-        } else if (geometryType === 'polygon') {
-          geoData.rings = geometry.rings;
-        } else if (geometryType === 'polyline') {
-          geoData.paths = geometry.paths;
-        } else if (geometryType === 'multipoint') {
-          geoData.points = geometry.points;
-        } else if (geometryType === 'extent') {
-          geoData.xmin = geometry.xmin;
-          geoData.ymin = geometry.ymin;
-          geoData.xmax = geometry.xmax;
-          geoData.ymax = geometry.ymax;
-        }
-
-        sessionStorage.setItem(geometryKey, JSON.stringify(geoData));
-      } catch (e) {
-        console.warn('[useIntegrations] Could not store geometry in sessionStorage', e);
-      }
-
-      // Build URL with parameters
-      const params = new URLSearchParams({
-        lat: lat.toString(),
-        lon: lon.toString(),
-        themeColor: themeColor || '#0ea5e9',
-        title: title || 'Feature',
-        geometryType: geometryType || 'unknown'
-      });
-
-      const url = `/nearmap.html?${params.toString()}`;
+      // Build URL by replacing placeholders in the embed URL
+      // Supports {lat}, {lon}, {latitude}, {longitude} placeholders
+      let url = nearmapConfig.embedUrl
+        .replace(/\{lat\}/gi, lat.toString())
+        .replace(/\{latitude\}/gi, lat.toString())
+        .replace(/\{lon\}/gi, lon.toString())
+        .replace(/\{lng\}/gi, lon.toString())
+        .replace(/\{longitude\}/gi, lon.toString());
 
       // Get window size configuration from org config, with defaults
       const windowConfig = {
@@ -416,8 +389,8 @@ export function useIntegrations(orgId) {
     closeEagleView,
     eagleViewModal,
 
-    // Nearmap specific (no API key required - auth handled by Nearmap widget)
-    isNearmapEnabled: !!nearmapIntegration,
+    // Nearmap specific (requires embedUrl to be configured)
+    isNearmapEnabled: !!nearmapIntegration && !!nearmapConfig?.embedUrl,
     nearmapConfig,
     openNearmap,
     closeNearmap,
