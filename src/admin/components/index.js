@@ -35,3 +35,6 @@ export { default as SpatialFilter } from './SpatialFilter';
 
 // License Management
 export { default as LicenseManagement } from './LicenseManagement';
+
+// Global Export Template Library (Super Admin)
+export { default as GlobalExportTemplateLibrary } from './GlobalExportTemplateLibrary';

@@ -9,8 +9,11 @@
 //
 // TEMPLATE STORAGE: Templates are stored in organizations/{orgId}.atlasConfig.featureExportTemplates
 // or atlasConfigDraft.featureExportTemplates for the draft/publish workflow
+//
+// GLOBAL TEMPLATES: Super-admin managed templates are fetched from system config
+// and displayed in the "From Template" modal alongside starter templates
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileText,
   Plus,
@@ -26,9 +29,12 @@ import {
   FileOutput,
   X,
   Map,
-  Table2
+  Table2,
+  Globe,
+  RefreshCw
 } from 'lucide-react';
 import FeatureExportTemplateEditor from './FeatureExportTemplateEditor';
+import { subscribeToGlobalFeatureExportTemplates } from '../../shared/services/systemConfig';
 
 // Default starter templates for feature export
 const STARTER_TEMPLATES = [
@@ -90,6 +96,18 @@ export default function FeatureExportTemplateConfiguration({
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [showStarterPicker, setShowStarterPicker] = useState(false);
   const [expandedTemplates, setExpandedTemplates] = useState({});
+  const [globalTemplates, setGlobalTemplates] = useState([]);
+  const [loadingGlobalTemplates, setLoadingGlobalTemplates] = useState(true);
+
+  // Subscribe to global feature export templates from system config
+  useEffect(() => {
+    const unsubscribe = subscribeToGlobalFeatureExportTemplates((templates) => {
+      setGlobalTemplates(templates || []);
+      setLoadingGlobalTemplates(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Create new blank template
   const handleCreateBlank = () => {
@@ -418,13 +436,13 @@ export default function FeatureExportTemplateConfiguration({
         </div>
       )}
 
-      {/* Starter Template Picker Modal */}
+      {/* Template Picker Modal (Starter + Global Templates) */}
       {showStarterPicker && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
-                <h3 className="text-lg font-semibold text-slate-800">Choose a Starter Template</h3>
+                <h3 className="text-lg font-semibold text-slate-800">Choose a Template</h3>
                 <p className="text-sm text-slate-500">Select a feature export template to customize</p>
               </div>
               <button
@@ -435,40 +453,103 @@ export default function FeatureExportTemplateConfiguration({
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              <div className="grid gap-4">
-                {STARTER_TEMPLATES.map(starter => (
-                  <button
-                    key={starter.id}
-                    onClick={() => handleCreateFromStarter(starter)}
-                    className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                  >
-                    <div
-                      className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
-                      style={{ backgroundColor: accentColor }}
+            <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
+              {/* Global Templates Section */}
+              {loadingGlobalTemplates ? (
+                <div className="flex items-center justify-center py-4">
+                  <RefreshCw className="w-5 h-5 animate-spin text-slate-400" />
+                </div>
+              ) : globalTemplates.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Globe className="w-4 h-4 text-blue-600" />
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+                      Global Templates
+                    </h4>
+                    <span className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                      {globalTemplates.length}
+                    </span>
+                  </div>
+                  <div className="grid gap-3">
+                    {globalTemplates.map(template => (
+                      <button
+                        key={template.id}
+                        onClick={() => handleCreateFromStarter(template)}
+                        className="flex items-start gap-4 p-4 border border-blue-200 bg-blue-50/50 rounded-xl text-left hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                      >
+                        <div
+                          className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0 bg-blue-600"
+                        >
+                          <Globe className="w-6 h-6" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-slate-800">{template.name}</h4>
+                          </div>
+                          <p className="text-sm text-slate-500 mt-0.5">{template.description || 'Global template from system library'}</p>
+                          <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                            <span>
+                              {template.pageSize?.includes('landscape') ? 'Landscape' : 'Portrait'}
+                            </span>
+                            <span>-</span>
+                            <span>{template.elements?.length || 0} elements</span>
+                            {template.mapExportTemplateId && (
+                              <>
+                                <span>-</span>
+                                <span className="text-blue-500">Includes map</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-blue-400 flex-shrink-0 mt-1" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Starter Templates Section */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <LayoutTemplate className="w-4 h-4 text-slate-500" />
+                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+                    Starter Templates
+                  </h4>
+                </div>
+                <div className="grid gap-3">
+                  {STARTER_TEMPLATES.map(starter => (
+                    <button
+                      key={starter.id}
+                      onClick={() => handleCreateFromStarter(starter)}
+                      className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
                     >
-                      <FileOutput className="w-6 h-6" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-slate-800">{starter.name}</h4>
-                      <p className="text-sm text-slate-500 mt-0.5">{starter.description}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                        <span>
-                          {starter.pageSize.includes('landscape') ? 'Landscape' : 'Portrait'}
-                        </span>
-                        <span>•</span>
-                        <span>{starter.elements.length} elements</span>
-                        {starter.mapExportTemplateId && (
-                          <>
-                            <span>•</span>
-                            <span className="text-blue-500">Includes map</span>
-                          </>
-                        )}
+                      <div
+                        className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
+                        style={{ backgroundColor: accentColor }}
+                      >
+                        <FileOutput className="w-6 h-6" />
                       </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0 mt-1" />
-                  </button>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-slate-800">{starter.name}</h4>
+                        <p className="text-sm text-slate-500 mt-0.5">{starter.description}</p>
+                        <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                          <span>
+                            {starter.pageSize.includes('landscape') ? 'Landscape' : 'Portrait'}
+                          </span>
+                          <span>-</span>
+                          <span>{starter.elements.length} elements</span>
+                          {starter.mapExportTemplateId && (
+                            <>
+                              <span>-</span>
+                              <span className="text-blue-500">Includes map</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0 mt-1" />
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
