@@ -81,6 +81,7 @@ import NotificationWizard from './components/NotificationWizard';
 import AtlasAdminSection from './components/AtlasAdminSection';
 import SystemHelpEditor from './components/SystemHelpEditor';
 import IntegrationsManagement from './components/IntegrationsManagement';
+import GlobalExportTemplateLibrary from './components/GlobalExportTemplateLibrary';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
@@ -637,6 +638,7 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
     { id: 'integrations', label: 'Integrations', icon: Puzzle },
     { id: 'licensing', label: 'Licensing', icon: Shield },
     { id: 'globalhelp', label: 'Global Help', icon: BookOpen },
+    { id: 'globaltemplates', label: 'Global Templates', icon: Printer },
     { id: 'orgadmins', label: 'Org Admins', icon: UserPlus },
   ];
 
@@ -1021,6 +1023,16 @@ function SuperAdminDashboard({ user }) {
         case 'licensing':
           return (
             <LicenseManagement
+              db={db}
+              addToast={addToast}
+              confirm={confirm}
+              adminEmail={user.email}
+              accentColor="#004E7C"
+            />
+          );
+        case 'globaltemplates':
+          return (
+            <GlobalExportTemplateLibrary
               db={db}
               addToast={addToast}
               confirm={confirm}

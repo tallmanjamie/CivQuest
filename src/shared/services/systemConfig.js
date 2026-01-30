@@ -36,10 +36,41 @@ import {
  *   createdAt: timestamp,
  *   updatedAt: timestamp
  * }
+ *
+ * Global Export Template structure (map export):
+ * {
+ *   id: string,
+ *   name: string,
+ *   description: string,
+ *   pageSize: string, // 'letter-landscape', 'letter-portrait', etc.
+ *   customWidth?: number,
+ *   customHeight?: number,
+ *   backgroundColor: string,
+ *   elements: Array<{ id, type, x, y, width, height, locked, visible, content }>,
+ *   createdAt: string,
+ *   updatedAt: string
+ * }
+ *
+ * Global Feature Export Template structure:
+ * {
+ *   id: string,
+ *   name: string,
+ *   description: string,
+ *   pageSize: string,
+ *   customWidth?: number,
+ *   customHeight?: number,
+ *   backgroundColor: string,
+ *   elements: Array<{ id, type, x, y, width, height, locked, visible, content }>,
+ *   mapExportTemplateId: string | null,
+ *   createdAt: string,
+ *   updatedAt: string
+ * }
  */
 export const DEFAULT_SYSTEM_CONFIG = {
   globalHelpDocumentation: [],
   integrations: [], // System-level integrations configuration
+  globalExportTemplates: [], // Global map export templates for org admins to use
+  globalFeatureExportTemplates: [], // Global feature export templates for org admins to use
   updatedAt: null,
   updatedBy: null
 };
@@ -130,6 +161,56 @@ export async function updateGlobalHelpDocumentation(helpDocs, userId = null) {
   await updateSystemConfig(updateData, userId);
 }
 
+/**
+ * Get global export templates (map export)
+ */
+export async function getGlobalExportTemplates() {
+  const config = await getSystemConfig();
+  return config.globalExportTemplates || [];
+}
+
+/**
+ * Subscribe to global export templates changes
+ */
+export function subscribeToGlobalExportTemplates(callback) {
+  return subscribeToSystemConfig((config) => {
+    callback(config.globalExportTemplates || []);
+  });
+}
+
+/**
+ * Update global export templates (map export)
+ */
+export async function updateGlobalExportTemplates(templates, userId = null) {
+  const updateData = { globalExportTemplates: templates };
+  await updateSystemConfig(updateData, userId);
+}
+
+/**
+ * Get global feature export templates
+ */
+export async function getGlobalFeatureExportTemplates() {
+  const config = await getSystemConfig();
+  return config.globalFeatureExportTemplates || [];
+}
+
+/**
+ * Subscribe to global feature export templates changes
+ */
+export function subscribeToGlobalFeatureExportTemplates(callback) {
+  return subscribeToSystemConfig((config) => {
+    callback(config.globalFeatureExportTemplates || []);
+  });
+}
+
+/**
+ * Update global feature export templates
+ */
+export async function updateGlobalFeatureExportTemplates(templates, userId = null) {
+  const updateData = { globalFeatureExportTemplates: templates };
+  await updateSystemConfig(updateData, userId);
+}
+
 export default {
   getSystemConfig,
   subscribeToSystemConfig,
@@ -137,5 +218,11 @@ export default {
   subscribeToGlobalHelp,
   updateSystemConfig,
   updateGlobalHelpDocumentation,
+  getGlobalExportTemplates,
+  subscribeToGlobalExportTemplates,
+  updateGlobalExportTemplates,
+  getGlobalFeatureExportTemplates,
+  subscribeToGlobalFeatureExportTemplates,
+  updateGlobalFeatureExportTemplates,
   DEFAULT_SYSTEM_CONFIG
 };
