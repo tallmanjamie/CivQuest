@@ -18,8 +18,12 @@ import {
   AlertCircle,
   RefreshCw,
   ExternalLink,
-  Link
+  Link,
+  Type,
+  Code
 } from 'lucide-react';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 import { subscribeToSystemConfig, updateGlobalHelpDocumentation } from '../../shared/services/systemConfig';
 
 /**
@@ -42,13 +46,14 @@ export default function SystemHelpEditor({
   useEffect(() => {
     const unsubscribe = subscribeToSystemConfig((config) => {
       const docs = config.globalHelpDocumentation || [];
-      // Ensure each doc has a links array for the new structure
-      const docsWithLinks = docs.map(doc => ({
+      // Ensure each doc has links array and contentMode for the new structure
+      const docsWithDefaults = docs.map(doc => ({
         ...doc,
-        links: doc.links || []
+        links: doc.links || [],
+        contentMode: doc.contentMode || 'richText' // Default to rich text mode
       }));
-      setHelpDocs(docsWithLinks);
-      setOriginalDocs(JSON.parse(JSON.stringify(docsWithLinks)));
+      setHelpDocs(docsWithDefaults);
+      setOriginalDocs(JSON.parse(JSON.stringify(docsWithDefaults)));
       setLoading(false);
     });
 
@@ -67,6 +72,7 @@ export default function SystemHelpEditor({
       id: `help_${Date.now()}`,
       title: '',
       content: '',
+      contentMode: 'richText', // Default to rich text editor
       tags: [],
       media: [],
       links: []
@@ -424,22 +430,97 @@ function HelpDocCard({
             />
           </div>
 
-          {/* Content */}
+          {/* Content Mode Selector */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Content Editor Mode
+            </label>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => onUpdate(docIndex, 'contentMode', 'richText')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  doc.contentMode === 'richText' || !doc.contentMode
+                    ? 'bg-sky-100 text-sky-800 border-2 border-sky-300'
+                    : 'bg-slate-100 text-slate-600 border-2 border-transparent hover:bg-slate-200'
+                }`}
+              >
+                <Type className="w-4 h-4" />
+                Rich Text Editor
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdate(docIndex, 'contentMode', 'html')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  doc.contentMode === 'html'
+                    ? 'bg-sky-100 text-sky-800 border-2 border-sky-300'
+                    : 'bg-slate-100 text-slate-600 border-2 border-transparent hover:bg-slate-200'
+                }`}
+              >
+                <Code className="w-4 h-4" />
+                HTML Code
+              </button>
+            </div>
+          </div>
+
+          {/* Content Editor */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Content
-              <span className="text-xs text-slate-400 font-normal ml-2">(HTML formatting supported)</span>
             </label>
-            <textarea
-              value={doc.content}
-              onChange={(e) => onUpdate(docIndex, 'content', e.target.value)}
-              placeholder="Write the help content here. HTML tags like <p>, <ul>, <li>, <strong>, <em>, <h3>, <br> are supported for rich formatting."
-              rows={5}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
-            />
-            <p className="mt-1 text-xs text-slate-400">
-              Supported tags: &lt;p&gt;, &lt;br&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;, &lt;ol&gt;, &lt;li&gt;, &lt;h3&gt;, &lt;h4&gt;, &lt;blockquote&gt;, &lt;a href="..."&gt;
-            </p>
+
+            {doc.contentMode === 'html' ? (
+              // HTML Code Editor
+              <>
+                <textarea
+                  value={doc.content}
+                  onChange={(e) => onUpdate(docIndex, 'content', e.target.value)}
+                  placeholder="Write the help content here using HTML tags like <p>, <ul>, <li>, <strong>, <em>, <h3>, <br> for rich formatting."
+                  rows={8}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                />
+                <p className="mt-1 text-xs text-slate-400">
+                  Supported tags: &lt;p&gt;, &lt;br&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;, &lt;ol&gt;, &lt;li&gt;, &lt;h1&gt;-&lt;h4&gt;, &lt;blockquote&gt;, &lt;a href="..."&gt;
+                </p>
+              </>
+            ) : (
+              // Rich Text Editor (ReactQuill)
+              <>
+                <div className="border border-slate-300 rounded-lg overflow-hidden bg-white">
+                  <ReactQuill
+                    value={doc.content || ''}
+                    onChange={(content) => onUpdate(docIndex, 'content', content)}
+                    placeholder="Write your help content here. Use the toolbar to format text, add headers, lists, links, and more."
+                    modules={{
+                      toolbar: [
+                        [{ 'header': [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline', 'strike'],
+                        [{ 'color': [] }, { 'background': [] }],
+                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                        [{ 'indent': '-1'}, { 'indent': '+1' }],
+                        [{ 'align': [] }],
+                        ['link'],
+                        ['blockquote', 'code-block'],
+                        ['clean']
+                      ]
+                    }}
+                    formats={[
+                      'header',
+                      'bold', 'italic', 'underline', 'strike',
+                      'color', 'background',
+                      'list', 'bullet', 'indent',
+                      'align',
+                      'link',
+                      'blockquote', 'code-block'
+                    ]}
+                    className="help-rich-editor"
+                  />
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Use the formatting toolbar to style your content. No HTML knowledge required.
+                </p>
+              </>
+            )}
           </div>
 
           {/* Tags */}
