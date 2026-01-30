@@ -14,7 +14,8 @@ import {
   Eye,
   Maximize2,
   Minimize2,
-  Radar
+  Radar,
+  ZoomIn
 } from 'lucide-react';
 
 import { useAtlas } from '../AtlasApp';
@@ -405,7 +406,7 @@ export default function FeatureInfoPanel({
         disabled={isExportingPDF}
         isLoading={isExportingPDF}
       />
-      <ActionButton icon={Target} label="Zoom" onClick={() => onZoomTo?.(feature)} />
+      <ActionButton icon={ZoomIn} label="Zoom" onClick={() => onZoomTo?.(feature)} />
       <ActionButton icon={Radar} label="Nearby" onClick={handleNearbyClick} />
       {isPictometryEnabled && (
         <ActionButton
