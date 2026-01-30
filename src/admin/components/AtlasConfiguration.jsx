@@ -359,6 +359,7 @@ export default function AtlasConfiguration({
       message: `Are you sure you want to delete "${mapName}"? This cannot be undone.`,
       destructive: true,
       confirmLabel: "Delete",
+      requireTypedConfirmation: mapName,
       onConfirm: async () => {
         const configToUse = draftConfig || liveConfig;
         const updatedConfig = { ...configToUse };
