@@ -389,26 +389,69 @@ export function useIntegrations(orgId) {
         lat = y;
       }
 
-      // Get window size configuration from org config, with defaults (pixels only for Nearmap)
-      const windowWidth = nearmapConfig?.windowWidth ?? 1000;
-      const windowHeight = nearmapConfig?.windowHeight ?? 700;
+      // Get window size configuration from org config
+      // Supports both fixed pixels and percentage-based sizing
+      const sizeMode = nearmapConfig?.sizeMode ?? 'pixels';
+
+      // Modal header height (px-4 py-3 = ~56px including content)
+      const MODAL_HEADER_HEIGHT = 56;
+
+      let windowWidth, windowHeight;
+      let widthUnit = 'px';
+      let heightUnit = 'px';
+      let urlWidth, urlHeight;
+
+      if (sizeMode === 'percentage') {
+        // Percentage-based sizing - calculate pixel values from current window dimensions
+        const widthPercent = nearmapConfig?.windowWidthPercent ?? 80;
+        const heightPercent = nearmapConfig?.windowHeightPercent ?? 80;
+
+        // Store percentage values for the modal display
+        windowWidth = widthPercent;
+        windowHeight = heightPercent;
+        widthUnit = '%';
+        heightUnit = '%';
+
+        // Calculate actual pixel values for the URL
+        // Use window.innerWidth/innerHeight for the viewport size
+        const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+        const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+
+        // Calculate modal dimensions based on percentage
+        const modalWidth = Math.floor((viewportWidth * widthPercent) / 100);
+        const modalHeight = Math.floor((viewportHeight * heightPercent) / 100);
+
+        // For the URL width/height, we need the iframe content area dimensions
+        // Subtract the modal header height from the total modal height
+        urlWidth = modalWidth;
+        urlHeight = Math.max(300, modalHeight - MODAL_HEADER_HEIGHT);
+      } else {
+        // Fixed pixel sizing
+        windowWidth = nearmapConfig?.windowWidth ?? 1000;
+        windowHeight = nearmapConfig?.windowHeight ?? 700;
+
+        // For fixed pixels, the URL dimensions need to subtract the header
+        urlWidth = windowWidth;
+        urlHeight = Math.max(300, windowHeight - MODAL_HEADER_HEIGHT);
+      }
 
       // Build URL by replacing placeholders in the embed URL
       // Supports {lat}, {lon}, {latitude}, {longitude}, {width}, {height} placeholders
+      // Width and height are always passed as calculated pixel values for the iframe content area
       let url = nearmapConfig.embedUrl
         .replace(/\{lat\}/gi, lat.toString())
         .replace(/\{latitude\}/gi, lat.toString())
         .replace(/\{lon\}/gi, lon.toString())
         .replace(/\{lng\}/gi, lon.toString())
         .replace(/\{longitude\}/gi, lon.toString())
-        .replace(/\{width\}/gi, windowWidth.toString())
-        .replace(/\{height\}/gi, windowHeight.toString());
+        .replace(/\{width\}/gi, urlWidth.toString())
+        .replace(/\{height\}/gi, urlHeight.toString());
 
       const windowConfig = {
         width: windowWidth,
-        widthUnit: 'px',
+        widthUnit,
         height: windowHeight,
-        heightUnit: 'px'
+        heightUnit
       };
 
       // Open in embedded modal

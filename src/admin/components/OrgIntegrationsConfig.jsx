@@ -499,43 +499,111 @@ function IntegrationConfigCard({
           <div className="border border-slate-200 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-3">
               <Maximize2 className="w-4 h-4 text-slate-400" />
-              <span className="text-sm font-medium text-slate-700">Popup Window Size (pixels)</span>
+              <span className="text-sm font-medium text-slate-700">Popup Window Size</span>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              Configure the size of the Nearmap popup window in pixels. These values are also passed to the embed URL via the <code className="bg-slate-100 px-1 rounded">{'{width}'}</code> and <code className="bg-slate-100 px-1 rounded">{'{height}'}</code> placeholders.
+              Configure the size of the Nearmap popup window. These values are also passed to the embed URL via the <code className="bg-slate-100 px-1 rounded">{'{width}'}</code> and <code className="bg-slate-100 px-1 rounded">{'{height}'}</code> placeholders (always as calculated pixel values).
             </p>
-            <div className="grid grid-cols-2 gap-4">
-              {/* Width */}
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Width (px)</label>
-                <input
-                  type="number"
-                  value={config?.windowWidth ?? 1000}
-                  onChange={(e) => handleFieldChange('windowWidth', parseInt(e.target.value) || 1000)}
-                  min="400"
-                  max="3000"
-                  placeholder="1000"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
-                  style={{ '--tw-ring-color': accentColor }}
-                />
-              </div>
-              {/* Height */}
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Height (px)</label>
-                <input
-                  type="number"
-                  value={config?.windowHeight ?? 700}
-                  onChange={(e) => handleFieldChange('windowHeight', parseInt(e.target.value) || 700)}
-                  min="300"
-                  max="3000"
-                  placeholder="700"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
-                  style={{ '--tw-ring-color': accentColor }}
-                />
+
+            {/* Size Mode Selection */}
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-slate-600 mb-2">Size Mode</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="sizeMode"
+                    value="pixels"
+                    checked={(config?.sizeMode ?? 'pixels') === 'pixels'}
+                    onChange={() => handleFieldChange('sizeMode', 'pixels')}
+                    className="w-4 h-4"
+                    style={{ accentColor }}
+                  />
+                  <span className="text-sm text-slate-700">Fixed Pixels</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="sizeMode"
+                    value="percentage"
+                    checked={config?.sizeMode === 'percentage'}
+                    onChange={() => handleFieldChange('sizeMode', 'percentage')}
+                    className="w-4 h-4"
+                    style={{ accentColor }}
+                  />
+                  <span className="text-sm text-slate-700">Percentage of Screen</span>
+                </label>
               </div>
             </div>
+
+            {/* Conditional Size Inputs */}
+            {(config?.sizeMode ?? 'pixels') === 'pixels' ? (
+              <div className="grid grid-cols-2 gap-4">
+                {/* Width (pixels) */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Width (px)</label>
+                  <input
+                    type="number"
+                    value={config?.windowWidth ?? 1000}
+                    onChange={(e) => handleFieldChange('windowWidth', parseInt(e.target.value) || 1000)}
+                    min="400"
+                    max="3000"
+                    placeholder="1000"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                    style={{ '--tw-ring-color': accentColor }}
+                  />
+                </div>
+                {/* Height (pixels) */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Height (px)</label>
+                  <input
+                    type="number"
+                    value={config?.windowHeight ?? 700}
+                    onChange={(e) => handleFieldChange('windowHeight', parseInt(e.target.value) || 700)}
+                    min="300"
+                    max="3000"
+                    placeholder="700"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                    style={{ '--tw-ring-color': accentColor }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {/* Width (percentage) */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Width (%)</label>
+                  <input
+                    type="number"
+                    value={config?.windowWidthPercent ?? 80}
+                    onChange={(e) => handleFieldChange('windowWidthPercent', Math.min(100, Math.max(20, parseInt(e.target.value) || 80)))}
+                    min="20"
+                    max="100"
+                    placeholder="80"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                    style={{ '--tw-ring-color': accentColor }}
+                  />
+                </div>
+                {/* Height (percentage) */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Height (%)</label>
+                  <input
+                    type="number"
+                    value={config?.windowHeightPercent ?? 80}
+                    onChange={(e) => handleFieldChange('windowHeightPercent', Math.min(100, Math.max(20, parseInt(e.target.value) || 80)))}
+                    min="20"
+                    max="100"
+                    placeholder="80"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 text-sm"
+                    style={{ '--tw-ring-color': accentColor }}
+                  />
+                </div>
+              </div>
+            )}
             <p className="text-xs text-slate-400 mt-2">
-              Default: 1000px width x 700px height. Minimum: 400x300px.
+              {(config?.sizeMode ?? 'pixels') === 'pixels'
+                ? 'Default: 1000px width × 700px height. Minimum: 400×300px.'
+                : 'Default: 80% × 80%. Percentage mode calculates pixel dimensions based on current screen size, accounting for the popup header.'}
             </p>
           </div>
 

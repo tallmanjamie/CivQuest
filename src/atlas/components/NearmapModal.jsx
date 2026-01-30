@@ -1,6 +1,7 @@
 // src/atlas/components/NearmapModal.jsx
 // Modal component for displaying Nearmap imagery embedded within Atlas
 // Opens as a centered popup window on top of the map
+// Supports configurable width/height in pixels or percentage of screen
 
 import React, { useEffect, useRef } from 'react';
 import { X, MapPin, Maximize2, Minimize2 } from 'lucide-react';
@@ -9,7 +10,7 @@ import { X, MapPin, Maximize2, Minimize2 } from 'lucide-react';
  * NearmapModal Component
  *
  * Displays the Nearmap viewer in an embedded iframe modal centered on the map.
- * Uses fixed pixel dimensions that are also passed to the embed URL.
+ * Supports configurable width/height in pixels or percentage of screen.
  *
  * @param {Object} props
  * @param {boolean} props.isOpen - Whether the modal is open
@@ -18,8 +19,10 @@ import { X, MapPin, Maximize2, Minimize2 } from 'lucide-react';
  * @param {string} props.title - Feature title to display in header
  * @param {string} props.themeColor - Theme color for the header
  * @param {Object} props.windowConfig - Window size configuration
- * @param {number} props.windowConfig.width - Window width in pixels
- * @param {number} props.windowConfig.height - Window height in pixels
+ * @param {number} props.windowConfig.width - Window width value
+ * @param {string} props.windowConfig.widthUnit - Width unit ('px' or '%')
+ * @param {number} props.windowConfig.height - Window height value
+ * @param {string} props.windowConfig.heightUnit - Height unit ('px' or '%')
  */
 export default function NearmapModal({
   isOpen,
@@ -32,21 +35,23 @@ export default function NearmapModal({
   const iframeRef = useRef(null);
   const [isMaximized, setIsMaximized] = React.useState(false);
 
-  // Default window configuration (pixels only for Nearmap)
+  // Default window configuration
   const {
-    width = 1000,
-    height = 700
+    width = 80,
+    widthUnit = '%',
+    height = 80,
+    heightUnit = '%'
   } = windowConfig;
 
-  // Calculate dimensions (always pixels for Nearmap)
+  // Calculate dimensions (supports both pixels and percentage)
   const getWidth = () => {
     if (isMaximized) return '100vw';
-    return `${width}px`;
+    return widthUnit === '%' ? `${width}vw` : `${width}px`;
   };
 
   const getHeight = () => {
     if (isMaximized) return '100vh';
-    return `${height}px`;
+    return heightUnit === '%' ? `${height}vh` : `${height}px`;
   };
 
   // Handle ESC key to close
