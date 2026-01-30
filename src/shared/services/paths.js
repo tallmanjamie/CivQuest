@@ -19,7 +19,11 @@ export const PATHS = {
   // Organizations collection
   organizations: 'organizations',
   organization: (orgId) => `organizations/${orgId}`,
-  
+
+  // Notify subscribers subcollection (per-organization tracking)
+  notifySubscribers: (orgId) => `organizations/${orgId}/notifySubscribers`,
+  notifySubscriber: (orgId, uid) => `organizations/${orgId}/notifySubscribers/${uid}`,
+
   // Users collection
   users: 'users',
   user: (uid) => `users/${uid}`,

@@ -1,13 +1,14 @@
 // src/shared/services/users.js
 import { db } from './firebase';
 import { PATHS } from './paths';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
   onSnapshot,
-  serverTimestamp 
+  serverTimestamp
 } from 'firebase/firestore';
 
 /**
@@ -50,12 +51,61 @@ export async function updateUserSubscriptions(uid, subscriptions) {
 
 /**
  * Toggle a single subscription
+ * Also maintains the org-specific notifySubscribers subcollection for org admin access
  */
-export async function toggleSubscription(uid, subscriptionKey, enabled) {
+export async function toggleSubscription(uid, subscriptionKey, enabled, userEmail = null) {
   const docRef = doc(db, PATHS.user(uid));
   await updateDoc(docRef, {
     [`subscriptions.${subscriptionKey}`]: enabled
   });
+
+  // Update org-specific notifySubscribers subcollection
+  // Extract orgId from key format: "{orgId}_{notificationId}"
+  const orgId = subscriptionKey.split('_')[0];
+  if (orgId) {
+    try {
+      await updateNotifySubscriber(uid, orgId, subscriptionKey, enabled, userEmail);
+    } catch (err) {
+      // Log but don't fail - the primary subscription update succeeded
+      console.warn('Failed to update notifySubscribers subcollection:', err);
+    }
+  }
+}
+
+/**
+ * Update the notifySubscribers subcollection for an organization
+ * This allows org admins to query their subscribers without accessing the global users collection
+ */
+async function updateNotifySubscriber(uid, orgId, subscriptionKey, enabled, userEmail) {
+  const subscriberRef = doc(db, PATHS.notifySubscriber(orgId, uid));
+  const subscriberSnap = await getDoc(subscriberRef);
+
+  if (subscriberSnap.exists()) {
+    const data = subscriberSnap.data();
+    const subscriptions = { ...data.subscriptions, [subscriptionKey]: enabled };
+
+    // Check if user has any active subscriptions to this org
+    const hasActiveSubscription = Object.values(subscriptions).some(v => v === true);
+
+    if (hasActiveSubscription) {
+      await updateDoc(subscriberRef, {
+        subscriptions,
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // No active subscriptions - remove from org's subscriber list
+      await deleteDoc(subscriberRef);
+    }
+  } else if (enabled) {
+    // New subscriber - create entry
+    await setDoc(subscriberRef, {
+      uid,
+      email: userEmail,
+      subscriptions: { [subscriptionKey]: true },
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+  }
 }
 
 /**

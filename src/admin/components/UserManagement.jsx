@@ -15,7 +15,9 @@ import {
   doc,
   updateDoc,
   getDocs,
+  getDoc,
   setDoc,
+  deleteDoc,
   onSnapshot,
   serverTimestamp
 } from "firebase/firestore";
@@ -367,12 +369,12 @@ export default function UserManagementPanel({
 
     // Validate license limits
     const validation = validateSubscriptionChanges(user.subscriptions, newSubscriptions, user.email);
-    
+
     if (!validation.allowed) {
       const violationList = validation.violations
         .map(v => `• ${v.orgName}: ${v.reason}`)
         .join('\n');
-      
+
       addToast?.(`Cannot save: License limits exceeded\n${violationList}`, 'error');
       return false;
     }
@@ -384,7 +386,10 @@ export default function UserManagementPanel({
         subscriptions: newSubscriptions,
         updatedAt: serverTimestamp()
       });
-      
+
+      // Also sync org-specific notifySubscribers subcollections for org admin access
+      await syncNotifySubscribers(userId, user.email, user.subscriptions || {}, newSubscriptions);
+
       addToast?.('Subscriptions updated successfully', 'success');
       setEditingUser(null);
       return true;
@@ -394,6 +399,58 @@ export default function UserManagementPanel({
       return false;
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Sync notifySubscribers subcollections for all affected orgs
+  const syncNotifySubscribers = async (userId, userEmail, oldSubscriptions, newSubscriptions) => {
+    // Find all affected orgs (orgs that have subscription changes)
+    const allKeys = new Set([...Object.keys(oldSubscriptions || {}), ...Object.keys(newSubscriptions || {})]);
+    const affectedOrgs = new Set();
+
+    allKeys.forEach(key => {
+      const orgId = key.split('_')[0];
+      if (orgId) affectedOrgs.add(orgId);
+    });
+
+    // Update each affected org's notifySubscribers subcollection
+    for (const orgId of affectedOrgs) {
+      try {
+        // Get subscriptions for this org
+        const orgSubscriptions = {};
+        Object.entries(newSubscriptions || {}).forEach(([key, value]) => {
+          if (key.startsWith(`${orgId}_`)) {
+            orgSubscriptions[key] = value;
+          }
+        });
+
+        const hasActiveSubscription = Object.values(orgSubscriptions).some(v => v === true);
+        const subscriberRef = doc(db, PATHS.notifySubscriber(orgId, userId));
+        const subscriberSnap = await getDoc(subscriberRef);
+
+        if (hasActiveSubscription) {
+          if (subscriberSnap.exists()) {
+            await updateDoc(subscriberRef, {
+              subscriptions: orgSubscriptions,
+              updatedAt: serverTimestamp()
+            });
+          } else {
+            await setDoc(subscriberRef, {
+              uid: userId,
+              email: userEmail,
+              subscriptions: orgSubscriptions,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            });
+          }
+        } else if (subscriberSnap.exists()) {
+          // No active subscriptions - remove from org's subscriber list
+          await deleteDoc(subscriberRef);
+        }
+      } catch (err) {
+        console.warn(`Failed to sync notifySubscribers for org ${orgId}:`, err);
+        // Continue with other orgs even if one fails
+      }
     }
   };
 

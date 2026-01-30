@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { db } from '@shared/services/firebase';
 import { PATHS } from '@shared/services/paths';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { Building2, Lock } from 'lucide-react';
 
 export default function SubscriptionsTab({ 
@@ -37,15 +37,67 @@ export default function SubscriptionsTab({
     const userRef = doc(db, PATHS.user(user.uid));
     const currentStatus = userSubscriptions ? userSubscriptions[subKey] : false;
     const newValue = !currentStatus;
-    
+
     try {
       await setDoc(userRef, {
         subscriptions: { [subKey]: newValue },
         email: user.email,
-        disabled: false 
+        disabled: false
       }, { merge: true });
+
+      // Also update org-specific notifySubscribers subcollection for org admin access
+      const orgId = subKey.split('_')[0];
+      if (orgId) {
+        try {
+          await syncNotifySubscriber(user.uid, user.email, orgId, subKey, newValue, userSubscriptions);
+        } catch (syncErr) {
+          // Log but don't fail - primary subscription update succeeded
+          console.warn('Failed to sync notifySubscribers:', syncErr);
+        }
+      }
     } catch (err) {
       console.error("Toggle failed", err);
+    }
+  };
+
+  // Sync user's subscription status to org-specific notifySubscribers subcollection
+  const syncNotifySubscriber = async (uid, email, orgId, changedKey, newValue, currentSubscriptions) => {
+    const subscriberRef = doc(db, PATHS.notifySubscriber(orgId, uid));
+    const subscriberSnap = await getDoc(subscriberRef);
+
+    // Build updated subscriptions for this org
+    const updatedOrgSubscriptions = {};
+    if (currentSubscriptions) {
+      Object.entries(currentSubscriptions).forEach(([key, value]) => {
+        if (key.startsWith(`${orgId}_`)) {
+          updatedOrgSubscriptions[key] = key === changedKey ? newValue : value;
+        }
+      });
+    }
+    updatedOrgSubscriptions[changedKey] = newValue;
+
+    // Check if user has any active subscriptions to this org
+    const hasActiveSubscription = Object.values(updatedOrgSubscriptions).some(v => v === true);
+
+    if (subscriberSnap.exists()) {
+      if (hasActiveSubscription) {
+        await updateDoc(subscriberRef, {
+          subscriptions: updatedOrgSubscriptions,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        // No active subscriptions - remove from org's subscriber list
+        await deleteDoc(subscriberRef);
+      }
+    } else if (hasActiveSubscription) {
+      // New subscriber - create entry
+      await setDoc(subscriberRef, {
+        uid,
+        email,
+        subscriptions: updatedOrgSubscriptions,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
     }
   };
 
