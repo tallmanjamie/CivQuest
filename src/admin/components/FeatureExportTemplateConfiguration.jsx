@@ -11,7 +11,7 @@
 // or atlasConfigDraft.featureExportTemplates for the draft/publish workflow
 //
 // GLOBAL TEMPLATES: Super-admin managed templates are fetched from system config
-// and displayed in the "From Template" modal alongside starter templates
+// and displayed in the "From Template" modal (starter templates removed for org admins)
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -436,7 +436,7 @@ export default function FeatureExportTemplateConfiguration({
         </div>
       )}
 
-      {/* Template Picker Modal (Starter + Global Templates) */}
+      {/* Template Picker Modal (Global Templates Only) */}
       {showStarterPicker && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
@@ -456,10 +456,10 @@ export default function FeatureExportTemplateConfiguration({
             <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
               {/* Global Templates Section */}
               {loadingGlobalTemplates ? (
-                <div className="flex items-center justify-center py-4">
+                <div className="flex items-center justify-center py-8">
                   <RefreshCw className="w-5 h-5 animate-spin text-slate-400" />
                 </div>
-              ) : globalTemplates.length > 0 && (
+              ) : globalTemplates.length > 0 ? (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <Globe className="w-4 h-4 text-blue-600" />
@@ -506,51 +506,15 @@ export default function FeatureExportTemplateConfiguration({
                     ))}
                   </div>
                 </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Globe className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+                  <h4 className="text-lg font-medium text-slate-700 mb-1">No Global Templates</h4>
+                  <p className="text-sm text-slate-500">
+                    No global feature export templates are available. Contact your system administrator to add templates to the global library.
+                  </p>
+                </div>
               )}
-
-              {/* Starter Templates Section */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <LayoutTemplate className="w-4 h-4 text-slate-500" />
-                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-                    Starter Templates
-                  </h4>
-                </div>
-                <div className="grid gap-3">
-                  {STARTER_TEMPLATES.map(starter => (
-                    <button
-                      key={starter.id}
-                      onClick={() => handleCreateFromStarter(starter)}
-                      className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                    >
-                      <div
-                        className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
-                        style={{ backgroundColor: accentColor }}
-                      >
-                        <FileOutput className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium text-slate-800">{starter.name}</h4>
-                        <p className="text-sm text-slate-500 mt-0.5">{starter.description}</p>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                          <span>
-                            {starter.pageSize.includes('landscape') ? 'Landscape' : 'Portrait'}
-                          </span>
-                          <span>-</span>
-                          <span>{starter.elements.length} elements</span>
-                          {starter.mapExportTemplateId && (
-                            <>
-                              <span>-</span>
-                              <span className="text-blue-500">Includes map</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0 mt-1" />
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
 
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
