@@ -1076,12 +1076,18 @@ function calculatePopupContentLayout(popupContent, availableHeight, pdf, content
 
     // Calculate effective width for this section
     // If HTML specifies a fixed width, convert to inches and use it (capped at available width)
+    // However, if the fixed width is less than 50% of the content width, ignore it and use full width
+    // This prevents small arcade tables from constraining the entire section
     let effectiveWidth = contentWidth;
     let fixedWidthInches = null;
     if (fixedWidthPx && fixedWidthPx > 0) {
-      fixedWidthInches = fixedWidthPx / WEB_DPI;
-      // Use the HTML-specified width, but don't exceed available content width
-      effectiveWidth = Math.min(fixedWidthInches, contentWidth);
+      const candidateWidth = fixedWidthPx / WEB_DPI;
+      // Only use the HTML-specified width if it's at least 50% of content width
+      if (candidateWidth >= contentWidth * 0.5) {
+        fixedWidthInches = candidateWidth;
+        effectiveWidth = Math.min(fixedWidthInches, contentWidth);
+      }
+      // Otherwise, keep effectiveWidth = contentWidth (use full width)
     }
 
     // Calculate height needed for this section
@@ -1150,7 +1156,7 @@ function drawPdfTable(pdf, table, startX, startY, width, scaleRatio = 1.0) {
 
   const rowHeight = POPUP_TABLE_ROW_HEIGHT * scaleRatio;
   const headerRowHeight = POPUP_TABLE_HEADER_HEIGHT * scaleRatio;
-  const fontSize = 8 * scaleRatio;
+  const fontSize = 10 * scaleRatio;
   const padding = 0.05;
 
   // Calculate column widths based on content
@@ -1231,13 +1237,14 @@ function drawPdfTable(pdf, table, startX, startY, width, scaleRatio = 1.0) {
  */
 function drawPopupContentSections(pdf, sections, startX, startY, width, maxHeight, scaleRatio = 1.0) {
   let currentY = startY;
-  const baseFontSize = 10 * scaleRatio;
-  const headerFontSize = 11 * scaleRatio;
+  const baseFontSize = 12 * scaleRatio;
+  const headerFontSize = 13 * scaleRatio;
 
   for (const section of sections) {
     // Determine effective width for this section's content
-    // If HTML specified a fixed width, use it (capped at available width)
-    const effectiveWidth = section.fixedWidthInches
+    // If HTML specified a fixed width that's at least 50% of available width, use it
+    // Otherwise use the full width to fill the page
+    const effectiveWidth = section.fixedWidthInches && section.fixedWidthInches >= width * 0.5
       ? Math.min(section.fixedWidthInches, width)
       : width;
 
