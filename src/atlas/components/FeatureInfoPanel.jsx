@@ -432,11 +432,11 @@ export default function FeatureInfoPanel({
   const searchBarHeight = searchBarPosition === 'bottom' ? 60 : 0; // Approximate height of search toolbar
 
   if (isMobile) {
-    // Mobile view: 1/3 height by default, full height when maximized
+    // Mobile view: 1/2 height by default, full height when maximized
     // When search bar is at bottom, position popup above it to avoid covering it
     const mobileStyle = isMaximized
       ? { top: '64px', bottom: searchBarHeight } // Full height from header, accounting for bottom search bar
-      : { height: '33vh', maxHeight: 'calc(100vh - 180px)', bottom: searchBarHeight }; // 1/3 of viewport, positioned above search bar
+      : { height: '50vh', maxHeight: 'calc(100vh - 180px)', bottom: searchBarHeight }; // 1/2 of viewport, positioned above search bar
 
     return (
       <div
