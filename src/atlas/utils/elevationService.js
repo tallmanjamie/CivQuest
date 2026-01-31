@@ -6,11 +6,15 @@
  */
 
 import Point from '@arcgis/core/geometry/Point';
+import Multipoint from '@arcgis/core/geometry/Multipoint';
+import ElevationLayer from '@arcgis/core/layers/ElevationLayer';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
-import * as projection from '@arcgis/core/geometry/projection';
 
 // Default elevation service URL
 const DEFAULT_ELEVATION_SERVICE_URL = 'https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer';
+
+// Cache for ElevationLayer instances by URL to avoid recreating them
+const elevationLayerCache = new Map();
 
 // Conversion factors
 const METERS_TO_FEET = 3.28084;
@@ -40,16 +44,28 @@ export const formatElevation = (value, unit = 'feet') => {
 };
 
 /**
- * Query elevation at a single point
+ * Get or create an ElevationLayer instance for the given URL
+ * @param {string} serviceUrl - Elevation service URL
+ * @returns {ElevationLayer} ElevationLayer instance
+ */
+const getElevationLayer = (serviceUrl) => {
+  if (!elevationLayerCache.has(serviceUrl)) {
+    const layer = new ElevationLayer({
+      url: serviceUrl
+    });
+    elevationLayerCache.set(serviceUrl, layer);
+  }
+  return elevationLayerCache.get(serviceUrl);
+};
+
+/**
+ * Query elevation at a single point using ElevationLayer.queryElevation
  * @param {object} geometry - Point geometry
  * @param {string} serviceUrl - Elevation service URL
  * @returns {Promise<number>} Elevation in meters
  */
 export const getPointElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION_SERVICE_URL) => {
   try {
-    // Ensure projection module is loaded
-    await projection.load();
-
     // Debug: Log incoming geometry
     console.log('[ElevationService] getPointElevation input geometry:', {
       type: geometry?.type,
@@ -61,7 +77,7 @@ export const getPointElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION
       declaredClass: geometry?.declaredClass
     });
 
-    // Ensure geometry is a proper Point class for projection to work correctly
+    // Ensure geometry is a proper Point class for queryElevation to work correctly
     let pointGeometry = geometry;
     if (!geometry.declaredClass && geometry.type === 'point') {
       // Convert plain JSON to Point class
@@ -73,62 +89,20 @@ export const getPointElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION
       console.log('[ElevationService] Converted JSON to Point class');
     }
 
-    // Get coordinates in WGS84
-    let x, y;
-    const srWkid = pointGeometry.spatialReference?.wkid;
+    // Get the elevation layer
+    const elevationLayer = getElevationLayer(serviceUrl);
+    console.log('[ElevationService] Using ElevationLayer with URL:', serviceUrl);
 
-    if (srWkid === 4326 || srWkid === 4269) {
-      // Already in geographic coordinates
-      x = pointGeometry.x ?? pointGeometry.longitude;
-      y = pointGeometry.y ?? pointGeometry.latitude;
-      console.log('[ElevationService] Using WGS84 coordinates directly:', { x, y });
-    } else {
-      // Project to WGS84
-      console.log('[ElevationService] Projecting from WKID:', srWkid);
-      const projected = projection.project(pointGeometry, { wkid: 4326 });
-      if (!projected) {
-        console.error('[ElevationService] Projection returned null');
-        return null;
-      }
-      x = projected.x ?? projected.longitude;
-      y = projected.y ?? projected.latitude;
-      console.log('[ElevationService] Projected coordinates:', { x, y });
-    }
+    // Query elevation using the ArcGIS ElevationLayer API
+    const result = await elevationLayer.queryElevation(pointGeometry);
 
-    // Validate coordinates
-    if (x === undefined || y === undefined || x === null || y === null || isNaN(x) || isNaN(y)) {
-      console.error('[ElevationService] Invalid coordinates:', { x, y });
-      return null;
-    }
-
-    // Use identify operation on the image service
-    const url = new URL(`${serviceUrl}/identify`);
-    // Include spatial reference in geometry and as separate parameter
-    url.searchParams.set('geometry', JSON.stringify({ x, y, spatialReference: { wkid: 4326 } }));
-    url.searchParams.set('geometryType', 'esriGeometryPoint');
-    url.searchParams.set('sr', '4326');  // Specify input spatial reference
-    url.searchParams.set('returnGeometry', 'false');
-    url.searchParams.set('returnCatalogItems', 'false');
-    url.searchParams.set('f', 'json');
-
-    console.log('[ElevationService] Calling identify URL:', url.toString());
-
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    console.log('[ElevationService] Identify response:', data);
-
-    // The value is returned in the 'value' field
-    if (data.value !== undefined && data.value !== 'NoData') {
-      const elevation = parseFloat(data.value);
-      console.log('[ElevationService] Parsed elevation:', elevation);
+    if (result && result.geometry && result.geometry.z !== undefined) {
+      const elevation = result.geometry.z;
+      console.log('[ElevationService] queryElevation result z:', elevation);
       return elevation;
     }
 
-    console.log('[ElevationService] No elevation data returned');
+    console.log('[ElevationService] No elevation data returned from queryElevation');
     return null;
   } catch (error) {
     console.error('[ElevationService] Error getting point elevation:', error);
@@ -137,7 +111,7 @@ export const getPointElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION
 };
 
 /**
- * Query elevation along a polyline
+ * Query elevation along a polyline using ElevationLayer.queryElevation
  * @param {object} geometry - Polyline geometry
  * @param {string} serviceUrl - Elevation service URL
  * @param {number} sampleCount - Number of sample points along the line
@@ -145,62 +119,65 @@ export const getPointElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION
  */
 export const getLineElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION_SERVICE_URL, sampleCount = 50) => {
   try {
-    // Ensure projection module is loaded
-    await projection.load();
-
     // Get the length of the line in meters
     const length = geometryEngine.geodesicLength(geometry, 'meters');
 
-    // Calculate sample interval
-    const interval = length / (sampleCount - 1);
+    // Calculate interval for densification
+    const interval = Math.max(length / sampleCount, 2);
 
-    // Sample points along the line
-    const points = [];
-    const elevations = [];
+    // Densify the geometry for elevation sampling
+    const densified = geometryEngine.densify(geometry, interval, 'meters');
 
-    for (let i = 0; i < sampleCount; i++) {
-      const distance = i * interval;
+    // Get the elevation layer and query elevation for the densified polyline
+    const elevationLayer = getElevationLayer(serviceUrl);
+    console.log('[ElevationService] Querying line elevation with densified geometry');
 
-      // Get point at distance along line
-      const point = getPointAtDistance(geometry, distance, length);
-      if (point) {
-        points.push({
-          distance,
-          x: point.x,
-          y: point.y
-        });
+    const result = await elevationLayer.queryElevation(densified);
+
+    if (!result || !result.geometry || !result.geometry.paths) {
+      console.error('[ElevationService] No elevation data returned for line');
+      return { points: [], stats: { min: null, max: null, median: null, range: null }, totalDistance: length };
+    }
+
+    // Extract elevation profile from the result geometry with Z values
+    const profilePoints = [];
+    let accumulatedDistance = 0;
+    const paths = result.geometry.paths;
+
+    for (let pathIdx = 0; pathIdx < paths.length; pathIdx++) {
+      const path = paths[pathIdx];
+      for (let i = 0; i < path.length; i++) {
+        const pt = path[i];
+        const x = pt[0];
+        const y = pt[1];
+        const z = pt[2];
+
+        // Calculate distance from previous point
+        if (i > 0) {
+          const prevPt = path[i - 1];
+          const segmentLength = geometryEngine.geodesicLength(
+            { type: 'polyline', paths: [[[prevPt[0], prevPt[1]], [x, y]]], spatialReference: result.geometry.spatialReference },
+            'meters'
+          );
+          accumulatedDistance += segmentLength;
+        }
+
+        if (z !== undefined && z !== null) {
+          profilePoints.push({
+            distance: accumulatedDistance,
+            x: x,
+            y: y,
+            elevation: z
+          });
+        }
       }
     }
-
-    // Query elevations for all points (in batches to avoid overloading)
-    const batchSize = 10;
-    for (let i = 0; i < points.length; i += batchSize) {
-      const batch = points.slice(i, i + batchSize);
-      const batchElevations = await Promise.all(
-        batch.map(async (pt) => {
-          try {
-            const elev = await getPointElevation(
-              new Point({ x: pt.x, y: pt.y, spatialReference: geometry.spatialReference }),
-              serviceUrl
-            );
-            return elev;
-          } catch {
-            return null;
-          }
-        })
-      );
-      elevations.push(...batchElevations);
-    }
-
-    // Combine points with elevations
-    const profilePoints = points.map((pt, i) => ({
-      ...pt,
-      elevation: elevations[i]
-    })).filter(pt => pt.elevation !== null);
 
     // Calculate stats
     const validElevations = profilePoints.map(p => p.elevation).filter(e => e !== null);
     const stats = calculateElevationStats(validElevations);
+
+    console.log('[ElevationService] Line elevation result:', profilePoints.length, 'points');
 
     return {
       points: profilePoints,
@@ -214,7 +191,7 @@ export const getLineElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION_
 };
 
 /**
- * Query elevation for a polygon (grid sampling)
+ * Query elevation for a polygon (grid sampling) using ElevationLayer.queryElevation
  * @param {object} geometry - Polygon geometry
  * @param {string} serviceUrl - Elevation service URL
  * @param {number} gridSize - Grid resolution (e.g., 10 = 10x10 grid)
@@ -222,9 +199,6 @@ export const getLineElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION_
  */
 export const getPolygonElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION_SERVICE_URL, gridSize = 15) => {
   try {
-    // Ensure projection module is loaded
-    await projection.load();
-
     // Get the extent of the polygon
     const extent = geometry.extent;
 
@@ -232,8 +206,9 @@ export const getPolygonElevation = async (geometry, serviceUrl = DEFAULT_ELEVATI
     const cellWidth = (extent.xmax - extent.xmin) / gridSize;
     const cellHeight = (extent.ymax - extent.ymin) / gridSize;
 
-    // Create grid of points within the polygon
+    // Create grid of points and track their metadata
     const gridPoints = [];
+    const multipointCoords = [];
 
     for (let row = 0; row < gridSize; row++) {
       for (let col = 0; col < gridSize; col++) {
@@ -254,41 +229,58 @@ export const getPolygonElevation = async (geometry, serviceUrl = DEFAULT_ELEVATI
             x,
             y
           });
+          multipointCoords.push([x, y]);
         }
       }
     }
 
-    // Query elevations for all points (in batches)
-    const elevations = [];
-    const batchSize = 10;
-
-    for (let i = 0; i < gridPoints.length; i += batchSize) {
-      const batch = gridPoints.slice(i, i + batchSize);
-      const batchElevations = await Promise.all(
-        batch.map(async (pt) => {
-          try {
-            const elev = await getPointElevation(
-              new Point({ x: pt.x, y: pt.y, spatialReference: geometry.spatialReference }),
-              serviceUrl
-            );
-            return elev;
-          } catch {
-            return null;
-          }
-        })
-      );
-      elevations.push(...batchElevations);
+    if (multipointCoords.length === 0) {
+      console.warn('[ElevationService] No points found within polygon');
+      return {
+        grid: [],
+        stats: { min: null, max: null, median: null, range: null },
+        gridSize,
+        extent: { xmin: extent.xmin, ymin: extent.ymin, xmax: extent.xmax, ymax: extent.ymax }
+      };
     }
 
-    // Combine points with elevations
-    const grid = gridPoints.map((pt, i) => ({
-      ...pt,
-      elevation: elevations[i]
-    })).filter(pt => pt.elevation !== null);
+    // Create a multipoint geometry with all grid points
+    const multipoint = new Multipoint({
+      points: multipointCoords,
+      spatialReference: geometry.spatialReference
+    });
+
+    // Get the elevation layer and query elevation for all points at once
+    const elevationLayer = getElevationLayer(serviceUrl);
+    console.log('[ElevationService] Querying polygon elevation with', multipointCoords.length, 'points');
+
+    const result = await elevationLayer.queryElevation(multipoint);
+
+    if (!result || !result.geometry || !result.geometry.points) {
+      console.error('[ElevationService] No elevation data returned for polygon');
+      return {
+        grid: [],
+        stats: { min: null, max: null, median: null, range: null },
+        gridSize,
+        extent: { xmin: extent.xmin, ymin: extent.ymin, xmax: extent.xmax, ymax: extent.ymax }
+      };
+    }
+
+    // Extract z values from the result
+    const resultPoints = result.geometry.points;
+    const grid = gridPoints.map((pt, i) => {
+      const z = resultPoints[i] && resultPoints[i][2];
+      return {
+        ...pt,
+        elevation: (z !== undefined && z !== null) ? z : null
+      };
+    }).filter(pt => pt.elevation !== null);
 
     // Calculate stats
     const validElevations = grid.map(p => p.elevation).filter(e => e !== null);
     const stats = calculateElevationStats(validElevations);
+
+    console.log('[ElevationService] Polygon elevation result:', grid.length, 'points with elevation');
 
     return {
       grid,
@@ -326,67 +318,6 @@ export const calculateElevationStats = (elevations) => {
   const range = max - min;
 
   return { min, max, median, range };
-};
-
-/**
- * Get a point at a specific distance along a polyline
- * @param {object} polyline - Polyline geometry
- * @param {number} targetDistance - Distance along line in meters
- * @param {number} totalLength - Total length of line in meters
- * @returns {object|null} Point coordinates
- */
-const getPointAtDistance = (polyline, targetDistance, totalLength) => {
-  if (!polyline.paths || polyline.paths.length === 0) {
-    return null;
-  }
-
-  // Densify the geometry for more accurate sampling
-  const densified = geometryEngine.densify(polyline, totalLength / 100, 'meters');
-
-  // Walk along the path to find the point
-  let accumulatedDistance = 0;
-  const paths = densified.paths;
-
-  for (let pathIdx = 0; pathIdx < paths.length; pathIdx++) {
-    const path = paths[pathIdx];
-    for (let i = 0; i < path.length - 1; i++) {
-      const [x1, y1] = path[i];
-      const [x2, y2] = path[i + 1];
-
-      // Calculate segment length
-      const segmentPoint1 = new Point({
-        x: x1,
-        y: y1,
-        spatialReference: polyline.spatialReference
-      });
-      const segmentPoint2 = new Point({
-        x: x2,
-        y: y2,
-        spatialReference: polyline.spatialReference
-      });
-
-      const segmentLength = geometryEngine.geodesicLength(
-        { type: 'polyline', paths: [[[x1, y1], [x2, y2]]], spatialReference: polyline.spatialReference },
-        'meters'
-      );
-
-      if (accumulatedDistance + segmentLength >= targetDistance) {
-        // The target point is within this segment
-        const ratio = (targetDistance - accumulatedDistance) / segmentLength;
-        return {
-          x: x1 + (x2 - x1) * ratio,
-          y: y1 + (y2 - y1) * ratio
-        };
-      }
-
-      accumulatedDistance += segmentLength;
-    }
-  }
-
-  // Return last point if we've exceeded the length
-  const lastPath = paths[paths.length - 1];
-  const lastPoint = lastPath[lastPath.length - 1];
-  return { x: lastPoint[0], y: lastPoint[1] };
 };
 
 export default {
