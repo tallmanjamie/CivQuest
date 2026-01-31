@@ -26,8 +26,9 @@ import {
   Edit2, 
   Trash2, 
   Copy,
-  ChevronDown,
+  ChevronDown, 
   ChevronRight,
+  Settings,
   Eye,
   Globe,
   Lock,
@@ -52,9 +53,10 @@ import { PATHS } from '../../shared/services/paths';
  * @param {function} addToast - Toast notification function
  * @param {function} confirm - Confirmation dialog function
  * @param {string} [accentColor] - Theme accent color
+ * @param {React.Component} AtlasSettingsModal - Modal for editing settings
  * @param {React.Component} MapEditModal - Modal for editing maps
  */
-export default function AtlasConfiguration({
+export default function AtlasConfiguration({ 
   db,
   role = 'admin',
   orgId = null,
@@ -62,10 +64,12 @@ export default function AtlasConfiguration({
   addToast,
   confirm,
   accentColor = '#004E7C',
+  AtlasSettingsModal,
   MapEditModal
 }) {
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [editingSettings, setEditingSettings] = useState(null);
   const [editingMap, setEditingMap] = useState(null);
   const [expandedOrgs, setExpandedOrgs] = useState({});
 
@@ -180,6 +184,7 @@ export default function AtlasConfiguration({
     try {
       const docRef = doc(db, PATHS.organizations, targetOrgId);
       await updateDoc(docRef, { atlasConfigDraft: updatedConfig });
+      setEditingSettings(null);
       setEditingMap(null);
       addToast("Changes saved to draft", "success");
     } catch (err) {
@@ -280,6 +285,24 @@ export default function AtlasConfiguration({
         }
       }
     });
+  };
+
+  // Edit settings
+  const handleEditSettings = (targetOrgId, liveConfig, draftConfig, targetOrgData) => {
+    const configToEdit = draftConfig || liveConfig;
+    setEditingSettings({ 
+      orgId: targetOrgId, 
+      orgData: targetOrgData,
+      data: configToEdit, 
+      liveConfig 
+    });
+  };
+
+  // Save settings
+  const handleSaveSettings = (updatedConfig) => {
+    if (editingSettings) {
+      handleSaveToDraft(editingSettings.orgId, updatedConfig);
+    }
   };
 
   // Edit map - NOW INCLUDES orgData for license checking
@@ -417,6 +440,7 @@ export default function AtlasConfiguration({
                   getWorkingConfig(org),
                   hasUnpublishedChanges(org)
                 )}
+                onEditSettings={() => handleEditSettings(org.id, org.atlasConfig, org.atlasConfigDraft, org)}
                 onAddMap={() => handleAddMap(org.id, org.atlasConfig, org.atlasConfigDraft, org)}
                 onEditMap={(idx, map) => handleEditMap(org.id, idx, map, org.atlasConfig, org.atlasConfigDraft, org)}
                 onDeleteMap={(idx, name) => handleDeleteMap(org.id, idx, name, org.atlasConfig, org.atlasConfigDraft)}
@@ -429,6 +453,16 @@ export default function AtlasConfiguration({
               />
             ))}
           </div>
+        )}
+
+        {/* Settings Modal */}
+        {editingSettings && AtlasSettingsModal && (
+          <AtlasSettingsModal 
+            data={editingSettings.data}
+            orgData={editingSettings.orgData}
+            onClose={() => setEditingSettings(null)}
+            onSave={handleSaveSettings}
+          />
         )}
 
         {/* Map Edit Modal - NOW PASSES orgData */}
@@ -520,6 +554,7 @@ export default function AtlasConfiguration({
             liveConfig={liveConfig}
             hasDraft={hasDraft}
             accentColor={accentColor}
+            onEditSettings={() => handleEditSettings(orgId, liveConfig, orgData?.atlasConfigDraft, orgData)}
           />
 
           {/* Maps Section */}
@@ -583,6 +618,16 @@ export default function AtlasConfiguration({
         </div>
       )}
 
+      {/* Settings Modal - PASSES orgData */}
+      {editingSettings && AtlasSettingsModal && (
+        <AtlasSettingsModal 
+          data={editingSettings.data}
+          orgData={editingSettings.orgData || orgData}
+          onClose={() => setEditingSettings(null)}
+          onSave={handleSaveSettings}
+        />
+      )}
+
       {/* Map Edit Modal - PASSES orgData */}
       {editingMap && MapEditModal && (
         <MapEditModal 
@@ -607,14 +652,20 @@ function DraftStatusBadge() {
 }
 
 // --- Atlas Overview Card ---
-function AtlasOverviewCard({ atlasConfig, hasDraft, accentColor }) {
+function AtlasOverviewCard({ atlasConfig, liveConfig, hasDraft, accentColor, onEditSettings }) {
   const ui = atlasConfig?.ui || {};
-
+  
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-      <div className="p-4 border-b border-slate-100">
+      <div className="p-4 border-b border-slate-100 flex justify-between items-center">
         <h3 className="font-semibold text-slate-800">Settings Overview</h3>
-        <p className="text-xs text-slate-500 mt-1">Configure general settings in the Settings tab</p>
+        <button
+          onClick={onEditSettings}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium"
+        >
+          <Settings className="w-4 h-4" />
+          Edit Settings
+        </button>
       </div>
       <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
         <div>
@@ -689,21 +740,23 @@ function MapRow({ map, idx, accentColor, onEdit, onDelete, onDuplicate }) {
 }
 
 // --- Organization Atlas Card (Admin view) ---
-function OrganizationAtlasCard({
-  org,
-  expanded,
-  onToggle,
-  accentColor,
+function OrganizationAtlasCard({ 
+  org, 
+  expanded, 
+  onToggle, 
+  accentColor, 
   onInitialize,
   onUninitialize,
-  onAddMap,
-  onEditMap,
-  onDeleteMap,
+  onEditSettings,
+  onAddMap, 
+  onEditMap, 
+  onDeleteMap, 
   onDuplicateMap,
   onPublish,
   onDiscardDraft,
   hasUnpublishedChanges,
-  workingConfig
+  workingConfig,
+  liveConfig
 }) {
   const hasAtlasConfig = !!workingConfig;
   const mapCount = workingConfig?.data?.maps?.length || 0;
@@ -787,8 +840,15 @@ function OrganizationAtlasCard({
                 </div>
               )}
 
-              {/* Add Map Row */}
-              <div className="flex items-center justify-end">
+              {/* Settings Row */}
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEditSettings(); }}
+                  className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800"
+                >
+                  <Settings className="w-4 h-4" />
+                  Edit Settings
+                </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); onAddMap(); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg"

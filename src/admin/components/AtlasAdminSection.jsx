@@ -55,6 +55,7 @@ import {
 import { doc, updateDoc, collection, onSnapshot } from 'firebase/firestore';
 import { PATHS } from '../../shared/services/paths';
 import AtlasConfiguration from './AtlasConfiguration';
+import AtlasSettingsEditor from './AtlasSettingsEditor';
 import MapEditor from './MapEditor';
 import ServiceFinder from './ServiceFinder';
 import AtlasUserManagement from './AtlasUserManagement';
@@ -278,7 +279,8 @@ export default function AtlasAdminSection({
             addToast={addToast}
             confirm={confirm}
             accentColor={accentColor}
-            // MapEditor wrapper passes orgData for license enforcement
+            AtlasSettingsModal={AtlasSettingsEditor}
+            // UPDATED: MapEditor wrapper now passes orgData for license enforcement
             MapEditModal={({ data, orgData: passedOrgData, onClose, onSave }) => (
               <MapEditor
                 data={data}
@@ -1445,6 +1447,7 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
  * AtlasSettingsInline Component
  *
  * Displays the Atlas general settings with tabs shown inline (not in a modal)
+ * Mirrors the functionality of AtlasSettingsEditor but in a page layout
  */
 function AtlasSettingsInline({
   db,
