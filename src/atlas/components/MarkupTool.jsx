@@ -844,7 +844,7 @@ const MarkupTool = forwardRef(function MarkupTool({
     return (
       <button
         onClick={onToggle}
-        className={`flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors ${className}`}
+        className={`flex items-center justify-center gap-1.5 w-24 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors ${className}`}
       >
         <Pencil className="w-4 h-4" style={{ color: colors.bg600 }} />
         <span className="text-sm font-medium text-slate-700">Markup</span>
