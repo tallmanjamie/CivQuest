@@ -8,6 +8,8 @@ import {
   X,
   Trash2,
   ZoomIn,
+  Eye,
+  EyeOff,
   MessageSquare,
   Plus,
   Edit3,
@@ -622,6 +624,27 @@ const MarkupTool = forwardRef(function MarkupTool({
     }
   };
 
+  const toggleVisibility = (graphic) => {
+    if (!graphic) return;
+    const layer = layerRef.current;
+    const markupId = graphic.attributes?.id;
+
+    // Toggle the graphic's visibility
+    const newVisibility = !graphic.visible;
+    graphic.visible = newVisibility;
+
+    // Also toggle visibility of associated labels
+    if (layer && markupId) {
+      const labels = layer.graphics.items.filter(g => g.attributes?.parentId === markupId && g.attributes?.isLabel);
+      labels.forEach(label => {
+        label.visible = newVisibility;
+      });
+    }
+
+    // Force update to reflect the change in UI
+    setMarkups(prev => [...prev]);
+  };
+
   // Start editing a markup - enables geometry editing and opens settings panel
   const startEdit = (graphic) => {
     if (!sketchVMRef.current || !graphic) return;
@@ -1043,6 +1066,13 @@ const MarkupTool = forwardRef(function MarkupTool({
                   </div>
                   <div className={`flex items-center gap-1 transition-opacity ${isBeingEdited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                     <button onClick={() => zoomTo(m)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="Zoom to"><ZoomIn className="w-3.5 h-3.5" /></button>
+                    <button
+                      onClick={() => toggleVisibility(m)}
+                      className={`p-1.5 rounded ${m.visible === false ? 'bg-slate-200 text-slate-400' : 'hover:bg-purple-50 text-purple-600'}`}
+                      title={m.visible === false ? "Show markup" : "Hide markup"}
+                    >
+                      {m.visible === false ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
                     {['feature-info-panel', 'nearby-search', 'nearby-search-popup'].includes(m.attributes?.savedFrom) ? (
                       <button
                         disabled
