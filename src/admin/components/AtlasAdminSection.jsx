@@ -295,7 +295,21 @@ export default function AtlasAdminSection({
         );
 
       case 'settings':
-        // General settings for org_admin - displays settings tabs inline (not in modal)
+        // General settings management
+        // For super_admin: show org selector then settings editor
+        // For org_admin: show settings directly if Atlas is initialized
+
+        if (role === 'super_admin') {
+          return (
+            <SuperAdminSettings
+              db={db}
+              addToast={addToast}
+              accentColor={accentColor}
+            />
+          );
+        }
+
+        // org_admin - displays settings tabs inline (not in modal)
         if (!hasAtlasConfig) {
           return (
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
@@ -579,6 +593,165 @@ const STARTER_TEMPLATES = [
     ]
   }
 ];
+
+/**
+ * SuperAdminSettings Component
+ *
+ * Super Admin view for managing Atlas settings across all organizations
+ * Displays a list of organizations with expandable settings panels
+ */
+function SuperAdminSettings({ db, addToast, accentColor = '#004E7C' }) {
+  const [organizations, setOrganizations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedOrg, setExpandedOrg] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Fetch all organizations
+  useEffect(() => {
+    const q = collection(db, PATHS.organizations);
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const orgs = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      }));
+      setOrganizations(orgs);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [db]);
+
+  const getWorkingConfig = (org) => org.atlasConfigDraft || org.atlasConfig;
+  const hasAtlas = (org) => !!org.atlasConfig || !!org.atlasConfigDraft;
+
+  const filteredOrgs = organizations.filter(org =>
+    org.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    org.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const orgsWithAtlas = filteredOrgs.filter(hasAtlas);
+  const orgsWithoutAtlas = filteredOrgs.filter(org => !hasAtlas(org));
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+        <h2 className="text-xl font-semibold text-slate-800 mb-2">Organization Settings</h2>
+        <p className="text-slate-600 mb-4">
+          Manage Atlas general settings for each organization. Select an organization to configure its UI, messages, disclaimer, basemaps, help documentation, and advanced settings.
+        </p>
+
+        {/* Search */}
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search organizations..."
+            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      {/* Organizations with Atlas */}
+      {orgsWithAtlas.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+            <h3 className="font-medium text-slate-700">
+              Organizations with Atlas ({orgsWithAtlas.length})
+            </h3>
+          </div>
+          <div className="divide-y divide-slate-200">
+            {orgsWithAtlas.map(org => (
+              <div key={org.id}>
+                {/* Org Header - Clickable */}
+                <button
+                  onClick={() => setExpandedOrg(expandedOrg === org.id ? null : org.id)}
+                  className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <Building2 className="w-5 h-5 text-slate-400" />
+                    <div className="text-left">
+                      <div className="font-medium text-slate-800">{org.name || org.id}</div>
+                      <div className="text-sm text-slate-500">{org.id}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                      Atlas Active
+                    </span>
+                    {expandedOrg === org.id ? (
+                      <ChevronDown className="w-5 h-5 text-slate-400" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-slate-400" />
+                    )}
+                  </div>
+                </button>
+
+                {/* Expanded Settings Panel */}
+                {expandedOrg === org.id && (
+                  <div className="px-6 py-4 bg-slate-50 border-t border-slate-200">
+                    <AtlasSettingsInline
+                      db={db}
+                      orgId={org.id}
+                      orgData={org}
+                      workingConfig={getWorkingConfig(org)}
+                      addToast={addToast}
+                      accentColor={accentColor}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Organizations without Atlas */}
+      {orgsWithoutAtlas.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+            <h3 className="font-medium text-slate-500">
+              Organizations without Atlas ({orgsWithoutAtlas.length})
+            </h3>
+          </div>
+          <div className="divide-y divide-slate-200">
+            {orgsWithoutAtlas.map(org => (
+              <div key={org.id} className="px-6 py-4 flex items-center justify-between opacity-60">
+                <div className="flex items-center gap-3">
+                  <Building2 className="w-5 h-5 text-slate-300" />
+                  <div>
+                    <div className="font-medium text-slate-600">{org.name || org.id}</div>
+                    <div className="text-sm text-slate-400">{org.id}</div>
+                  </div>
+                </div>
+                <span className="text-xs px-2 py-1 bg-slate-100 text-slate-500 rounded-full">
+                  No Atlas
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* No results */}
+      {filteredOrgs.length === 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 text-center">
+          <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <p className="text-slate-500">No organizations found matching "{searchTerm}"</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * SuperAdminExportTemplates Component
@@ -3075,7 +3248,8 @@ export function getAtlasNavItems(role) {
   if (role === 'super_admin') {
     return [
       { id: 'users', label: 'Users', icon: Users },
-      { id: 'configuration', label: 'Configuration', icon: Settings },
+      { id: 'configuration', label: 'Configuration', icon: Layers },
+      { id: 'settings', label: 'Settings', icon: Settings },
       { id: 'export-templates', label: 'Export Templates', icon: Printer },
     ];
   }
