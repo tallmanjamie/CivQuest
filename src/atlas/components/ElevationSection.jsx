@@ -57,6 +57,16 @@ export default function ElevationSection({
       setLoading(true);
       setError(null);
       console.log('[ElevationSection] Fetching elevation for', markupType, 'using service:', elevationServiceUrl);
+      console.log('[ElevationSection] Markup geometry:', {
+        type: markup.geometry?.type,
+        x: markup.geometry?.x,
+        y: markup.geometry?.y,
+        longitude: markup.geometry?.longitude,
+        latitude: markup.geometry?.latitude,
+        paths: markup.geometry?.paths?.length,
+        rings: markup.geometry?.rings?.length,
+        spatialReference: markup.geometry?.spatialReference
+      });
 
       try {
         if (markupType === 'point' || markupType === 'text') {
