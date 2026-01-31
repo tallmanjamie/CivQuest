@@ -15,7 +15,9 @@ import {
   GripVertical,
   Eye,
   Radar,
-  Lock
+  Lock,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 import Point from '@arcgis/core/geometry/Point';
@@ -128,6 +130,7 @@ export default function MarkupPopup({
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [measurement, setMeasurement] = useState('');
   const [isMobile, setIsMobile] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [desktopWidth, setDesktopWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
   const [showNearbyTool, setShowNearbyTool] = useState(false);
@@ -212,6 +215,7 @@ export default function MarkupPopup({
     setName(markup?.attributes?.name || '');
     setNotes(markup?.attributes?.notes || '');
     setShowLabel(markup?.attributes?.showLabel || false);
+    setIsMinimized(false); // Reset minimized state when markup changes
   }, [markup, refreshKey]);
 
   // Mobile detection
@@ -420,12 +424,21 @@ export default function MarkupPopup({
           )}
         </div>
 
-        <button
-          onClick={onClose}
-          className="p-1.5 hover:bg-slate-200 rounded-lg transition ml-2"
-        >
-          <X className="w-4 h-4 text-slate-500" />
-        </button>
+        <div className="flex items-center gap-1 ml-2">
+          <button
+            onClick={() => setIsMinimized(true)}
+            className="p-1.5 hover:bg-slate-200 rounded-lg transition"
+            title="Minimize"
+          >
+            <ChevronDown className="w-4 h-4 text-slate-500" />
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-slate-200 rounded-lg transition"
+          >
+            <X className="w-4 h-4 text-slate-500" />
+          </button>
+        </div>
       </div>
 
       {/* Action Buttons */}
@@ -605,14 +618,82 @@ export default function MarkupPopup({
     </>
   );
 
+  // Minimized header component for both mobile and desktop
+  const minimizedHeader = (
+    <div className="flex items-center gap-3 min-w-0 flex-1 px-3 py-2">
+      <div
+        className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{ backgroundColor: `${markupColor}20` }}
+      >
+        <MarkupIcon
+          className="w-3 h-3"
+          style={{ color: markupColor }}
+          fill={markupType === 'polygon' ? markupColor : 'none'}
+          opacity={markupType === 'polygon' ? 0.5 : 1}
+        />
+      </div>
+      <h3 className="font-semibold text-slate-800 truncate text-sm">
+        {name || 'Untitled Markup'}
+      </h3>
+    </div>
+  );
+
   // Mobile layout
   if (isMobile) {
+    // Mobile minimized view: Only header at bottom of map
+    if (isMinimized) {
+      return (
+        <div
+          className="fixed inset-x-0 bg-white z-40 flex items-center shadow-2xl rounded-t-2xl"
+          style={{ bottom: 0 }}
+        >
+          {minimizedHeader}
+          <div className="flex items-center gap-1 pr-2">
+            <button
+              onClick={() => setIsMinimized(false)}
+              className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"
+              title="Restore"
+            >
+              <ChevronUp className="w-5 h-5 text-slate-500" />
+            </button>
+            <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90">
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         className="fixed inset-x-0 bottom-0 bg-white z-40 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300"
         style={{ top: '64px' }}
       >
         {content}
+      </div>
+    );
+  }
+
+  // Desktop minimized view: Only header in top right corner
+  if (isMinimized) {
+    return (
+      <div
+        className="absolute right-4 top-4 bg-white shadow-lg z-40 flex items-center rounded-lg border border-slate-200"
+        style={{ maxWidth: '300px' }}
+      >
+        {minimizedHeader}
+        <div className="flex items-center gap-1 pr-2">
+          <button
+            onClick={() => setIsMinimized(false)}
+            className="p-1.5 hover:bg-slate-100 rounded-lg transition"
+            title="Restore"
+          >
+            <ChevronUp className="w-4 h-4 text-slate-500" />
+          </button>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition">
+            <X className="w-4 h-4 text-slate-500" />
+          </button>
+        </div>
       </div>
     );
   }
