@@ -440,7 +440,8 @@ export default function MapExportTool({
   isExpanded = false,
   onToggle,
   onClose,
-  accentColor = '#004E7C'
+  accentColor = '#004E7C',
+  justification = 'left'
 }) {
   // Get available templates for this map
   const availableTemplates = useMemo(() => {
@@ -1041,11 +1042,13 @@ export default function MapExportTool({
   // ==================== RENDER ====================
 
   // Collapsed button state
+  const justifyClass = justification === 'center' ? 'justify-center' : justification === 'right' ? 'justify-end' : 'justify-start';
+
   if (!isExpanded) {
     return (
       <button
         onClick={onToggle}
-        className="flex items-center justify-center gap-1.5 w-24 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+        className={`flex items-center ${justifyClass} gap-1.5 w-24 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors`}
         title="Export Map"
       >
         <Printer className="w-4 h-4" style={{ color: accentColor }} />

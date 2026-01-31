@@ -43,7 +43,10 @@ import {
   AlignVerticalJustifyStart,
   AlignHorizontalJustifyStart,
   MoveHorizontal,
-  Layers
+  Layers,
+  AlignLeft,
+  AlignCenter,
+  AlignRight
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -865,10 +868,54 @@ export default function AtlasSettingsEditor({
                     </button>
                   </div>
                 </div>
+
+                {/* Map Tools Icon Justification */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Icon Justification
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateUI('mapToolsJustification', 'left')}
+                      className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                        (config.ui.mapToolsJustification || 'left') === 'left'
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <AlignLeft className="w-5 h-5" />
+                      <span className="text-sm font-medium">Left</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateUI('mapToolsJustification', 'center')}
+                      className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                        config.ui.mapToolsJustification === 'center'
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <AlignCenter className="w-5 h-5" />
+                      <span className="text-sm font-medium">Center</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateUI('mapToolsJustification', 'right')}
+                      className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                        config.ui.mapToolsJustification === 'right'
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <AlignRight className="w-5 h-5" />
+                      <span className="text-sm font-medium">Right</span>
+                    </button>
+                  </div>
+                </div>
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                Controls where and how the map tools (Search Results, Markup, Layers, etc.) are displayed on the map.
-              </p>
+                Controls where and how the map tools (Search Results, Markup, Layers, etc.) are displayed on the map. Icon Justification aligns the icon and text within each tool button.
             </div>
 
             {/* Logos & Images */}
