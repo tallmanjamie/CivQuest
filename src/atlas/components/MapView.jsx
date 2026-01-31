@@ -174,7 +174,7 @@ const MapView = forwardRef(function MapView(props, ref) {
         break;
     }
 
-    return `${baseClasses} ${positionClasses} flex ${layoutClasses} gap-2`;
+    return `${baseClasses} ${positionClasses} flex ${layoutClasses} items-start gap-2`;
   }, [mapToolsPosition, mapToolsLayout]);
 
   // Detect mobile screen size
