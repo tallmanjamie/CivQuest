@@ -661,7 +661,8 @@ function AtlasOverviewCard({ atlasConfig, liveConfig, hasDraft, accentColor, onE
         <h3 className="font-semibold text-slate-800">Settings Overview</h3>
         <button
           onClick={onEditSettings}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-white shadow-sm hover:opacity-90 transition-opacity"
+          style={{ backgroundColor: accentColor }}
         >
           <Settings className="w-4 h-4" />
           Edit Settings
@@ -844,7 +845,8 @@ function OrganizationAtlasCard({
               <div className="flex items-center justify-between">
                 <button
                   onClick={(e) => { e.stopPropagation(); onEditSettings(); }}
-                  className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800"
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-white shadow-sm hover:opacity-90 transition-opacity"
+                  style={{ backgroundColor: accentColor }}
                 >
                   <Settings className="w-4 h-4" />
                   Edit Settings

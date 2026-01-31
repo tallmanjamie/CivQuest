@@ -626,7 +626,7 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
       ]
     : [
         { id: 'users', label: 'Users', icon: Users },
-        { id: 'maps', label: 'Maps', icon: Layers },
+        { id: 'maps', label: 'Settings', icon: Settings },
         { id: 'export-templates', label: 'Export Templates', icon: Printer },
         { id: 'integrations', label: 'Integrations', icon: Puzzle },
         { id: 'preview', label: 'Preview', icon: Eye },
