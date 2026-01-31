@@ -439,11 +439,10 @@ function LineElevationDisplay({ data, formatValue, selectedUnit, colors, onHover
 }
 
 /**
- * Polygon Elevation Display (3D grid visualization)
+ * Polygon Elevation Display (2D heatmap visualization)
  */
 function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
   const { grid, stats, gridSize, extent } = data;
-  const containerRef = useRef(null);
 
   // Calculate min/max for color scaling
   const elevations = grid.map(p => p.elevation).filter(e => e !== null);
@@ -451,48 +450,64 @@ function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
   const maxElev = Math.max(...elevations);
   const elevRange = maxElev - minElev || 1;
 
-  // Generate 3D-like isometric grid
-  const cellSize = 200 / gridSize;
-  const isoAngle = 30; // Isometric angle
-  const heightScale = 50; // Scale for elevation
+  // SVG dimensions and padding
+  const svgWidth = 280;
+  const svgHeight = 120;
+  const padding = { top: 10, right: 10, bottom: 30, left: 10 };
+  const graphWidth = svgWidth - padding.left - padding.right;
+  const graphHeight = svgHeight - padding.top - padding.bottom;
 
-  // Transform grid coordinates to isometric view
-  const toIso = (col, row, elevation) => {
-    const baseX = (col - row) * (cellSize * 0.866); // cos(30°) ≈ 0.866
-    const baseY = (col + row) * (cellSize * 0.5); // sin(30°) = 0.5
+  // Calculate extent dimensions
+  const extentWidth = extent.xmax - extent.xmin || 1;
+  const extentHeight = extent.ymax - extent.ymin || 1;
 
-    // Add height offset based on elevation
-    const normalizedElev = (elevation - minElev) / elevRange;
-    const heightOffset = normalizedElev * heightScale;
+  // Calculate aspect ratio and fit the grid into the graph area
+  const extentAspect = extentWidth / extentHeight;
+  const graphAspect = graphWidth / graphHeight;
 
-    return {
-      x: 150 + baseX,
-      y: 100 + baseY - heightOffset
-    };
-  };
+  let scale, offsetX, offsetY;
+  if (extentAspect > graphAspect) {
+    // Wider than tall - fit to width
+    scale = graphWidth / extentWidth;
+    offsetX = padding.left;
+    offsetY = padding.top + (graphHeight - extentHeight * scale) / 2;
+  } else {
+    // Taller than wide - fit to height
+    scale = graphHeight / extentHeight;
+    offsetX = padding.left + (graphWidth - extentWidth * scale) / 2;
+    offsetY = padding.top;
+  }
 
-  // Get color based on elevation
+  // Transform coordinates to SVG space
+  const toSvg = (x, y) => ({
+    x: offsetX + (x - extent.xmin) * scale,
+    y: offsetY + (extent.ymax - y) * scale // Flip Y axis
+  });
+
+  // Calculate cell size based on grid density
+  const cellSize = Math.max(
+    (extentWidth / gridSize) * scale * 0.9,
+    (extentHeight / gridSize) * scale * 0.9,
+    4 // Minimum cell size
+  );
+
+  // Get color based on elevation (blue-green-yellow-orange gradient)
   const getColor = (elevation) => {
     const normalized = (elevation - minElev) / elevRange;
-    // Gradient from blue (low) to green to yellow to red (high)
-    if (normalized < 0.25) {
-      return `rgb(${Math.round(59 + normalized * 4 * 80)}, ${Math.round(130 + normalized * 4 * 70)}, ${Math.round(246 - normalized * 4 * 100)})`;
-    } else if (normalized < 0.5) {
-      const t = (normalized - 0.25) * 4;
-      return `rgb(${Math.round(139 - t * 50)}, ${Math.round(200 + t * 30)}, ${Math.round(146 - t * 80)})`;
-    } else if (normalized < 0.75) {
-      const t = (normalized - 0.5) * 4;
-      return `rgb(${Math.round(89 + t * 160)}, ${Math.round(230 - t * 30)}, ${Math.round(66 - t * 30)})`;
+    if (normalized < 0.33) {
+      // Blue to green
+      const t = normalized / 0.33;
+      return `rgb(${Math.round(59 + t * 30)}, ${Math.round(130 + t * 100)}, ${Math.round(246 - t * 180)})`;
+    } else if (normalized < 0.66) {
+      // Green to yellow
+      const t = (normalized - 0.33) / 0.33;
+      return `rgb(${Math.round(89 + t * 160)}, ${Math.round(230 - t * 30)}, ${Math.round(66 - t * 40)})`;
     } else {
-      const t = (normalized - 0.75) * 4;
-      return `rgb(${Math.round(249)}, ${Math.round(200 - t * 100)}, ${Math.round(36 - t * 30)})`;
+      // Yellow to orange
+      const t = (normalized - 0.66) / 0.34;
+      return `rgb(${Math.round(249)}, ${Math.round(200 - t * 100)}, ${Math.round(26)})`;
     }
   };
-
-  // Sort grid points for proper depth rendering (back to front)
-  const sortedGrid = useMemo(() => {
-    return [...grid].sort((a, b) => (a.row + a.col) - (b.row + b.col));
-  }, [grid]);
 
   return (
     <div className="space-y-3">
@@ -518,71 +533,47 @@ function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
         />
       </div>
 
-      {/* 3D Grid Visualization */}
-      <div
-        ref={containerRef}
-        className="relative bg-slate-50 rounded-lg overflow-hidden"
-      >
+      {/* 2D Heatmap Visualization */}
+      <div className="relative bg-slate-50 rounded-lg p-2">
         <svg
-          viewBox="0 0 300 200"
+          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="w-full"
-          style={{ height: 150 }}
+          preserveAspectRatio="xMidYMid meet"
         >
-          {/* Render grid cells as 3D columns */}
-          {sortedGrid.map((point, idx) => {
-            const top = toIso(point.col, point.row, point.elevation);
-            const bottom = toIso(point.col, point.row, minElev);
-
-            // Create a small diamond/rectangle at the top
-            const size = cellSize * 0.4;
+          {/* Render grid cells as colored squares */}
+          {grid.map((point) => {
+            const pos = toSvg(point.x, point.y);
             const color = getColor(point.elevation);
 
             return (
-              <g key={`cell-${point.row}-${point.col}`}>
-                {/* Vertical line (column) */}
-                <line
-                  x1={top.x}
-                  y1={top.y}
-                  x2={bottom.x}
-                  y2={bottom.y}
-                  stroke={color}
-                  strokeWidth="1"
-                  opacity="0.3"
-                />
-
-                {/* Top diamond */}
-                <polygon
-                  points={`
-                    ${top.x},${top.y - size * 0.5}
-                    ${top.x + size * 0.866},${top.y}
-                    ${top.x},${top.y + size * 0.5}
-                    ${top.x - size * 0.866},${top.y}
-                  `}
-                  fill={color}
-                  stroke="white"
-                  strokeWidth="0.5"
-                />
-              </g>
+              <rect
+                key={`cell-${point.row}-${point.col}`}
+                x={pos.x - cellSize / 2}
+                y={pos.y - cellSize / 2}
+                width={cellSize}
+                height={cellSize}
+                fill={color}
+                rx="1"
+              />
             );
           })}
 
           {/* Legend gradient bar */}
           <defs>
-            <linearGradient id="elevGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <linearGradient id="elevGradientHeatmap" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="#3b82f6" />
-              <stop offset="25%" stopColor="#22c55e" />
-              <stop offset="50%" stopColor="#84cc16" />
-              <stop offset="75%" stopColor="#eab308" />
+              <stop offset="33%" stopColor="#22c55e" />
+              <stop offset="66%" stopColor="#eab308" />
               <stop offset="100%" stopColor="#f97316" />
             </linearGradient>
           </defs>
 
           {/* Legend */}
-          <rect x="50" y="175" width="200" height="8" fill="url(#elevGradient)" rx="2" />
-          <text x="50" y="190" className="text-[8px]" fill="#64748b">
+          <rect x="40" y={svgHeight - 18} width={svgWidth - 80} height="6" fill="url(#elevGradientHeatmap)" rx="1" />
+          <text x="40" y={svgHeight - 4} className="text-[7px]" fill="#64748b">
             {formatValue(minElev)}
           </text>
-          <text x="250" y="190" className="text-[8px]" fill="#64748b" textAnchor="end">
+          <text x={svgWidth - 40} y={svgHeight - 4} className="text-[7px]" fill="#64748b" textAnchor="end">
             {formatValue(maxElev)}
           </text>
         </svg>
