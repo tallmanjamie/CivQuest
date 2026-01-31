@@ -50,25 +50,68 @@ export const getPointElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION
     // Ensure projection module is loaded
     await projection.load();
 
+    // Debug: Log incoming geometry
+    console.log('[ElevationService] getPointElevation input geometry:', {
+      type: geometry?.type,
+      x: geometry?.x,
+      y: geometry?.y,
+      longitude: geometry?.longitude,
+      latitude: geometry?.latitude,
+      spatialReference: geometry?.spatialReference,
+      declaredClass: geometry?.declaredClass
+    });
+
+    // Ensure geometry is a proper Point class for projection to work correctly
+    let pointGeometry = geometry;
+    if (!geometry.declaredClass && geometry.type === 'point') {
+      // Convert plain JSON to Point class
+      pointGeometry = new Point({
+        x: geometry.x,
+        y: geometry.y,
+        spatialReference: geometry.spatialReference || { wkid: 4326 }
+      });
+      console.log('[ElevationService] Converted JSON to Point class');
+    }
+
     // Get coordinates in WGS84
     let x, y;
-    if (geometry.spatialReference?.wkid === 4326) {
-      x = geometry.x ?? geometry.longitude;
-      y = geometry.y ?? geometry.latitude;
+    const srWkid = pointGeometry.spatialReference?.wkid;
+
+    if (srWkid === 4326 || srWkid === 4269) {
+      // Already in geographic coordinates
+      x = pointGeometry.x ?? pointGeometry.longitude;
+      y = pointGeometry.y ?? pointGeometry.latitude;
+      console.log('[ElevationService] Using WGS84 coordinates directly:', { x, y });
     } else {
       // Project to WGS84
-      const projected = projection.project(geometry, { wkid: 4326 });
+      console.log('[ElevationService] Projecting from WKID:', srWkid);
+      const projected = projection.project(pointGeometry, { wkid: 4326 });
+      if (!projected) {
+        console.error('[ElevationService] Projection returned null');
+        return null;
+      }
       x = projected.x ?? projected.longitude;
       y = projected.y ?? projected.latitude;
+      console.log('[ElevationService] Projected coordinates:', { x, y });
+    }
+
+    // Validate coordinates
+    if (x === undefined || y === undefined || x === null || y === null || isNaN(x) || isNaN(y)) {
+      console.error('[ElevationService] Invalid coordinates:', { x, y });
+      return null;
     }
 
     // Use identify operation on the image service
     const url = new URL(`${serviceUrl}/identify`);
-    url.searchParams.set('geometry', JSON.stringify({ x, y }));
+    // Include spatial reference in geometry and as separate parameter
+    url.searchParams.set('geometry', JSON.stringify({ x, y, spatialReference: { wkid: 4326 } }));
     url.searchParams.set('geometryType', 'esriGeometryPoint');
+    url.searchParams.set('sr', '4326');  // Specify input spatial reference
     url.searchParams.set('returnGeometry', 'false');
     url.searchParams.set('returnCatalogItems', 'false');
     url.searchParams.set('f', 'json');
+
+    console.log('[ElevationService] Calling identify URL:', url.toString());
 
     const response = await fetch(url.toString());
     if (!response.ok) {
@@ -76,12 +119,16 @@ export const getPointElevation = async (geometry, serviceUrl = DEFAULT_ELEVATION
     }
 
     const data = await response.json();
+    console.log('[ElevationService] Identify response:', data);
 
     // The value is returned in the 'value' field
     if (data.value !== undefined && data.value !== 'NoData') {
-      return parseFloat(data.value);
+      const elevation = parseFloat(data.value);
+      console.log('[ElevationService] Parsed elevation:', elevation);
+      return elevation;
     }
 
+    console.log('[ElevationService] No elevation data returned');
     return null;
   } catch (error) {
     console.error('[ElevationService] Error getting point elevation:', error);
