@@ -1045,7 +1045,7 @@ function createFallbackTemplate(feature, tableColumns, searchFields) {
 
 // Line height constants for popup content
 const POPUP_LINE_HEIGHT = 0.22; // inches per line
-const POPUP_SECTION_SPACING = 0.3; // inches between sections
+const POPUP_SECTION_SPACING = 0.15; // inches between sections
 const POPUP_SECTION_HEADER_HEIGHT = 0.35; // inches for section header
 const POPUP_TABLE_ROW_HEIGHT = 0.22; // inches per table row
 const POPUP_TABLE_HEADER_HEIGHT = 0.25; // inches for table header row
@@ -1267,7 +1267,7 @@ function drawPopupContentSections(pdf, sections, startX, startY, width, maxHeigh
     pdf.setTextColor(51, 65, 85); // slate-700
 
     const lineHeight = POPUP_LINE_HEIGHT * scaleRatio;
-    const contentStartY = currentY + 0.1;
+    const contentStartY = currentY + 0.05;
     currentY = contentStartY;
 
     for (const segment of section.segments) {
@@ -1551,8 +1551,8 @@ export async function exportFeatureToPDF({
     : pageDims.height - margins.bottom;
 
   // Calculate available height for content
-  const contentStartY = attributeElement ? (attributeElement.y / 100 * pageDims.height) : headerMaxY + 0.1;
-  const contentEndY = footerMinY - 0.1;
+  const contentStartY = attributeElement ? (attributeElement.y / 100 * pageDims.height) : headerMaxY + 0.05;
+  const contentEndY = footerMinY - 0.05;
   const availableHeight = contentEndY - contentStartY;
   const contentWidth = attributeElement
     ? (attributeElement.width / 100 * pageDims.width)
