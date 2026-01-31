@@ -262,9 +262,18 @@ const MarkupTool = forwardRef(function MarkupTool({
     } else if (tool === 'polygon') {
       extracted.polygonLineType = symbol.outline?.style || 'solid';
       extracted.polygonFillColor = findColorByValue(graphic.attributes?.color);
-      extracted.polygonLineColor = findColorByValue(symbol.outline?.color ?
-        `#${symbol.outline.color.slice(0,3).map(c => c.toString(16).padStart(2,'0')).join('')}` :
-        graphic.attributes?.color);
+      // Handle outline color - can be array [r,g,b,a] or Color object with r,g,b properties
+      let outlineColorHex = graphic.attributes?.color;
+      if (symbol.outline?.color) {
+        const oc = symbol.outline.color;
+        if (Array.isArray(oc)) {
+          outlineColorHex = `#${oc.slice(0,3).map(c => c.toString(16).padStart(2,'0')).join('')}`;
+        } else if (typeof oc === 'object' && 'r' in oc) {
+          // ArcGIS Color object with r, g, b properties
+          outlineColorHex = `#${[oc.r, oc.g, oc.b].map(c => c.toString(16).padStart(2,'0')).join('')}`;
+        }
+      }
+      extracted.polygonLineColor = findColorByValue(outlineColorHex);
       extracted.polygonLineWidth = symbol.outline?.width || 2;
       extracted.polygonOpacity = Array.isArray(symbol.color) ? symbol.color[3] : 0.35;
     } else if (tool === 'text') {
