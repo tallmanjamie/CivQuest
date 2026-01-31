@@ -95,30 +95,40 @@ export default function ElevationSection({
   useEffect(() => {
     return () => {
       if (hoverGraphicRef.current && view?.graphics) {
-        view.graphics.remove(hoverGraphicRef.current);
+        if (Array.isArray(hoverGraphicRef.current)) {
+          hoverGraphicRef.current.forEach(g => view.graphics.remove(g));
+        } else {
+          view.graphics.remove(hoverGraphicRef.current);
+        }
       }
     };
   }, [view]);
 
-  // Handle hover on profile graph - show point on map
+  // Handle hover on profile graph - show point on map with elevation label
   const handleProfileHover = useCallback((point) => {
     setHoverPoint(point);
 
     if (!view?.graphics) return;
 
-    // Remove previous hover graphic
+    // Remove previous hover graphics
     if (hoverGraphicRef.current) {
-      view.graphics.remove(hoverGraphicRef.current);
+      if (Array.isArray(hoverGraphicRef.current)) {
+        hoverGraphicRef.current.forEach(g => view.graphics.remove(g));
+      } else {
+        view.graphics.remove(hoverGraphicRef.current);
+      }
     }
 
     if (point) {
-      // Create a new hover graphic
-      const graphic = new Graphic({
-        geometry: new Point({
-          x: point.x,
-          y: point.y,
-          spatialReference: markup?.geometry?.spatialReference
-        }),
+      const pointGeometry = new Point({
+        x: point.x,
+        y: point.y,
+        spatialReference: markup?.geometry?.spatialReference
+      });
+
+      // Create marker graphic
+      const markerGraphic = new Graphic({
+        geometry: pointGeometry,
         symbol: {
           type: 'simple-marker',
           color: colors.bg500,
@@ -126,15 +136,46 @@ export default function ElevationSection({
           outline: { color: 'white', width: 2 }
         }
       });
-      view.graphics.add(graphic);
-      hoverGraphicRef.current = graphic;
+
+      // Create label graphic if elevation is available
+      if (point.elevation !== null && point.elevation !== undefined) {
+        const elevationValue = convertElevation(point.elevation, selectedUnit.id);
+        const labelText = formatElevation(elevationValue, selectedUnit.id);
+
+        const labelGraphic = new Graphic({
+          geometry: pointGeometry,
+          symbol: {
+            type: 'text',
+            text: labelText,
+            color: '#1e293b',
+            haloColor: 'white',
+            haloSize: 2,
+            font: {
+              size: 12,
+              family: 'sans-serif',
+              weight: 'bold'
+            },
+            yoffset: 15
+          }
+        });
+
+        view.graphics.addMany([markerGraphic, labelGraphic]);
+        hoverGraphicRef.current = [markerGraphic, labelGraphic];
+      } else {
+        view.graphics.add(markerGraphic);
+        hoverGraphicRef.current = markerGraphic;
+      }
     }
-  }, [view, markup, colors.bg500]);
+  }, [view, markup, colors.bg500, selectedUnit.id]);
 
   const handleProfileLeave = useCallback(() => {
     setHoverPoint(null);
     if (hoverGraphicRef.current && view?.graphics) {
-      view.graphics.remove(hoverGraphicRef.current);
+      if (Array.isArray(hoverGraphicRef.current)) {
+        hoverGraphicRef.current.forEach(g => view.graphics.remove(g));
+      } else {
+        view.graphics.remove(hoverGraphicRef.current);
+      }
       hoverGraphicRef.current = null;
     }
   }, [view]);
@@ -228,6 +269,9 @@ export default function ElevationSection({
           formatValue={formatValue}
           selectedUnit={selectedUnit}
           colors={colors}
+          onHover={handleProfileHover}
+          onLeave={handleProfileLeave}
+          hoverPoint={hoverPoint}
         />
       )}
     </div>
@@ -441,8 +485,10 @@ function LineElevationDisplay({ data, formatValue, selectedUnit, colors, onHover
 /**
  * Polygon Elevation Display (2D heatmap visualization)
  */
-function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
+function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors, onHover, onLeave, hoverPoint }) {
   const { grid, stats, gridSize, extent } = data;
+  const containerRef = useRef(null);
+  const [tooltipPos, setTooltipPos] = useState(null);
 
   // Calculate min/max for color scaling
   const elevations = grid.map(p => p.elevation).filter(e => e !== null);
@@ -509,6 +555,31 @@ function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
     }
   };
 
+  // Handle cell hover
+  const handleCellHover = useCallback((point, event) => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const pos = toSvg(point.x, point.y);
+      // Calculate position as percentage for tooltip
+      setTooltipPos({
+        left: (pos.x / svgWidth) * 100,
+        top: pos.y
+      });
+    }
+    onHover?.(point);
+  }, [onHover, toSvg, svgWidth]);
+
+  // Handle mouse leave
+  const handleMouseLeave = useCallback(() => {
+    setTooltipPos(null);
+    onLeave?.();
+  }, [onLeave]);
+
+  // Check if a point is currently hovered
+  const isHovered = (point) => {
+    return hoverPoint && hoverPoint.row === point.row && hoverPoint.col === point.col;
+  };
+
   return (
     <div className="space-y-3">
       {/* Stats */}
@@ -534,7 +605,11 @@ function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
       </div>
 
       {/* 2D Heatmap Visualization */}
-      <div className="relative bg-slate-50 rounded-lg p-2">
+      <div
+        ref={containerRef}
+        className="relative bg-slate-50 rounded-lg p-2 cursor-crosshair"
+        onMouseLeave={handleMouseLeave}
+      >
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="w-full"
@@ -544,6 +619,7 @@ function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
           {grid.map((point) => {
             const pos = toSvg(point.x, point.y);
             const color = getColor(point.elevation);
+            const hovered = isHovered(point);
 
             return (
               <rect
@@ -554,6 +630,10 @@ function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
                 height={cellSize}
                 fill={color}
                 rx="1"
+                stroke={hovered ? '#1e293b' : 'none'}
+                strokeWidth={hovered ? 2 : 0}
+                style={{ cursor: 'crosshair' }}
+                onMouseEnter={(e) => handleCellHover(point, e)}
               />
             );
           })}
@@ -577,6 +657,20 @@ function PolygonElevationDisplay({ data, formatValue, selectedUnit, colors }) {
             {formatValue(maxElev)}
           </text>
         </svg>
+
+        {/* Hover tooltip */}
+        {hoverPoint && tooltipPos && (
+          <div
+            className="absolute bg-white border border-slate-200 rounded px-2 py-1 text-xs shadow-sm pointer-events-none z-10"
+            style={{
+              left: `${tooltipPos.left}%`,
+              top: '5px',
+              transform: 'translateX(-50%)'
+            }}
+          >
+            {formatValue(hoverPoint.elevation)}
+          </div>
+        )}
       </div>
     </div>
   );
