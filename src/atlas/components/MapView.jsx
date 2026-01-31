@@ -1710,8 +1710,12 @@ const MapView = forwardRef(function MapView(props, ref) {
       }
     }
 
-    // Show search results panel
+    // Show search results panel and close other tools
     setShowSearchResults(true);
+    setShowMarkupTool(false);
+    setShowLayersPanel(false);
+    setShowBasemapPicker(false);
+    setShowMapExport(false);
 
     // Keep feature panel/markup popup open so user can refine search or save buffer
   }, [updateSearchResults, themeColor, chatViewRef]);
