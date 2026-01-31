@@ -2194,7 +2194,7 @@ const MapView = forwardRef(function MapView(props, ref) {
               {/* 6. Help Button */}
               <button
                 onClick={() => setShowHelpPanel?.(true)}
-                className="flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+                className="flex items-center justify-center gap-1.5 w-24 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
                 title="Get Help"
               >
                 <HelpCircle className="w-4 h-4" style={{ color: colors.bg600 }} />
