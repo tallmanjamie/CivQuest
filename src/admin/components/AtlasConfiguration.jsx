@@ -105,7 +105,8 @@ export default function AtlasConfiguration({
       defaultMode: "chat",
       // Map tools position and layout configuration
       mapToolsPosition: "upper-left", // upper-left, center, lower-left, lower-center
-      mapToolsLayout: "stacked"       // stacked or horizontal
+      mapToolsLayout: "stacked",      // stacked or horizontal
+      mapToolsJustification: "left"   // left, center, or right - justification of icon+text within buttons
     },
     messages: {
       welcomeTitle: "Welcome!",

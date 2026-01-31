@@ -38,7 +38,8 @@ export default function BasemapPicker({
   mapId,
   isExpanded = false,
   onToggle,
-  className = ''
+  className = '',
+  justification = 'left'
 }) {
   const { config: atlasConfig, activeMap } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
@@ -331,11 +332,13 @@ export default function BasemapPicker({
   }, []);
 
   // Collapsed button
+  const justifyClass = justification === 'center' ? 'justify-center' : justification === 'right' ? 'justify-end' : 'justify-start';
+
   if (!isExpanded) {
     return (
       <button
         onClick={onToggle}
-        className={`flex items-center justify-center gap-1.5 w-24 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200
+        className={`flex items-center ${justifyClass} gap-1.5 w-24 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200
                    hover:bg-slate-50 transition-colors ${className}
                    ${isSwipeActive ? 'ring-2 ring-blue-400' : ''}`}
         title="Basemaps"
