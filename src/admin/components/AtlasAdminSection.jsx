@@ -52,6 +52,7 @@ import ExportTemplateEditor from './ExportTemplateEditor';
 import FeatureExportTemplateConfiguration from './FeatureExportTemplateConfiguration';
 import FeatureExportTemplateEditor from './FeatureExportTemplateEditor';
 import OrgIntegrationsConfig from './OrgIntegrationsConfig';
+import { subscribeToGlobalExportTemplates, subscribeToGlobalFeatureExportTemplates } from '../../shared/services/systemConfig';
 
 /**
  * AtlasAdminSection Component
@@ -559,6 +560,9 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
   const [editingElevationService, setEditingElevationService] = useState({});
   const [savingElevationService, setSavingElevationService] = useState({});
   const [activeExportTabs, setActiveExportTabs] = useState({}); // { orgId: 'map' | 'feature' }
+  const [globalMapTemplates, setGlobalMapTemplates] = useState([]);
+  const [globalFeatureTemplates, setGlobalFeatureTemplates] = useState([]);
+  const [loadingGlobalTemplates, setLoadingGlobalTemplates] = useState(true);
 
   // Feature export starter templates
   const FEATURE_STARTER_TEMPLATES = [
@@ -603,6 +607,21 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
     });
     return () => unsubscribe();
   }, [db]);
+
+  // Subscribe to global templates
+  useEffect(() => {
+    const unsubscribeMap = subscribeToGlobalExportTemplates((templates) => {
+      setGlobalMapTemplates(templates || []);
+    });
+    const unsubscribeFeature = subscribeToGlobalFeatureExportTemplates((templates) => {
+      setGlobalFeatureTemplates(templates || []);
+      setLoadingGlobalTemplates(false);
+    });
+    return () => {
+      unsubscribeMap();
+      unsubscribeFeature();
+    };
+  }, []);
 
   const getWorkingConfig = (org) => org.atlasConfigDraft || org.atlasConfig;
   const hasAtlas = (org) => !!org.atlasConfig || !!org.atlasConfigDraft;
@@ -1276,15 +1295,15 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
         </div>
       )}
 
-      {/* Starter Template Picker Modal */}
+      {/* Template Picker Modal (Global + Starter Templates) */}
       {showStarterPicker && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
-                <h3 className="text-lg font-semibold text-slate-800">Choose a Starter Template</h3>
+                <h3 className="text-lg font-semibold text-slate-800">Choose a Template</h3>
                 <p className="text-sm text-slate-500">
-                  Select a {showStarterPicker.type === 'feature' ? 'feature export' : 'map export'} template to customize
+                  Select a {showStarterPicker.type === 'feature' ? 'feature export' : 'map export'} template to add to this organization
                 </p>
               </div>
               <button onClick={() => setShowStarterPicker(null)} className="p-2 hover:bg-slate-100 rounded-lg">
@@ -1292,36 +1311,87 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              <div className="grid gap-4">
-                {(showStarterPicker.type === 'feature' ? FEATURE_STARTER_TEMPLATES : STARTER_TEMPLATES).map(starter => (
-                  <button
-                    key={starter.id}
-                    onClick={() => handleCreateFromStarter(showStarterPicker.orgId, starter, showStarterPicker.type)}
-                    className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                  >
-                    <div
-                      className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
-                      style={{ backgroundColor: accentColor }}
+            <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
+              {/* Global Templates Section */}
+              {loadingGlobalTemplates ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                </div>
+              ) : (showStarterPicker.type === 'feature' ? globalFeatureTemplates : globalMapTemplates).length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Globe className="w-4 h-4 text-blue-600" />
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+                      Global Templates
+                    </h4>
+                    <span className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                      {(showStarterPicker.type === 'feature' ? globalFeatureTemplates : globalMapTemplates).length}
+                    </span>
+                  </div>
+                  <div className="grid gap-3">
+                    {(showStarterPicker.type === 'feature' ? globalFeatureTemplates : globalMapTemplates).map(template => (
+                      <button
+                        key={template.id}
+                        onClick={() => handleCreateFromStarter(showStarterPicker.orgId, template, showStarterPicker.type)}
+                        className="flex items-start gap-4 p-4 border border-blue-200 bg-blue-50/50 rounded-xl text-left hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                      >
+                        <div className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0 bg-blue-600">
+                          <Globe className="w-6 h-6" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-slate-800">{template.name}</h4>
+                          <p className="text-sm text-slate-500 mt-0.5">{template.description || 'Global template from system library'}</p>
+                          <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                            <span>{template.pageSize?.includes('landscape') ? 'Landscape' : 'Portrait'}</span>
+                            <span>•</span>
+                            <span>{template.elements?.length || 0} elements</span>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-blue-400 flex-shrink-0 mt-1" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Starter Templates Section */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <LayoutTemplate className="w-4 h-4 text-slate-500" />
+                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+                    Starter Templates
+                  </h4>
+                </div>
+                <div className="grid gap-3">
+                  {(showStarterPicker.type === 'feature' ? FEATURE_STARTER_TEMPLATES : STARTER_TEMPLATES).map(starter => (
+                    <button
+                      key={starter.id}
+                      onClick={() => handleCreateFromStarter(showStarterPicker.orgId, starter, showStarterPicker.type)}
+                      className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
                     >
-                      {showStarterPicker.type === 'feature' ? (
-                        <FileOutput className="w-6 h-6" />
-                      ) : (
-                        <LayoutTemplate className="w-6 h-6" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-slate-800">{starter.name}</h4>
-                      <p className="text-sm text-slate-500 mt-0.5">{starter.description}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                        <span>{starter.pageSize.includes('landscape') ? 'Landscape' : 'Portrait'}</span>
-                        <span>•</span>
-                        <span>{starter.elements.length} elements</span>
+                      <div
+                        className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
+                        style={{ backgroundColor: accentColor }}
+                      >
+                        {showStarterPicker.type === 'feature' ? (
+                          <FileOutput className="w-6 h-6" />
+                        ) : (
+                          <LayoutTemplate className="w-6 h-6" />
+                        )}
                       </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0 mt-1" />
-                  </button>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-slate-800">{starter.name}</h4>
+                        <p className="text-sm text-slate-500 mt-0.5">{starter.description}</p>
+                        <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                          <span>{starter.pageSize.includes('landscape') ? 'Landscape' : 'Portrait'}</span>
+                          <span>•</span>
+                          <span>{starter.elements.length} elements</span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0 mt-1" />
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
