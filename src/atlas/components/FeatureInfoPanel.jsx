@@ -3,6 +3,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Bookmark,
   FileText,
   MapPin,
@@ -54,6 +56,7 @@ export default function FeatureInfoPanel({
   const [activeTab, setActiveTab] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [showNearbyTool, setShowNearbyTool] = useState(false);
   
   // Title State (Resolved from Feature Widget)
@@ -79,9 +82,10 @@ export default function FeatureInfoPanel({
     }
   }, [desktopWidth, isMaximized, onWidthChange]);
 
-  // Reset maximized state when feature changes
+  // Reset maximized and minimized state when feature changes
   useEffect(() => {
     setIsMaximized(false);
+    setIsMinimized(false);
   }, [feature]);
 
   const useCustomTabs = useMemo(() => {
@@ -432,6 +436,35 @@ export default function FeatureInfoPanel({
   const searchBarHeight = searchBarPosition === 'bottom' ? 60 : 0; // Approximate height of search toolbar
 
   if (isMobile) {
+    // Mobile minimized view: Only header at bottom of map
+    if (isMinimized) {
+      return (
+        <div
+          className="fixed inset-x-0 bg-white z-40 flex flex-col shadow-2xl rounded-t-2xl"
+          style={{ bottom: searchBarHeight }}
+        >
+          <div className="flex items-center justify-between px-3 py-2 bg-slate-50/50">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-white shadow-sm border border-slate-100">
+                <MapPin className="w-3 h-3" style={{ color: colors.bg500 }} />
+              </div>
+              <h3 className="font-semibold text-slate-800 truncate text-base">{displayTitle}</h3>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setIsMinimized(false)}
+                className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"
+                title="Restore"
+              >
+                <ChevronUp className="w-5 h-5 text-slate-500" />
+              </button>
+              <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"><X className="w-5 h-5 text-slate-500" /></button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // Mobile view: 1/2 height by default, full height when maximized
     // When search bar is at bottom, position popup above it to avoid covering it
     const mobileStyle = isMaximized
@@ -455,9 +488,16 @@ export default function FeatureInfoPanel({
           </div>
           <div className="flex items-center gap-1">
             <button
+              onClick={() => setIsMinimized(true)}
+              className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"
+              title="Minimize"
+            >
+              <ChevronDown className="w-5 h-5 text-slate-500" />
+            </button>
+            <button
               onClick={() => setIsMaximized(!isMaximized)}
               className="p-1.5 hover:bg-slate-100 rounded-full transition active:scale-90"
-              title={isMaximized ? 'Minimize' : 'Maximize'}
+              title={isMaximized ? 'Restore size' : 'Maximize'}
             >
               {isMaximized ? (
                 <Minimize2 className="w-5 h-5 text-slate-500" />
@@ -497,6 +537,31 @@ export default function FeatureInfoPanel({
     );
   }
 
+  // Desktop minimized view: Only header in top right corner
+  if (isMinimized) {
+    return (
+      <div
+        className="absolute right-4 top-4 bg-white shadow-lg z-40 flex items-center rounded-lg border border-slate-200"
+        style={{ maxWidth: '300px' }}
+      >
+        <div className="flex items-center gap-2 px-3 py-2 min-w-0">
+          <MapPin className="w-4 h-4 flex-shrink-0" style={{ color: colors.bg500 }} />
+          <h3 className="font-semibold text-slate-800 truncate text-sm">{displayTitle}</h3>
+        </div>
+        <div className="flex items-center gap-1 pr-2">
+          <button
+            onClick={() => setIsMinimized(false)}
+            className="p-1.5 hover:bg-slate-100 rounded-lg transition"
+            title="Restore"
+          >
+            <ChevronUp className="w-4 h-4 text-slate-500" />
+          </button>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition"><X className="w-4 h-4 text-slate-500" /></button>
+        </div>
+      </div>
+    );
+  }
+
   // Desktop view: resizable sidebar by default, full map area when maximized
   const desktopStyle = isMaximized
     ? { left: 0, right: 0, width: 'auto' } // Full width of map container
@@ -529,9 +594,16 @@ export default function FeatureInfoPanel({
         </div>
         <div className="flex items-center gap-1">
           <button
+            onClick={() => setIsMinimized(true)}
+            className="p-1.5 hover:bg-white rounded-lg transition"
+            title="Minimize"
+          >
+            <ChevronDown className="w-4 h-4 text-slate-500" />
+          </button>
+          <button
             onClick={() => setIsMaximized(!isMaximized)}
             className="p-1.5 hover:bg-white rounded-lg transition"
-            title={isMaximized ? 'Minimize' : 'Maximize'}
+            title={isMaximized ? 'Restore size' : 'Maximize'}
           >
             {isMaximized ? (
               <Minimize2 className="w-4 h-4 text-slate-500" />
