@@ -1710,14 +1710,8 @@ const MapView = forwardRef(function MapView(props, ref) {
       }
     }
 
-    // Show search results panel and close other tools
+    // Show search results panel
     setShowSearchResults(true);
-    setShowMarkupTool(false);
-    setShowLayersPanel(false);
-    setShowBasemapPicker(false);
-    setShowMapExport(false);
-
-    // Keep feature panel/markup popup open so user can refine search or save buffer
   }, [updateSearchResults, themeColor, chatViewRef]);
 
   /**
@@ -2100,15 +2094,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                 view={viewRef.current}
                 config={config}
                 isExpanded={showSearchResults}
-                onToggle={() => {
-                  setShowSearchResults(!showSearchResults);
-                  if (!showSearchResults) {
-                    setShowMarkupTool(false);
-                    setShowLayersPanel(false);
-                    setShowBasemapPicker(false);
-                    setShowMapExport(false);
-                  }
-                }}
+                onToggle={() => setShowSearchResults(!showSearchResults)}
                 onFeatureSelect={handleFeatureSelect}
                 onClearResults={clearResults}
                 onZoomToAll={zoomToAllResults}
@@ -2123,15 +2109,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                 config={config}
                 mapId={mapId}
                 isExpanded={showMarkupTool}
-                onToggle={() => {
-                  setShowMarkupTool(!showMarkupTool);
-                  if (!showMarkupTool) {
-                    setShowSearchResults(false);
-                    setShowLayersPanel(false);
-                    setShowBasemapPicker(false);
-                    setShowMapExport(false);
-                  }
-                }}
+                onToggle={() => setShowMarkupTool(!showMarkupTool)}
               />
 
               {/* 3. Layers Panel */}
@@ -2142,15 +2120,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                 mapId={mapId}
                 hiddenLayers={hiddenLayers}
                 isExpanded={showLayersPanel}
-                onToggle={() => {
-                  setShowLayersPanel(!showLayersPanel);
-                  if (!showLayersPanel) {
-                    setShowSearchResults(false);
-                    setShowMarkupTool(false);
-                    setShowBasemapPicker(false);
-                    setShowMapExport(false);
-                  }
-                }}
+                onToggle={() => setShowLayersPanel(!showLayersPanel)}
               />
 
               {/* 4. Basemap Picker */}
@@ -2161,15 +2131,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                 config={config}
                 mapId={mapId}
                 isExpanded={showBasemapPicker}
-                onToggle={() => {
-                  setShowBasemapPicker(!showBasemapPicker);
-                  if (!showBasemapPicker) {
-                    setShowSearchResults(false);
-                    setShowMarkupTool(false);
-                    setShowLayersPanel(false);
-                    setShowMapExport(false);
-                  }
-                }}
+                onToggle={() => setShowBasemapPicker(!showBasemapPicker)}
               />
 
               {/* 5. Map Export */}
@@ -2179,15 +2141,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                 atlasConfig={config}
                 accentColor={colors.bg600}
                 isExpanded={showMapExport}
-                onToggle={() => {
-                  setShowMapExport(!showMapExport);
-                  if (!showMapExport) {
-                    setShowSearchResults(false);
-                    setShowMarkupTool(false);
-                    setShowLayersPanel(false);
-                    setShowBasemapPicker(false);
-                  }
-                }}
+                onToggle={() => setShowMapExport(!showMapExport)}
                 onClose={() => setShowMapExport(false)}
               />
 
