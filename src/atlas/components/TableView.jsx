@@ -75,6 +75,7 @@ const TableView = forwardRef(function TableView(props, ref) {
     setMode,
     mode,
     mapViewRef,
+    chatViewRef,
     setShowHelpPanel
   } = useAtlas();
 
@@ -635,10 +636,37 @@ const TableView = forwardRef(function TableView(props, ref) {
               <p className="table-empty-text">
                 Search for properties using the search bar to populate the table with results.
               </p>
-              {config?.messages?.exampleQuestions?.[0] && (
-                <div className="table-empty-hint">
-                  <span className="hint-icon">💡</span>
-                  <span>Try: "{config.messages.exampleQuestions[0]}"</span>
+              {config?.messages?.exampleQuestions?.length > 0 && (
+                <div className="table-empty-suggestions">
+                  <p className="table-empty-suggestions-label">Try asking:</p>
+                  <div className="table-empty-suggestions-buttons">
+                    {config.messages.exampleQuestions.map((question, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          if (chatViewRef?.current?.handleSearch) {
+                            chatViewRef.current.handleSearch(question);
+                          }
+                        }}
+                        className="table-suggestion-btn"
+                        style={{
+                          borderColor: colors.border200,
+                          '--hover-border': colors.border300,
+                          '--hover-bg': colors.bg50
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.borderColor = colors.border300;
+                          e.target.style.backgroundColor = colors.bg50;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.borderColor = colors.border200;
+                          e.target.style.backgroundColor = '';
+                        }}
+                      >
+                        {question}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -927,16 +955,44 @@ const tableViewStyles = `
     margin-bottom: 20px;
   }
 
-  .table-empty-hint {
-    display: inline-flex;
-    align-items: center;
+  .table-empty-suggestions {
+    margin-top: 8px;
+    text-align: center;
+  }
+
+  .table-empty-suggestions-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+  }
+
+  .table-empty-suggestions-buttons {
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
-    padding: 12px 16px;
-    background: #f0f9ff;
-    border: 1px solid #bae6fd;
-    border-radius: 10px;
+    justify-content: center;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .table-suggestion-btn {
+    padding: 8px 14px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
     font-size: 13px;
-    color: #0369a1;
+    color: #334155;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+  }
+
+  .table-suggestion-btn:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
   }
 
   /* Grid Container */
@@ -1444,9 +1500,13 @@ const tableViewStyles = `
       font-size: 18px;
     }
 
-    .table-empty-hint {
+    .table-empty-suggestions-buttons {
+      gap: 6px;
+    }
+
+    .table-suggestion-btn {
       font-size: 12px;
-      padding: 10px 12px;
+      padding: 6px 10px;
     }
 
     .table-grid-container.ag-theme-alpine {
