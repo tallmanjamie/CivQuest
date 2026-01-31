@@ -554,7 +554,7 @@ export default function LayersPanel({
     return (
       <button
         onClick={onToggle}
-        className={`flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200
+        className={`flex items-center justify-center gap-1.5 w-24 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200
                    hover:bg-slate-50 transition-colors ${className}`}
         title="Layers"
       >
