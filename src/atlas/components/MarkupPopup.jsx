@@ -172,21 +172,32 @@ export default function MarkupPopup({
   useEffect(() => {
     if (!markup?.geometry || !selectedUnit) return;
 
+    // Validate that selectedUnit belongs to the current availableUnits
+    // This prevents race conditions when markupType changes but selectedUnit hasn't updated yet
+    const unitIsValid = availableUnits.some(u => u.id === selectedUnit.id);
+    if (!unitIsValid) return;
+
     try {
       // Ensure geometry is a proper ArcGIS Geometry class instance
       const geometry = ensureGeometry(markup.geometry);
       if (!geometry) return;
 
       if (markupType === 'point' || markupType === 'text') {
+        // Validate that selectedUnit has the format function (POINT_UNITS)
+        if (typeof selectedUnit.format !== 'function') return;
         const lon = geometry.longitude ?? geometry.x;
         const lat = geometry.latitude ?? geometry.y;
         if (lon !== undefined && lat !== undefined) {
           setMeasurement(selectedUnit.format(lat, lon));
         }
       } else if (markupType === 'polyline' && geometryEngine) {
+        // Validate that selectedUnit has suffix (LINE_UNITS)
+        if (!selectedUnit.suffix) return;
         const length = geometryEngine.geodesicLength(geometry, selectedUnit.id);
         setMeasurement(`${length.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${selectedUnit.suffix}`);
       } else if (markupType === 'polygon' && geometryEngine) {
+        // Validate that selectedUnit has arcgisUnit (POLYGON_UNITS)
+        if (!selectedUnit.arcgisUnit) return;
         const area = geometryEngine.geodesicArea(geometry, selectedUnit.arcgisUnit);
         setMeasurement(`${Math.abs(area).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${selectedUnit.suffix}`);
       }
@@ -194,7 +205,7 @@ export default function MarkupPopup({
       console.warn('[MarkupPopup] Measurement error:', err);
       setMeasurement('Unable to calculate');
     }
-  }, [markup, selectedUnit, markupType, refreshKey]);
+  }, [markup, selectedUnit, markupType, availableUnits, refreshKey]);
 
   // Sync name with markup (refreshKey triggers sync after editing)
   useEffect(() => {

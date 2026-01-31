@@ -56,10 +56,12 @@ export default function ElevationSection({
     const fetchElevation = async () => {
       setLoading(true);
       setError(null);
+      console.log('[ElevationSection] Fetching elevation for', markupType, 'using service:', elevationServiceUrl);
 
       try {
         if (markupType === 'point' || markupType === 'text') {
           const elevation = await getPointElevation(markup.geometry, elevationServiceUrl);
+          console.log('[ElevationSection] Point elevation result:', elevation);
           setElevationData({ type: 'point', elevation });
         } else if (markupType === 'polyline') {
           const data = await getLineElevation(markup.geometry, elevationServiceUrl, 50);
