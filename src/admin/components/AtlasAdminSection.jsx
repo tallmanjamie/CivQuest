@@ -1314,10 +1314,10 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
             <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
               {/* Global Templates Section */}
               {loadingGlobalTemplates ? (
-                <div className="flex items-center justify-center py-4">
+                <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
                 </div>
-              ) : (showStarterPicker.type === 'feature' ? globalFeatureTemplates : globalMapTemplates).length > 0 && (
+              ) : (showStarterPicker.type === 'feature' ? globalFeatureTemplates : globalMapTemplates).length > 0 ? (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <Globe className="w-4 h-4 text-blue-600" />
@@ -1352,47 +1352,18 @@ function SuperAdminExportTemplates({ db, addToast, confirm, accentColor = '#004E
                     ))}
                   </div>
                 </div>
+              ) : (
+                <div className="text-center py-8">
+                  <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle className="w-6 h-6 text-slate-400" />
+                  </div>
+                  <h4 className="text-sm font-medium text-slate-700 mb-1">No Global Templates Available</h4>
+                  <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                    There are no global {showStarterPicker.type === 'feature' ? 'feature export' : 'map export'} templates configured.
+                    Please contact the system administrator to create global templates in the Global Template Library.
+                  </p>
+                </div>
               )}
-
-              {/* Starter Templates Section */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <LayoutTemplate className="w-4 h-4 text-slate-500" />
-                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-                    Starter Templates
-                  </h4>
-                </div>
-                <div className="grid gap-3">
-                  {(showStarterPicker.type === 'feature' ? FEATURE_STARTER_TEMPLATES : STARTER_TEMPLATES).map(starter => (
-                    <button
-                      key={starter.id}
-                      onClick={() => handleCreateFromStarter(showStarterPicker.orgId, starter, showStarterPicker.type)}
-                      className="flex items-start gap-4 p-4 border border-slate-200 rounded-xl text-left hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                    >
-                      <div
-                        className="w-12 h-12 rounded-lg flex items-center justify-center text-white flex-shrink-0"
-                        style={{ backgroundColor: accentColor }}
-                      >
-                        {showStarterPicker.type === 'feature' ? (
-                          <FileOutput className="w-6 h-6" />
-                        ) : (
-                          <LayoutTemplate className="w-6 h-6" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium text-slate-800">{starter.name}</h4>
-                        <p className="text-sm text-slate-500 mt-0.5">{starter.description}</p>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                          <span>{starter.pageSize.includes('landscape') ? 'Landscape' : 'Portrait'}</span>
-                          <span>•</span>
-                          <span>{starter.elements.length} elements</span>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-slate-400 flex-shrink-0 mt-1" />
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
 
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
