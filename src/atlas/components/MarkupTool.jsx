@@ -1026,16 +1026,8 @@ const MarkupTool = forwardRef(function MarkupTool({
           <div className="space-y-1">
             {markups.slice().reverse().map((m) => {
               const tool = m.attributes?.tool;
-              const styleId = m.attributes?.symbolStyle;
               const Icon = tool === 'polyline' ? Minus : tool === 'polygon' ? Square : tool === 'text' ? Type : Circle;
               const isBeingEdited = editingMarkup && editingMarkup.attributes?.id === m.attributes?.id;
-
-              const getFriendlyStyleLabel = (tool, id) => {
-                if (tool === 'point') return POINT_TYPES.find(t => t.id === id)?.label || id;
-                if (tool === 'polyline' || tool === 'polygon') return LINE_TYPES.find(t => t.id === id)?.label || id;
-                if (tool === 'text') return FONT_FAMILIES.find(t => t.id === id)?.label || id;
-                return id;
-              };
 
               return (
                 <div
@@ -1053,16 +1045,12 @@ const MarkupTool = forwardRef(function MarkupTool({
                       <p className="text-xs font-bold text-slate-700 truncate">
                         {m.attributes?.name || (tool === 'text' ? (m.symbol?.text || 'Label') : (tool || 'Markup'))}
                       </p>
-                      <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-slate-100 text-slate-500 uppercase tracking-tight">
-                        {getFriendlyStyleLabel(tool, styleId)}
-                      </span>
                       {isBeingEdited && (
                         <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500 text-white uppercase tracking-tight animate-pulse">
                           Editing
                         </span>
                       )}
                     </div>
-                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">{m.attributes?.metric}</p>
                   </div>
                   <div className={`flex items-center gap-1 transition-opacity ${isBeingEdited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                     <button onClick={() => zoomTo(m)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="Zoom to"><ZoomIn className="w-3.5 h-3.5" /></button>
