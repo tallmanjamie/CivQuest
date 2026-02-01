@@ -69,7 +69,8 @@ import {
   BarChart3,
   ExternalLink,
   MessageSquare,
-  Sparkles
+  Sparkles,
+  ArrowRightLeft
 } from 'lucide-react';
 
 // Import admin components
@@ -2432,6 +2433,8 @@ function OrgAdminManagement() {
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [reassigningAdmin, setReassigningAdmin] = useState(null);
   const [editingAdmin, setEditingAdmin] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -2543,6 +2546,27 @@ function OrgAdminManagement() {
     });
   };
 
+  const handleOpenReassign = (admin) => {
+    setReassigningAdmin(admin);
+    setShowReassignModal(true);
+  };
+
+  const handleReassignAdmin = async (newOrgId) => {
+    if (!reassigningAdmin) return;
+
+    try {
+      await updateDoc(doc(db, PATHS.admins, reassigningAdmin.id), {
+        organizationId: newOrgId
+      });
+      const newOrgName = getOrgName(newOrgId);
+      addToast(`${reassigningAdmin.email} has been reassigned to ${newOrgName}.`, 'success');
+      setShowReassignModal(false);
+      setReassigningAdmin(null);
+    } catch (err) {
+      addToast(`Error reassigning admin: ${err.message}`, 'error');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -2602,6 +2626,13 @@ function OrgAdminManagement() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-2">
                       <button
+                        onClick={() => handleOpenReassign(admin)}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                        title="Reassign to another organization"
+                      >
+                        <ArrowRightLeft className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => handleToggleDisabled(admin)}
                         className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded"
                         title={admin.disabled ? 'Enable' : 'Disable'}
@@ -2637,6 +2668,20 @@ function OrgAdminManagement() {
           organizations={organizations}
           onClose={() => setShowAddModal(false)}
           onSave={handleAddAdmin}
+        />
+      )}
+
+      {/* Reassign Admin Modal */}
+      {showReassignModal && reassigningAdmin && (
+        <ReassignOrgAdminModal
+          admin={reassigningAdmin}
+          organizations={organizations}
+          currentOrgId={reassigningAdmin.organizationId}
+          onClose={() => {
+            setShowReassignModal(false);
+            setReassigningAdmin(null);
+          }}
+          onSave={handleReassignAdmin}
         />
       )}
     </div>
@@ -2714,6 +2759,84 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
               Add Admin
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- REASSIGN ORG ADMIN MODAL ---
+function ReassignOrgAdminModal({ admin, organizations, currentOrgId, onClose, onSave }) {
+  const [newOrganizationId, setNewOrganizationId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const currentOrgName = organizations.find(o => o.id === currentOrgId)?.name || currentOrgId;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!newOrganizationId || newOrganizationId === currentOrgId) return;
+
+    setSaving(true);
+    await onSave(newOrganizationId);
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-slate-800">Reassign Organization Admin</h3>
+          <button onClick={onClose}>
+            <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <p className="text-sm text-slate-500 -mt-2 mb-2">
+            Reassign <span className="font-medium text-slate-700">{admin.email}</span> to a different organization.
+          </p>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Current Organization</label>
+            <div className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-600">
+              {currentOrgName}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">New Organization</label>
+            <select
+              value={newOrganizationId}
+              onChange={(e) => setNewOrganizationId(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+              required
+            >
+              <option value="">Select new organization...</option>
+              {organizations
+                .filter(org => org.id !== currentOrgId)
+                .map(org => (
+                  <option key={org.id} value={org.id}>{org.name}</option>
+                ))}
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !newOrganizationId || newOrganizationId === currentOrgId}
+              className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center gap-2"
+            >
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Reassign Admin
             </button>
           </div>
         </form>
