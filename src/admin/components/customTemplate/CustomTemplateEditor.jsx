@@ -184,7 +184,9 @@ const VISUAL_ELEMENTS = [
       type: 'statistics',
       selectedStatistics: [], // Empty = show all, otherwise array of stat IDs
       valueSize: '24',
-      alignment: 'center',
+      valueAlignment: 'center',
+      containerWidth: '100',
+      containerAlignment: 'center',
       placeholder: '{{statisticsHtml}}'
     }
   },
@@ -285,7 +287,9 @@ const VISUAL_ELEMENTS = [
       content: '<p>Add your content here...</p>',
       selectedStatistics: [],
       statisticsValueSize: '24',
-      statisticsAlignment: 'left',
+      statisticsValueAlignment: 'left',
+      statisticsContainerWidth: '100',
+      statisticsContainerAlignment: 'center',
       verticalAlign: 'center',
       gap: '15'
     }
@@ -321,14 +325,16 @@ function generateSelectedStatisticsHtml(statistics, sampleContext, theme, option
 
   // Options for customizing statistics display
   const valueSize = options.valueSize || '24';
-  const alignment = options.alignment || 'center';
+  const valueAlignment = options.valueAlignment || 'center';
+  const containerWidth = options.containerWidth || '100';
+  const containerAlignment = options.containerAlignment || 'center';
   const labelSize = Math.max(9, Math.round(parseInt(valueSize) * 0.45));
 
   const cards = statistics.map(stat => {
     const value = sampleContext[`stat_${stat.id}`] || '-';
     const label = stat.label || stat.id;
 
-    return `<td style="width: ${100 / statistics.length}%; padding: 10px; text-align: center; vertical-align: top;">
+    return `<td style="width: ${100 / statistics.length}%; padding: 10px; text-align: ${valueAlignment}; vertical-align: top;">
       <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
         <p style="margin: 0; font-size: ${labelSize}px; color: ${mutedTextColor}; text-transform: uppercase; letter-spacing: 0.5px;">${label}</p>
         <p style="margin: 8px 0 0 0; font-size: ${valueSize}px; font-weight: bold; color: ${primaryColor};">${value}</p>
@@ -336,15 +342,17 @@ function generateSelectedStatisticsHtml(statistics, sampleContext, theme, option
     </td>`;
   }).join('');
 
-  // Alignment determines how the table is positioned
-  const tableStyle = alignment === 'left'
+  // Container alignment determines how the table is positioned when not full width
+  const tableMargin = containerAlignment === 'left'
     ? 'margin-right: auto;'
-    : alignment === 'right'
+    : containerAlignment === 'right'
       ? 'margin-left: auto;'
       : 'margin: 0 auto;';
 
-  return `<div style="padding: 0; margin: 0; text-align: ${alignment};">
-    <table style="width: 100%; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px; ${tableStyle}">
+  const widthValue = containerWidth === '100' ? '100%' : `${containerWidth}%`;
+
+  return `<div style="padding: 0; margin: 0;">
+    <table style="width: ${widthValue}; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px; ${tableMargin}">
       <tr>${cards}</tr>
     </table>
   </div>`;
@@ -693,9 +701,11 @@ export default function CustomTemplateEditor({
           : template.statistics;
 
         const valueSize = el.valueSize || '24';
-        const alignment = el.alignment || 'center';
-        const key = `statisticsHtml_${el.id}_${valueSize}_${alignment}`;
-        baseContext[key] = generateSelectedStatisticsHtml(statsToShow, contextWithLiveStats, theme, { valueSize, alignment });
+        const valueAlignment = el.valueAlignment || 'center';
+        const containerWidth = el.containerWidth || '100';
+        const containerAlignment = el.containerAlignment || 'center';
+        const key = `statisticsHtml_${el.id}_${valueSize}_${valueAlignment}_${containerWidth}_${containerAlignment}`;
+        baseContext[key] = generateSelectedStatisticsHtml(statsToShow, contextWithLiveStats, theme, { valueSize, valueAlignment, containerWidth, containerAlignment });
       } else if (el.type === 'row' && el.contentType === 'statistics') {
         // Get selected statistics for row or all
         const selectedIds = el.selectedStatistics || [];
@@ -704,9 +714,11 @@ export default function CustomTemplateEditor({
           : template.statistics;
 
         const valueSize = el.statisticsValueSize || '24';
-        const alignment = el.statisticsAlignment || 'left';
-        const key = `statisticsHtml_${el.id}_${valueSize}_${alignment}`;
-        baseContext[key] = generateSelectedStatisticsHtml(statsToShow, contextWithLiveStats, theme, { valueSize, alignment });
+        const valueAlignment = el.statisticsValueAlignment || 'left';
+        const containerWidth = el.statisticsContainerWidth || '100';
+        const containerAlignment = el.statisticsContainerAlignment || 'center';
+        const key = `statisticsHtml_${el.id}_${valueSize}_${valueAlignment}_${containerWidth}_${containerAlignment}`;
+        baseContext[key] = generateSelectedStatisticsHtml(statsToShow, contextWithLiveStats, theme, { valueSize, valueAlignment, containerWidth, containerAlignment });
       }
     });
 
@@ -841,8 +853,10 @@ export default function CustomTemplateEditor({
         case 'statistics':
           // Use element-specific placeholder with options
           const statsValueSize = el.valueSize || '24';
-          const statsAlignment = el.alignment || 'center';
-          html += `  <!-- Statistics -->\n  <div style="padding: 15px 25px;">{{statisticsHtml_${el.id}_${statsValueSize}_${statsAlignment}}}</div>\n`;
+          const statsValueAlignment = el.valueAlignment || 'center';
+          const statsContainerWidth = el.containerWidth || '100';
+          const statsContainerAlignment = el.containerAlignment || 'center';
+          html += `  <!-- Statistics -->\n  <div style="padding: 15px 25px;">{{statisticsHtml_${el.id}_${statsValueSize}_${statsValueAlignment}_${statsContainerWidth}_${statsContainerAlignment}}}</div>\n`;
           break;
         case 'record-count':
           html += `  <p style="font-size: 16px; padding: 0 25px; margin: 20px 0;">${el.template}</p>\n`;
@@ -886,8 +900,10 @@ export default function CustomTemplateEditor({
           if (el.contentType === 'statistics') {
             // Use specific statistics placeholder with options
             const rowStatsValueSize = el.statisticsValueSize || '24';
-            const rowStatsAlignment = el.statisticsAlignment || 'left';
-            rowContent = `{{statisticsHtml_${el.id}_${rowStatsValueSize}_${rowStatsAlignment}}}`;
+            const rowStatsValueAlignment = el.statisticsValueAlignment || 'left';
+            const rowStatsContainerWidth = el.statisticsContainerWidth || '100';
+            const rowStatsContainerAlignment = el.statisticsContainerAlignment || 'center';
+            rowContent = `{{statisticsHtml_${el.id}_${rowStatsValueSize}_${rowStatsValueAlignment}_${rowStatsContainerWidth}_${rowStatsContainerAlignment}}}`;
           } else {
             rowContent = el.content || '<p>Content here</p>';
           }
@@ -1026,7 +1042,9 @@ export default function CustomTemplateEditor({
           // Generate statistics HTML for the selected stats with customization options
           const statsOptions = {
             valueSize: element.valueSize || '24',
-            alignment: element.alignment || 'center'
+            valueAlignment: element.valueAlignment || 'center',
+            containerWidth: element.containerWidth || '100',
+            containerAlignment: element.containerAlignment || 'center'
           };
           const statsHtml = generateSelectedStatisticsHtml(statsToShow, sampleContext, template.theme, statsOptions);
           return (
@@ -1108,7 +1126,9 @@ export default function CustomTemplateEditor({
               // Use row-specific statistics options
               const statsOptions = {
                 valueSize: element.statisticsValueSize || '24',
-                alignment: element.statisticsAlignment || 'left'
+                valueAlignment: element.statisticsValueAlignment || 'left',
+                containerWidth: element.statisticsContainerWidth || '100',
+                containerAlignment: element.statisticsContainerAlignment || 'center'
               };
               const statsHtml = generateSelectedStatisticsHtml(statsToShow, sampleContext, template.theme, statsOptions);
               return <div dangerouslySetInnerHTML={{ __html: statsHtml }} />;
@@ -1807,17 +1827,53 @@ export default function CustomTemplateEditor({
                               <option value="40">Huge (40px)</option>
                             </select>
                           </div>
-                          {/* Alignment */}
+                          {/* Value Alignment */}
                           <div>
-                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Value Alignment</label>
                             <div className="flex gap-1">
                               {['left', 'center', 'right'].map(align => (
                                 <button
                                   key={align}
                                   type="button"
-                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  onClick={() => updateElement(selectedElementIndex, { valueAlignment: align })}
                                   className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
-                                    (element.alignment || 'center') === align
+                                    (element.valueAlignment || 'center') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Container Width */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Container Width</label>
+                            <select
+                              value={element.containerWidth || '100'}
+                              onChange={(e) => updateElement(selectedElementIndex, { containerWidth: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              <option value="50">50%</option>
+                              <option value="60">60%</option>
+                              <option value="70">70%</option>
+                              <option value="80">80%</option>
+                              <option value="90">90%</option>
+                              <option value="100">100% (Full Width)</option>
+                            </select>
+                          </div>
+                          {/* Container Alignment */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Container Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { containerAlignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.containerAlignment || 'center') === align
                                       ? 'bg-blue-50 border-blue-300 text-blue-700'
                                       : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                                   }`}
@@ -2092,17 +2148,53 @@ export default function CustomTemplateEditor({
                                   <option value="40">Huge (40px)</option>
                                 </select>
                               </div>
-                              {/* Statistics Alignment */}
+                              {/* Statistics Value Alignment */}
                               <div>
-                                <label className="block text-[10px] font-medium text-slate-600 mb-1">Statistics Alignment</label>
+                                <label className="block text-[10px] font-medium text-slate-600 mb-1">Statistics Value Alignment</label>
                                 <div className="flex gap-1">
                                   {['left', 'center', 'right'].map(align => (
                                     <button
                                       key={align}
                                       type="button"
-                                      onClick={() => updateElement(selectedElementIndex, { statisticsAlignment: align })}
+                                      onClick={() => updateElement(selectedElementIndex, { statisticsValueAlignment: align })}
                                       className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
-                                        (element.statisticsAlignment || 'left') === align
+                                        (element.statisticsValueAlignment || 'left') === align
+                                          ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      {align}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              {/* Statistics Container Width */}
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-600 mb-1">Statistics Container Width</label>
+                                <select
+                                  value={element.statisticsContainerWidth || '100'}
+                                  onChange={(e) => updateElement(selectedElementIndex, { statisticsContainerWidth: e.target.value })}
+                                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                                >
+                                  <option value="50">50%</option>
+                                  <option value="60">60%</option>
+                                  <option value="70">70%</option>
+                                  <option value="80">80%</option>
+                                  <option value="90">90%</option>
+                                  <option value="100">100% (Full Width)</option>
+                                </select>
+                              </div>
+                              {/* Statistics Container Alignment */}
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-600 mb-1">Statistics Container Alignment</label>
+                                <div className="flex gap-1">
+                                  {['left', 'center', 'right'].map(align => (
+                                    <button
+                                      key={align}
+                                      type="button"
+                                      onClick={() => updateElement(selectedElementIndex, { statisticsContainerAlignment: align })}
+                                      className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                        (element.statisticsContainerAlignment || 'center') === align
                                           ? 'bg-blue-50 border-blue-300 text-blue-700'
                                           : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                                       }`}
