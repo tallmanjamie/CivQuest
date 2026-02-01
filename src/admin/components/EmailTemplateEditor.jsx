@@ -3,8 +3,9 @@
 // Provides live preview, placeholder documentation, and template categories
 //
 // Templates support custom HTML with {{placeholders}} for dynamic content
+// Now includes visual drag-and-drop builder and feature service connection
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   Save,
@@ -19,8 +20,27 @@ import {
   LayoutTemplate,
   AlertCircle,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Database,
+  Search,
+  Loader2,
+  GripVertical,
+  Type,
+  Image,
+  Table,
+  Download,
+  BarChart3,
+  Columns,
+  Trash2,
+  Plus,
+  Settings,
+  Palette,
+  FileDown,
+  ToggleLeft,
+  ToggleRight,
+  Layers
 } from 'lucide-react';
+import ServiceFinder from './ServiceFinder';
 
 // Available placeholder documentation
 const PLACEHOLDERS = [
@@ -230,10 +250,159 @@ const STARTER_TEMPLATES = {
   }
 };
 
+// Visual Builder Element Types
+const VISUAL_ELEMENTS = [
+  {
+    id: 'header',
+    name: 'Header',
+    icon: 'LayoutTemplate',
+    category: 'structure',
+    defaultContent: {
+      type: 'header',
+      bgColor: '#004E7C',
+      textColor: '#ffffff',
+      title: '{{organizationName}}',
+      subtitle: '{{notificationName}}',
+      padding: '20px'
+    }
+  },
+  {
+    id: 'text',
+    name: 'Text Block',
+    icon: 'Type',
+    category: 'content',
+    defaultContent: {
+      type: 'text',
+      content: '{{emailIntro}}',
+      fontSize: '14px',
+      color: '#444444',
+      padding: '15px 20px'
+    }
+  },
+  {
+    id: 'statistic',
+    name: 'Statistic Card',
+    icon: 'BarChart3',
+    category: 'content',
+    defaultContent: {
+      type: 'statistic',
+      label: 'Total Records',
+      value: '{{recordCount}}',
+      bgColor: '#f8f9fa',
+      valueColor: '#004E7C',
+      labelColor: '#666666'
+    }
+  },
+  {
+    id: 'statistics-row',
+    name: 'Statistics Row',
+    icon: 'Columns',
+    category: 'content',
+    defaultContent: {
+      type: 'statistics-row',
+      stats: [
+        { label: 'Records', value: '{{recordCount}}' },
+        { label: 'Period', value: '{{dateRangeStart}} - {{dateRangeEnd}}' }
+      ],
+      bgColor: '#f8f9fa'
+    }
+  },
+  {
+    id: 'datatable',
+    name: 'Data Table',
+    icon: 'Table',
+    category: 'data',
+    defaultContent: {
+      type: 'datatable',
+      placeholder: '{{dataTable}}',
+      headerBgColor: '#f2f2f2',
+      headerTextColor: '#333333',
+      borderColor: '#dddddd'
+    }
+  },
+  {
+    id: 'download-button',
+    name: 'Download Button',
+    icon: 'Download',
+    category: 'data',
+    defaultContent: {
+      type: 'download-button',
+      text: 'Download Full CSV Report',
+      bgColor: '#004E7C',
+      textColor: '#ffffff',
+      borderRadius: '5px'
+    }
+  },
+  {
+    id: 'divider',
+    name: 'Divider',
+    icon: 'Columns',
+    category: 'structure',
+    defaultContent: {
+      type: 'divider',
+      color: '#eeeeee',
+      thickness: '1px',
+      margin: '20px 0'
+    }
+  },
+  {
+    id: 'spacer',
+    name: 'Spacer',
+    icon: 'Columns',
+    category: 'structure',
+    defaultContent: {
+      type: 'spacer',
+      height: '20px'
+    }
+  },
+  {
+    id: 'footer',
+    name: 'Footer',
+    icon: 'FileText',
+    category: 'structure',
+    defaultContent: {
+      type: 'footer',
+      bgColor: '#f5f5f5',
+      textColor: '#888888',
+      text: 'You are receiving this because you subscribed at CivQuest Notify.',
+      padding: '15px 20px',
+      fontSize: '12px'
+    }
+  },
+  {
+    id: 'date-info',
+    name: 'Date Info',
+    icon: 'Info',
+    category: 'content',
+    defaultContent: {
+      type: 'date-info',
+      format: 'Period: {{dateRangeStart}} to {{dateRangeEnd}}',
+      color: '#666666',
+      fontSize: '14px'
+    }
+  },
+  {
+    id: 'more-records',
+    name: 'More Records Message',
+    icon: 'Info',
+    category: 'data',
+    defaultContent: {
+      type: 'more-records',
+      placeholder: '{{moreRecordsMessage}}',
+      color: '#666666',
+      fontStyle: 'italic'
+    }
+  }
+];
+
+// Configuration for the proxy service
+const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
+
 /**
  * EmailTemplateEditor Component
  *
  * Modal for editing email template HTML with live preview
+ * Now includes visual drag-and-drop builder and feature service connection
  *
  * Props:
  * @param {object} template - The template object to edit
@@ -249,12 +418,31 @@ export default function EmailTemplateEditor({
 }) {
   const [formData, setFormData] = useState({
     ...template,
-    html: template.html || STARTER_TEMPLATES.basic.html
+    html: template.html || STARTER_TEMPLATES.basic.html,
+    csvExportEnabled: template.csvExportEnabled !== false, // Default to true
+    featureServiceUrl: template.featureServiceUrl || '',
+    featureServiceCredentials: template.featureServiceCredentials || { username: '', password: '' },
+    visualElements: template.visualElements || []
   });
   const [showPreview, setShowPreview] = useState(true);
   const [showPlaceholders, setShowPlaceholders] = useState(false);
   const [copiedPlaceholder, setCopiedPlaceholder] = useState(null);
   const [errors, setErrors] = useState({});
+
+  // Editor mode: 'html' or 'visual'
+  const [editorMode, setEditorMode] = useState(template.visualElements?.length > 0 ? 'visual' : 'html');
+
+  // Feature Service State
+  const [showServiceFinder, setShowServiceFinder] = useState(false);
+  const [isLoadingServiceData, setIsLoadingServiceData] = useState(false);
+  const [serviceFields, setServiceFields] = useState([]);
+  const [sampleServiceData, setSampleServiceData] = useState([]);
+  const [serviceError, setServiceError] = useState(null);
+
+  // Drag and drop state
+  const [draggedElement, setDraggedElement] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const dragCounter = useRef(0);
 
   // Sample data for preview
   const sampleData = {
@@ -288,10 +476,289 @@ export default function EmailTemplateEditor({
     moreRecordsMessage: '<p style="font-style: italic; color: #666; margin-top: 15px; font-size: 13px;">Showing first 3 of 1686 records. Download the CSV to see all data.</p>'
   };
 
-  // Process template HTML with sample data
+  // Process template HTML with sample data (including service data if available)
+  const getPreviewSampleData = useCallback(() => {
+    const base = { ...sampleData };
+
+    // If we have service data, use it for the data table preview
+    if (sampleServiceData.length > 0 && serviceFields.length > 0) {
+      const displayFields = serviceFields.slice(0, 3); // Show first 3 fields
+      const tableHtml = `<table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px;">
+        <thead>
+          <tr>
+            ${displayFields.map(f => `<th style="text-align: left; padding: 10px 8px; background-color: #f2f2f2; border-bottom: 2px solid #ddd;">${f}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${sampleServiceData.slice(0, 5).map(row => `<tr>${displayFields.map(f => `<td style="padding: 10px 8px; border-bottom: 1px solid #eee;">${row[f] ?? ''}</td>`).join('')}</tr>`).join('')}
+        </tbody>
+      </table>`;
+      base.dataTable = tableHtml;
+      base.recordCount = String(sampleServiceData.length);
+    }
+
+    return base;
+  }, [sampleData, sampleServiceData, serviceFields]);
+
   const processedHtml = formData.html?.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-    return sampleData[key] || match;
+    const previewData = getPreviewSampleData();
+    return previewData[key] || match;
   }) || '';
+
+  // Feature Service Functions
+  const handleServiceSelected = (serviceData) => {
+    setFormData(prev => ({
+      ...prev,
+      featureServiceUrl: serviceData.url,
+      featureServiceCredentials: {
+        username: serviceData.username || '',
+        password: serviceData.password || ''
+      }
+    }));
+    setShowServiceFinder(false);
+
+    // Auto-fetch data from the service
+    setTimeout(() => {
+      fetchServiceData(serviceData.url, serviceData.username, serviceData.password);
+    }, 100);
+  };
+
+  const fetchServiceData = async (url = formData.featureServiceUrl, username = formData.featureServiceCredentials?.username, password = formData.featureServiceCredentials?.password) => {
+    if (!url) return;
+
+    setIsLoadingServiceData(true);
+    setServiceError(null);
+
+    try {
+      // First, get metadata
+      const metadataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/metadata`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceUrl: url,
+          ...(username && password ? { username, password } : {})
+        })
+      });
+
+      if (!metadataRes.ok) throw new Error('Failed to fetch service metadata');
+
+      const metadata = await metadataRes.json();
+      const fields = (metadata.fields || []).map(f => f.name);
+      setServiceFields(fields);
+
+      // Then, get sample data (first 10 records)
+      const baseUrl = url.replace(/\/$/, '');
+      const queryParams = new URLSearchParams({
+        where: '1=1',
+        outFields: '*',
+        resultRecordCount: '10',
+        f: 'json'
+      });
+
+      const dataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/proxy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceUrl: `${baseUrl}/query?${queryParams.toString()}`,
+          ...(username && password ? { username, password } : {})
+        })
+      });
+
+      if (!dataRes.ok) throw new Error('Failed to fetch sample data');
+
+      const data = await dataRes.json();
+      const records = (data.features || []).map(f => f.attributes || {});
+      setSampleServiceData(records);
+
+    } catch (err) {
+      console.error('Service data fetch error:', err);
+      setServiceError(err.message);
+    } finally {
+      setIsLoadingServiceData(false);
+    }
+  };
+
+  // Auto-fetch service data on mount if URL exists
+  useEffect(() => {
+    if (formData.featureServiceUrl) {
+      fetchServiceData();
+    }
+  }, []);
+
+  // Visual Builder Functions
+  const handleDragStart = (e, element, sourceIndex = null) => {
+    setDraggedElement({ element, sourceIndex });
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e, targetIndex) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(targetIndex);
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    dragCounter.current++;
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setDragOverIndex(null);
+    }
+  };
+
+  const handleDrop = (e, targetIndex) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragOverIndex(null);
+
+    if (!draggedElement) return;
+
+    const { element, sourceIndex } = draggedElement;
+
+    setFormData(prev => {
+      const newElements = [...prev.visualElements];
+
+      if (sourceIndex !== null) {
+        // Moving existing element
+        const [movedElement] = newElements.splice(sourceIndex, 1);
+        const adjustedIndex = targetIndex > sourceIndex ? targetIndex - 1 : targetIndex;
+        newElements.splice(adjustedIndex, 0, movedElement);
+      } else {
+        // Adding new element from palette
+        const newElement = {
+          id: `${element.id}_${Date.now()}`,
+          ...element.defaultContent
+        };
+        newElements.splice(targetIndex, 0, newElement);
+      }
+
+      return { ...prev, visualElements: newElements };
+    });
+
+    setDraggedElement(null);
+  };
+
+  const handleDropOnCanvas = (e) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragOverIndex(null);
+
+    if (!draggedElement) return;
+
+    const { element, sourceIndex } = draggedElement;
+
+    if (sourceIndex === null) {
+      // Adding new element at the end
+      const newElement = {
+        id: `${element.id}_${Date.now()}`,
+        ...element.defaultContent
+      };
+      setFormData(prev => ({
+        ...prev,
+        visualElements: [...prev.visualElements, newElement]
+      }));
+    }
+
+    setDraggedElement(null);
+  };
+
+  const removeElement = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      visualElements: prev.visualElements.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateElement = (index, updates) => {
+    setFormData(prev => ({
+      ...prev,
+      visualElements: prev.visualElements.map((el, i) =>
+        i === index ? { ...el, ...updates } : el
+      )
+    }));
+  };
+
+  // Convert visual elements to HTML
+  const visualElementsToHtml = useCallback(() => {
+    if (formData.visualElements.length === 0) return '';
+
+    const elements = formData.visualElements;
+    let html = '<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">\n';
+
+    elements.forEach(el => {
+      switch (el.type) {
+        case 'header':
+          html += `  <div style="background-color: ${el.bgColor}; color: ${el.textColor}; padding: ${el.padding}; text-align: center;">
+    <h1 style="margin: 0; font-size: 24px;">${el.title}</h1>
+    <h2 style="margin: 5px 0 0 0; font-weight: normal; font-size: 16px;">${el.subtitle}</h2>
+  </div>\n`;
+          break;
+        case 'text':
+          html += `  <div style="padding: ${el.padding}; font-size: ${el.fontSize}; color: ${el.color};">${el.content}</div>\n`;
+          break;
+        case 'statistic':
+          html += `  <div style="padding: 20px; background-color: ${el.bgColor}; text-align: center;">
+    <p style="margin: 0; font-size: 12px; color: ${el.labelColor}; text-transform: uppercase;">${el.label}</p>
+    <p style="margin: 5px 0 0 0; font-size: 36px; font-weight: bold; color: ${el.valueColor};">${el.value}</p>
+  </div>\n`;
+          break;
+        case 'statistics-row':
+          html += `  <div style="padding: 20px; background-color: ${el.bgColor};">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr>
+        ${el.stats.map(stat => `<td style="width: ${100/el.stats.length}%; padding: 10px; text-align: center;">
+          <p style="margin: 0; font-size: 12px; color: #666; text-transform: uppercase;">${stat.label}</p>
+          <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #004E7C;">${stat.value}</p>
+        </td>`).join('')}
+      </tr>
+    </table>
+  </div>\n`;
+          break;
+        case 'datatable':
+          html += `  <div style="padding: 20px;">${el.placeholder}</div>\n`;
+          break;
+        case 'download-button':
+          if (formData.csvExportEnabled) {
+            html += `  <div style="padding: 20px; text-align: center;">
+    <a href="{{downloadUrl}}" style="display: inline-block; background-color: ${el.bgColor}; color: ${el.textColor}; padding: 12px 24px; text-decoration: none; border-radius: ${el.borderRadius}; font-weight: bold;">${el.text}</a>
+  </div>\n`;
+          }
+          break;
+        case 'divider':
+          html += `  <hr style="border: none; border-top: ${el.thickness} solid ${el.color}; margin: ${el.margin};" />\n`;
+          break;
+        case 'spacer':
+          html += `  <div style="height: ${el.height};"></div>\n`;
+          break;
+        case 'footer':
+          html += `  <div style="padding: ${el.padding}; background-color: ${el.bgColor}; text-align: center; font-size: ${el.fontSize}; color: ${el.textColor};">${el.text}</div>\n`;
+          break;
+        case 'date-info':
+          html += `  <p style="margin: 0; padding: 10px 20px; font-size: ${el.fontSize}; color: ${el.color};">${el.format}</p>\n`;
+          break;
+        case 'more-records':
+          html += `  <div style="padding: 10px 20px; font-size: 13px; color: ${el.color}; font-style: ${el.fontStyle};">${el.placeholder}</div>\n`;
+          break;
+      }
+    });
+
+    html += '</div>';
+    return html;
+  }, [formData.visualElements, formData.csvExportEnabled]);
+
+  // Sync visual elements to HTML when in visual mode
+  useEffect(() => {
+    if (editorMode === 'visual' && formData.visualElements.length > 0) {
+      const generatedHtml = visualElementsToHtml();
+      if (generatedHtml) {
+        setFormData(prev => ({ ...prev, html: generatedHtml }));
+      }
+    }
+  }, [formData.visualElements, editorMode, visualElementsToHtml]);
 
   // Handle form changes
   const handleChange = (field, value) => {
@@ -347,8 +814,11 @@ export default function EmailTemplateEditor({
     if (!formData.name?.trim()) {
       newErrors.name = 'Template name is required';
     }
-    if (!formData.html?.trim()) {
+    if (editorMode === 'html' && !formData.html?.trim()) {
       newErrors.html = 'Template HTML is required';
+    }
+    if (editorMode === 'visual' && formData.visualElements.length === 0) {
+      newErrors.visual = 'Add at least one element to the template';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -357,12 +827,142 @@ export default function EmailTemplateEditor({
   // Handle save
   const handleSave = () => {
     if (!validate()) return;
-    onSave(formData);
+    // Ensure HTML is generated from visual elements before saving
+    if (editorMode === 'visual') {
+      const generatedHtml = visualElementsToHtml();
+      onSave({ ...formData, html: generatedHtml });
+    } else {
+      onSave(formData);
+    }
+  };
+
+  // Render visual element for the canvas
+  const renderVisualElement = (element, index) => {
+    const previewData = getPreviewSampleData();
+
+    const processContent = (content) => {
+      if (typeof content !== 'string') return content;
+      return content.replace(/\{\{(\w+)\}\}/g, (match, key) => previewData[key] || match);
+    };
+
+    return (
+      <div
+        key={element.id}
+        draggable
+        onDragStart={(e) => handleDragStart(e, element, index)}
+        onDragOver={(e) => handleDragOver(e, index)}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e, index)}
+        className={`group relative border-2 transition-all cursor-move ${
+          dragOverIndex === index ? 'border-blue-400 bg-blue-50' : 'border-transparent hover:border-slate-300'
+        }`}
+      >
+        {/* Element Controls */}
+        <div className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-1">
+          <button
+            type="button"
+            onClick={() => removeElement(index)}
+            className="p-1 bg-red-500 text-white rounded shadow-sm hover:bg-red-600"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+          <div className="p-1 bg-slate-600 text-white rounded shadow-sm cursor-grab">
+            <GripVertical className="w-3 h-3" />
+          </div>
+        </div>
+
+        {/* Rendered Element */}
+        {element.type === 'header' && (
+          <div style={{ backgroundColor: element.bgColor, color: element.textColor, padding: element.padding, textAlign: 'center' }}>
+            <h1 style={{ margin: 0, fontSize: '24px' }}>{processContent(element.title)}</h1>
+            <h2 style={{ margin: '5px 0 0 0', fontWeight: 'normal', fontSize: '16px' }}>{processContent(element.subtitle)}</h2>
+          </div>
+        )}
+
+        {element.type === 'text' && (
+          <div style={{ padding: element.padding, fontSize: element.fontSize, color: element.color }} dangerouslySetInnerHTML={{ __html: processContent(element.content) }} />
+        )}
+
+        {element.type === 'statistic' && (
+          <div style={{ padding: '20px', backgroundColor: element.bgColor, textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '12px', color: element.labelColor, textTransform: 'uppercase' }}>{element.label}</p>
+            <p style={{ margin: '5px 0 0 0', fontSize: '36px', fontWeight: 'bold', color: element.valueColor }}>{processContent(element.value)}</p>
+          </div>
+        )}
+
+        {element.type === 'statistics-row' && (
+          <div style={{ padding: '20px', backgroundColor: element.bgColor }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${element.stats.length}, 1fr)` }}>
+              {element.stats.map((stat, i) => (
+                <div key={i} style={{ textAlign: 'center', padding: '10px' }}>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#666', textTransform: 'uppercase' }}>{stat.label}</p>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: '#004E7C' }}>{processContent(stat.value)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {element.type === 'datatable' && (
+          <div style={{ padding: '20px' }} dangerouslySetInnerHTML={{ __html: processContent(element.placeholder) }} />
+        )}
+
+        {element.type === 'download-button' && formData.csvExportEnabled && (
+          <div style={{ padding: '20px', textAlign: 'center' }}>
+            <a href="#" style={{ display: 'inline-block', backgroundColor: element.bgColor, color: element.textColor, padding: '12px 24px', textDecoration: 'none', borderRadius: element.borderRadius, fontWeight: 'bold' }}>{element.text}</a>
+          </div>
+        )}
+
+        {element.type === 'download-button' && !formData.csvExportEnabled && (
+          <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5 }}>
+            <span className="text-xs text-slate-500 italic">Download button hidden (CSV export disabled)</span>
+          </div>
+        )}
+
+        {element.type === 'divider' && (
+          <hr style={{ border: 'none', borderTop: `${element.thickness} solid ${element.color}`, margin: element.margin }} />
+        )}
+
+        {element.type === 'spacer' && (
+          <div style={{ height: element.height, backgroundColor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span className="text-xs text-slate-400">Spacer ({element.height})</span>
+          </div>
+        )}
+
+        {element.type === 'footer' && (
+          <div style={{ padding: element.padding, backgroundColor: element.bgColor, textAlign: 'center', fontSize: element.fontSize, color: element.textColor }}>{element.text}</div>
+        )}
+
+        {element.type === 'date-info' && (
+          <p style={{ margin: 0, padding: '10px 20px', fontSize: element.fontSize, color: element.color }}>{processContent(element.format)}</p>
+        )}
+
+        {element.type === 'more-records' && (
+          <div style={{ padding: '10px 20px', fontSize: '13px', color: element.color, fontStyle: element.fontStyle }} dangerouslySetInnerHTML={{ __html: processContent(element.placeholder) }} />
+        )}
+      </div>
+    );
+  };
+
+  // Get icon component for visual element
+  const getElementIcon = (iconName) => {
+    const icons = { LayoutTemplate, Type, BarChart3, Columns, Table, Download, FileText, Info };
+    return icons[iconName] || FileText;
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl max-h-[95vh] flex flex-col mx-4">
+      {/* Service Finder Modal */}
+      {showServiceFinder && (
+        <ServiceFinder
+          isOpen={showServiceFinder}
+          onClose={() => setShowServiceFinder(false)}
+          onSelect={handleServiceSelected}
+        />
+      )}
+
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col mx-4">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3">
@@ -375,6 +975,31 @@ export default function EmailTemplateEditor({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Editor Mode Toggle */}
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setEditorMode('visual')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  editorMode === 'visual'
+                    ? 'bg-white shadow-sm text-slate-800'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                Visual
+              </button>
+              <button
+                onClick={() => setEditorMode('html')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  editorMode === 'html'
+                    ? 'bg-white shadow-sm text-slate-800'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Code className="w-4 h-4" />
+                HTML
+              </button>
+            </div>
             <button
               onClick={() => setShowPreview(!showPreview)}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
@@ -446,111 +1071,340 @@ export default function EmailTemplateEditor({
                 />
               </div>
 
-              {/* Starter Templates */}
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Start from Template
-                </label>
-                <div className="flex gap-2 flex-wrap">
-                  {Object.entries(STARTER_TEMPLATES).map(([key, starter]) => (
-                    <button
-                      key={key}
-                      onClick={() => applyStarterTemplate(key)}
-                      className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors"
-                    >
-                      <Sparkles className="w-3 h-3 inline mr-1.5" style={{ color: accentColor }} />
-                      {starter.name}
-                    </button>
-                  ))}
+              {/* Starter Templates - only show in HTML mode */}
+              {editorMode === 'html' && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Start from Template
+                  </label>
+                  <div className="flex gap-2 flex-wrap">
+                    {Object.entries(STARTER_TEMPLATES).map(([key, starter]) => (
+                      <button
+                        key={key}
+                        onClick={() => applyStarterTemplate(key)}
+                        className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                      >
+                        <Sparkles className="w-3 h-3 inline mr-1.5" style={{ color: accentColor }} />
+                        {starter.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Active Toggle */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.isActive !== false}
-                  onChange={(e) => handleChange('isActive', e.target.checked)}
-                  className="rounded"
-                />
-                <span className="text-sm text-slate-700">Template is active and available for use</span>
-              </label>
+              {/* Active Toggle & CSV Export Toggle */}
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isActive !== false}
+                    onChange={(e) => handleChange('isActive', e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-slate-700">Template is active</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.csvExportEnabled !== false}
+                    onChange={(e) => handleChange('csvExportEnabled', e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-slate-700 flex items-center gap-1.5">
+                    <FileDown className="w-4 h-4 text-slate-400" />
+                    Include CSV export/download
+                  </span>
+                </label>
+              </div>
             </div>
 
-            {/* Placeholder Reference (Collapsible) */}
+            {/* Feature Service Connection (Collapsible) */}
             <div className="border-b border-slate-200 shrink-0">
               <button
                 onClick={() => setShowPlaceholders(!showPlaceholders)}
                 className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 <span className="flex items-center gap-2">
-                  <Code className="w-4 h-4" style={{ color: accentColor }} />
-                  Placeholders Reference
+                  <Database className="w-4 h-4" style={{ color: accentColor }} />
+                  Data Source Preview (Optional)
                 </span>
                 {showPlaceholders ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               </button>
 
               {showPlaceholders && (
-                <div className="px-4 pb-3 max-h-48 overflow-y-auto">
-                  <div className="grid grid-cols-2 gap-1">
-                    {PLACEHOLDERS.map(p => (
-                      <button
-                        key={p.key}
-                        onClick={() => insertPlaceholder(p.key)}
-                        className="flex items-center justify-between px-2 py-1.5 text-xs text-left bg-slate-50 hover:bg-slate-100 rounded transition-colors group"
-                        title={`${p.desc}\nExample: ${p.example}`}
-                      >
-                        <span className="font-mono text-slate-700">{`{{${p.key}}}`}</span>
-                        <span className="text-slate-400 group-hover:text-slate-600">
-                          {copiedPlaceholder === p.key ? (
-                            <Check className="w-3 h-3 text-green-500" />
-                          ) : (
-                            <Plus className="w-3 h-3" />
-                          )}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    Click a placeholder to insert it at cursor position
+                <div className="px-4 pb-3 space-y-3">
+                  <p className="text-xs text-slate-500">
+                    Connect a feature service to preview what your template will look like with real data.
                   </p>
+
+                  {/* Service URL Display */}
+                  <div className="flex gap-2">
+                    <input
+                      value={formData.featureServiceUrl || ''}
+                      onChange={(e) => handleChange('featureServiceUrl', e.target.value)}
+                      placeholder="Connect a feature service to preview data..."
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono"
+                      readOnly
+                    />
+                    <button
+                      onClick={() => setShowServiceFinder(true)}
+                      className="px-3 py-2 text-white rounded-lg text-xs flex items-center gap-1.5"
+                      style={{ backgroundColor: accentColor }}
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      Find Service
+                    </button>
+                    {formData.featureServiceUrl && (
+                      <button
+                        onClick={() => fetchServiceData()}
+                        disabled={isLoadingServiceData}
+                        className="px-3 py-2 border border-slate-200 rounded-lg text-xs flex items-center gap-1.5 hover:bg-slate-50"
+                      >
+                        {isLoadingServiceData ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+                        Refresh
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Service Status */}
+                  {isLoadingServiceData && (
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Loading sample data...
+                    </div>
+                  )}
+
+                  {serviceError && (
+                    <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      {serviceError}
+                    </div>
+                  )}
+
+                  {sampleServiceData.length > 0 && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-xs text-green-700 flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5" />
+                      Connected! Loaded {sampleServiceData.length} sample records with {serviceFields.length} fields.
+                    </div>
+                  )}
+
+                  {/* Available Fields Preview */}
+                  {serviceFields.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Available Fields:</label>
+                      <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-2 bg-slate-50 rounded border">
+                        {serviceFields.slice(0, 15).map(field => (
+                          <span key={field} className="px-2 py-0.5 bg-white border border-slate-200 rounded text-xs font-mono">
+                            {field}
+                          </span>
+                        ))}
+                        {serviceFields.length > 15 && (
+                          <span className="px-2 py-0.5 text-xs text-slate-400">+{serviceFields.length - 15} more</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Placeholder Reference */}
+                  <div className="border-t border-slate-200 pt-3 mt-3">
+                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                      <Code className="w-3 h-3" />
+                      Available Placeholders:
+                    </label>
+                    <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
+                      {PLACEHOLDERS.map(p => (
+                        <button
+                          key={p.key}
+                          onClick={() => editorMode === 'html' && insertPlaceholder(p.key)}
+                          className={`flex items-center justify-between px-2 py-1.5 text-xs text-left bg-slate-50 rounded transition-colors group ${editorMode === 'html' ? 'hover:bg-slate-100 cursor-pointer' : 'cursor-default'}`}
+                          title={`${p.desc}\nExample: ${p.example}`}
+                          disabled={editorMode !== 'html'}
+                        >
+                          <span className="font-mono text-slate-700">{`{{${p.key}}}`}</span>
+                          {editorMode === 'html' && (
+                            <span className="text-slate-400 group-hover:text-slate-600">
+                              <Plus className="w-3 h-3" />
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* HTML Editor */}
-            <div className="flex-1 flex flex-col min-h-0 p-4">
-              <label className="block text-xs font-medium text-slate-500 mb-1">
-                HTML Template *
-              </label>
-              <textarea
-                id="html-editor"
-                value={formData.html || ''}
-                onChange={(e) => handleChange('html', e.target.value)}
-                placeholder="<div>Your email HTML here...</div>"
-                className={`flex-1 w-full px-3 py-2 border rounded-lg text-xs font-mono resize-none ${
-                  errors.html ? 'border-red-300 bg-red-50' : 'border-slate-200'
-                }`}
-                style={{ minHeight: '200px' }}
-              />
-              {errors.html && (
-                <p className="text-xs text-red-500 mt-1">{errors.html}</p>
-              )}
-              <p className="text-xs text-slate-400 mt-2">
-                Use inline CSS styles for email compatibility. Tables are recommended for complex layouts.
-              </p>
-            </div>
+            {/* Visual Builder */}
+            {editorMode === 'visual' && (
+              <div className="flex-1 flex min-h-0 overflow-hidden">
+                {/* Element Palette */}
+                <div className="w-48 border-r border-slate-200 p-3 overflow-y-auto bg-slate-50 shrink-0">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Elements</h4>
+
+                  {/* Structure Elements */}
+                  <div className="mb-3">
+                    <h5 className="text-[10px] font-medium text-slate-400 uppercase mb-1">Structure</h5>
+                    <div className="space-y-1">
+                      {VISUAL_ELEMENTS.filter(el => el.category === 'structure').map(el => {
+                        const Icon = getElementIcon(el.icon);
+                        return (
+                          <div
+                            key={el.id}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, el)}
+                            className="flex items-center gap-2 px-2 py-1.5 bg-white border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm"
+                          >
+                            <Icon className="w-3.5 h-3.5 text-slate-500" />
+                            {el.name}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Content Elements */}
+                  <div className="mb-3">
+                    <h5 className="text-[10px] font-medium text-slate-400 uppercase mb-1">Content</h5>
+                    <div className="space-y-1">
+                      {VISUAL_ELEMENTS.filter(el => el.category === 'content').map(el => {
+                        const Icon = getElementIcon(el.icon);
+                        return (
+                          <div
+                            key={el.id}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, el)}
+                            className="flex items-center gap-2 px-2 py-1.5 bg-white border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm"
+                          >
+                            <Icon className="w-3.5 h-3.5 text-slate-500" />
+                            {el.name}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Data Elements */}
+                  <div>
+                    <h5 className="text-[10px] font-medium text-slate-400 uppercase mb-1">Data</h5>
+                    <div className="space-y-1">
+                      {VISUAL_ELEMENTS.filter(el => el.category === 'data').map(el => {
+                        const Icon = getElementIcon(el.icon);
+                        return (
+                          <div
+                            key={el.id}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, el)}
+                            className={`flex items-center gap-2 px-2 py-1.5 bg-white border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm ${el.id === 'download-button' && !formData.csvExportEnabled ? 'opacity-50' : ''}`}
+                          >
+                            <Icon className="w-3.5 h-3.5 text-slate-500" />
+                            {el.name}
+                            {el.id === 'download-button' && !formData.csvExportEnabled && (
+                              <span className="text-[9px] text-slate-400">(disabled)</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Canvas */}
+                <div
+                  className="flex-1 overflow-y-auto p-4 bg-slate-100"
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                  onDrop={handleDropOnCanvas}
+                >
+                  <div className="max-w-lg mx-auto bg-white shadow-lg rounded-lg overflow-hidden min-h-[400px]">
+                    {formData.visualElements.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-[400px] text-slate-400 border-2 border-dashed border-slate-200 m-4 rounded-lg">
+                        <Layers className="w-12 h-12 mb-3 opacity-40" />
+                        <p className="text-sm font-medium">Drag elements here to build your template</p>
+                        <p className="text-xs mt-1">Drop structure, content, and data elements to create your email</p>
+                      </div>
+                    ) : (
+                      formData.visualElements.map((element, index) => renderVisualElement(element, index))
+                    )}
+
+                    {/* Drop zone at the end */}
+                    {formData.visualElements.length > 0 && (
+                      <div
+                        onDragOver={(e) => handleDragOver(e, formData.visualElements.length)}
+                        onDragEnter={handleDragEnter}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, formData.visualElements.length)}
+                        className={`h-16 border-2 border-dashed m-4 rounded-lg flex items-center justify-center text-xs text-slate-400 transition-colors ${
+                          dragOverIndex === formData.visualElements.length ? 'border-blue-400 bg-blue-50 text-blue-500' : 'border-slate-200'
+                        }`}
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Drop here to add at the end
+                      </div>
+                    )}
+                  </div>
+
+                  {errors.visual && (
+                    <p className="text-xs text-red-500 mt-2 text-center">{errors.visual}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* HTML Editor - only show in HTML mode */}
+            {editorMode === 'html' && (
+              <div className="flex-1 flex flex-col min-h-0 p-4">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  HTML Template *
+                </label>
+                <textarea
+                  id="html-editor"
+                  value={formData.html || ''}
+                  onChange={(e) => handleChange('html', e.target.value)}
+                  placeholder="<div>Your email HTML here...</div>"
+                  className={`flex-1 w-full px-3 py-2 border rounded-lg text-xs font-mono resize-none ${
+                    errors.html ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                  }`}
+                  style={{ minHeight: '200px' }}
+                />
+                {errors.html && (
+                  <p className="text-xs text-red-500 mt-1">{errors.html}</p>
+                )}
+                <p className="text-xs text-slate-400 mt-2">
+                  Use inline CSS styles for email compatibility. Tables are recommended for complex layouts.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Right Panel - Preview */}
           {showPreview && (
             <div className="w-1/2 flex flex-col bg-slate-100">
               <div className="p-3 border-b border-slate-200 bg-white shrink-0">
-                <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                  <Eye className="w-4 h-4" />
-                  Live Preview
-                </h4>
-                <p className="text-xs text-slate-400">Rendered with sample data</p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                      <Eye className="w-4 h-4" />
+                      Live Preview
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      {sampleServiceData.length > 0
+                        ? `Rendered with ${sampleServiceData.length} records from connected service`
+                        : 'Rendered with sample data'
+                      }
+                    </p>
+                  </div>
+                  {sampleServiceData.length > 0 && (
+                    <span className="flex items-center gap-1 text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-200">
+                      <Database className="w-3 h-3" />
+                      Live Data
+                    </span>
+                  )}
+                </div>
+                {!formData.csvExportEnabled && (
+                  <div className="mt-2 flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 px-2 py-1 rounded border border-amber-200">
+                    <AlertCircle className="w-3 h-3" />
+                    CSV export is disabled - download button will not appear in emails
+                  </div>
+                )}
               </div>
 
               <div className="flex-1 overflow-auto p-4">
