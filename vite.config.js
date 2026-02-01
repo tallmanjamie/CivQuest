@@ -30,10 +30,16 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
-          'arcgis': ['@arcgis/core'],
-          'react-vendor': ['react', 'react-dom']
+        manualChunks(id) {
+          if (id.includes('node_modules/firebase')) {
+            return 'firebase';
+          }
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'react-vendor';
+          }
+          if (id.includes('node_modules/@arcgis/core')) {
+            return 'arcgis';
+          }
         }
       }
     }
