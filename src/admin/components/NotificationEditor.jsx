@@ -31,17 +31,25 @@ import {
   Eye,
   LayoutTemplate,
   Mail,
-  ChevronDown
+  ChevronDown,
+  Palette,
+  Edit2
 } from 'lucide-react';
 import { getFirestore, collection, getDocs } from 'firebase/firestore';
 import ServiceFinder from './ServiceFinder';
 import SpatialFilter from './SpatialFilter';
-import { 
-  canHavePublicNotifications, 
-  getProductLicenseLimits, 
+import {
+  canHavePublicNotifications,
+  getProductLicenseLimits,
   PRODUCTS,
-  LICENSE_TYPES 
+  LICENSE_TYPES
 } from '../../shared/services/licenses';
+import {
+  CustomTemplateEditor,
+  DisplayFieldEditor,
+  DEFAULT_THEME,
+  DEFAULT_CUSTOM_TEMPLATE_HTML
+} from './customTemplate';
 
 /**
  * NotificationEditModal
@@ -116,6 +124,18 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
   const [selectedTemplateId, setSelectedTemplateId] = useState(data.emailTemplateId || '');
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
+  // Template Type State: 'standard' or 'custom'
+  // If customTemplate exists and has html, default to 'custom'
+  const [templateType, setTemplateType] = useState(
+    data.customTemplate?.html ? 'custom' : 'standard'
+  );
+
+  // Custom Template Editor Modal State
+  const [showCustomTemplateEditor, setShowCustomTemplateEditor] = useState(false);
+
+  // Display Field Editor State
+  const [editingField, setEditingField] = useState(null);
+
   // Configuration for the proxy service
   const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
 
@@ -159,6 +179,69 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
         }));
       }
     }
+  };
+
+  // Handle template type change
+  const handleTemplateTypeChange = (newType) => {
+    if (newType === 'standard' && templateType === 'custom') {
+      // Switching from custom to standard - confirm with user
+      if (formData.customTemplate?.html && !window.confirm(
+        'Switch to Standard Template? Your custom template will be preserved but not used. You can switch back to custom at any time.'
+      )) {
+        return;
+      }
+    }
+    setTemplateType(newType);
+  };
+
+  // Handle custom template updates
+  const handleCustomTemplateChange = (customTemplate) => {
+    setFormData(prev => ({
+      ...prev,
+      customTemplate: {
+        ...customTemplate,
+        updatedAt: new Date().toISOString()
+      }
+    }));
+  };
+
+  // Initialize custom template with defaults if switching to custom mode
+  const initializeCustomTemplate = () => {
+    if (!formData.customTemplate?.html) {
+      setFormData(prev => ({
+        ...prev,
+        customTemplate: {
+          html: DEFAULT_CUSTOM_TEMPLATE_HTML,
+          includeCSV: true,
+          theme: { ...DEFAULT_THEME },
+          statistics: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      }));
+    }
+  };
+
+  // Handle display field updates with formatting
+  const handleDisplayFieldUpdate = (updatedField) => {
+    const displayFields = formData.source?.displayFields || [];
+    const updatedFields = displayFields.map(f => {
+      const fieldName = typeof f === 'string' ? f : f.field;
+      if (fieldName === updatedField.field) {
+        return updatedField;
+      }
+      return f;
+    });
+    handleSourceChange('displayFields', updatedFields);
+    setEditingField(null);
+  };
+
+  // Get display field info (handles both string and object formats)
+  const getFieldInfo = (field) => {
+    if (typeof field === 'string') {
+      return { field, label: field };
+    }
+    return field;
   };
 
   const handleChange = (field, value) => {
@@ -302,12 +385,24 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     }
   }, []);
 
-  // Toggle display field
-  const toggleDisplayField = (field) => {
+  // Toggle display field (handles both string and object formats)
+  const toggleDisplayField = (fieldName) => {
     const current = formData.source?.displayFields || [];
-    const updated = current.includes(field)
-      ? current.filter(f => f !== field)
-      : [...current, field];
+    // Check if field exists (in either string or object format)
+    const fieldExists = current.some(f =>
+      (typeof f === 'string' ? f : f.field) === fieldName
+    );
+
+    let updated;
+    if (fieldExists) {
+      // Remove field
+      updated = current.filter(f =>
+        (typeof f === 'string' ? f : f.field) !== fieldName
+      );
+    } else {
+      // Add field as object with label
+      updated = [...current, { field: fieldName, label: fieldName }];
+    }
     handleSourceChange('displayFields', updated);
   };
 
@@ -561,12 +656,75 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
 
       {/* Spatial Filter Modal */}
       {showSpatialFilter && (
-          <SpatialFilter 
+          <SpatialFilter
             initialFilter={formData.source?.spatialFilter}
             endpoint={formData.source?.endpoint}
             onClose={() => setShowSpatialFilter(false)}
             onSave={handleSpatialFilterSave}
           />
+      )}
+
+      {/* Custom Template Editor Modal */}
+      {showCustomTemplateEditor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-3">
+                <Palette className="w-5 h-5 text-[#004E7C]" />
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Custom Template Designer</h3>
+                  <p className="text-sm text-slate-500">Design your email template with branding and statistics</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomTemplateEditor(false)}
+                className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-hidden">
+              <CustomTemplateEditor
+                customTemplate={formData.customTemplate || {}}
+                onChange={handleCustomTemplateChange}
+                notification={formData}
+                locality={orgData}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-200 flex justify-end gap-2 bg-white shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowCustomTemplateEditor(false)}
+                className="px-4 py-2 border border-slate-200 rounded text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCustomTemplateEditor(false)}
+                className="px-4 py-2 bg-[#004E7C] text-white rounded text-sm font-medium flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                Apply Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Display Field Editor Modal */}
+      {editingField && (
+        <DisplayFieldEditor
+          field={editingField}
+          onSave={handleDisplayFieldUpdate}
+          onCancel={() => setEditingField(null)}
+        />
       )}
 
       {/* Main Editor Panel */}
@@ -932,25 +1090,51 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                           </span>
                       </h4>
 
-                      {/* Selected fields with reorder */}
+                      {/* Selected fields with reorder and edit */}
                       {(formData.source?.displayFields || []).length > 0 && (
                           <div className="space-y-1 mb-3">
-                              <label className="text-xs text-slate-500">Selected (drag to reorder):</label>
+                              <label className="text-xs text-slate-500">Selected (click to edit formatting):</label>
                               <div className="space-y-1">
-                                  {(formData.source?.displayFields || []).map((field, idx) => (
-                                      <div key={field} className="flex items-center gap-2 bg-[#004E7C]/5 border border-[#004E7C]/20 rounded px-2 py-1">
-                                          <span className="text-xs font-mono flex-1 text-[#004E7C]">{field}</span>
-                                          <button type="button" onClick={() => moveDisplayField(idx, 'up')} disabled={idx === 0} className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">
-                                              <ArrowUp className="w-3 h-3" />
-                                          </button>
-                                          <button type="button" onClick={() => moveDisplayField(idx, 'down')} disabled={idx === (formData.source?.displayFields || []).length - 1} className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">
-                                              <ArrowDown className="w-3 h-3" />
-                                          </button>
-                                          <button type="button" onClick={() => toggleDisplayField(field)} className="p-0.5 text-red-400 hover:text-red-600">
-                                              <X className="w-3 h-3" />
-                                          </button>
-                                      </div>
-                                  ))}
+                                  {(formData.source?.displayFields || []).map((field, idx) => {
+                                      const fieldInfo = getFieldInfo(field);
+                                      const hasFormatting = typeof field !== 'string' && (field.format || field.decimals !== undefined);
+                                      return (
+                                          <div key={fieldInfo.field} className="flex items-center gap-2 bg-[#004E7C]/5 border border-[#004E7C]/20 rounded px-2 py-1.5">
+                                              <div className="flex-1 min-w-0">
+                                                  <div className="flex items-center gap-2">
+                                                      <span className="text-xs font-mono text-[#004E7C]">{fieldInfo.field}</span>
+                                                      {fieldInfo.label !== fieldInfo.field && (
+                                                          <span className="text-[10px] text-slate-500">→ {fieldInfo.label}</span>
+                                                      )}
+                                                  </div>
+                                                  {hasFormatting && (
+                                                      <p className="text-[9px] text-slate-400 mt-0.5">
+                                                          {field.format || 'auto'}
+                                                          {field.decimals !== undefined && `, ${field.decimals} decimals`}
+                                                          {field.currency && `, ${field.currency}`}
+                                                      </p>
+                                                  )}
+                                              </div>
+                                              <button
+                                                  type="button"
+                                                  onClick={() => setEditingField(field)}
+                                                  className="p-0.5 text-slate-400 hover:text-[#004E7C] hover:bg-[#004E7C]/10 rounded"
+                                                  title="Edit formatting"
+                                              >
+                                                  <Edit2 className="w-3 h-3" />
+                                              </button>
+                                              <button type="button" onClick={() => moveDisplayField(idx, 'up')} disabled={idx === 0} className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">
+                                                  <ArrowUp className="w-3 h-3" />
+                                              </button>
+                                              <button type="button" onClick={() => moveDisplayField(idx, 'down')} disabled={idx === (formData.source?.displayFields || []).length - 1} className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">
+                                                  <ArrowDown className="w-3 h-3" />
+                                              </button>
+                                              <button type="button" onClick={() => toggleDisplayField(fieldInfo.field)} className="p-0.5 text-red-400 hover:text-red-600">
+                                                  <X className="w-3 h-3" />
+                                              </button>
+                                          </div>
+                                      );
+                                  })}
                               </div>
                           </div>
                       )}
@@ -960,7 +1144,12 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                           <label className="text-xs text-slate-500">Available fields:</label>
                           <div className="flex flex-wrap gap-1 mt-1 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded border">
                               {availableFields
-                                  .filter(f => !(formData.source?.displayFields || []).includes(f))
+                                  .filter(f => {
+                                      const selectedFieldNames = (formData.source?.displayFields || []).map(df =>
+                                          typeof df === 'string' ? df : df.field
+                                      );
+                                      return !selectedFieldNames.includes(f);
+                                  })
                                   .map(field => (
                                       <button
                                           key={field}
@@ -1171,58 +1360,157 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                     )}
                 </section>
 
-                {/* MESSAGE TEMPLATE */}
+                {/* EMAIL TEMPLATE */}
                 <section className="space-y-3">
                   <h4 className="font-semibold text-slate-800 flex items-center gap-2">
-                      <MessageSquare className="w-4 h-4" /> Message Template
+                      <MessageSquare className="w-4 h-4" /> Email Template
                   </h4>
 
-                  {/* Email Template Selector */}
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    <label className="block text-xs font-medium text-slate-600 mb-2 flex items-center gap-1.5">
-                      <LayoutTemplate className="w-3.5 h-3.5" />
-                      Email Template
-                    </label>
-                    {loadingTemplates ? (
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Loading templates...
-                      </div>
-                    ) : (
-                      <>
-                        <select
-                          value={selectedTemplateId}
-                          onChange={(e) => handleTemplateSelect(e.target.value)}
-                          className="w-full px-2 py-2 border border-slate-200 rounded text-xs bg-white"
-                        >
-                          <option value="">Default Template (Standard Layout)</option>
-                          {emailTemplates.map(t => (
-                            <option key={t.id} value={t.id}>
-                              {t.name} {t.category ? `(${t.category})` : ''}
-                            </option>
-                          ))}
-                        </select>
-                        {selectedTemplateId && (
-                          <div className="mt-2 flex items-center gap-2 text-xs text-green-600">
-                            <Check className="w-3 h-3" />
-                            <span>Custom template selected: Uses {`{{placeholders}}`} for dynamic content</span>
-                          </div>
-                        )}
-                        {!selectedTemplateId && (
-                          <p className="mt-1.5 text-[10px] text-slate-500">
-                            Choose a custom template for statistics-based emails, or use the default for standard record lists.
-                          </p>
-                        )}
-                        {emailTemplates.length === 0 && (
-                          <p className="mt-2 text-xs text-amber-600 flex items-center gap-1">
-                            <AlertCircle className="w-3 h-3" />
-                            No custom templates available. Super admins can create templates in Notify → Email Templates.
-                          </p>
-                        )}
-                      </>
-                    )}
+                  {/* Template Type Selector */}
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Standard Template Option */}
+                      <button
+                        type="button"
+                        onClick={() => handleTemplateTypeChange('standard')}
+                        className={`p-3 rounded-lg border-2 text-left transition-all ${
+                          templateType === 'standard'
+                            ? 'border-[#004E7C] bg-[#004E7C]/5 ring-1 ring-[#004E7C]'
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Mail className="w-4 h-4 text-[#004E7C]" />
+                          <span className="text-sm font-medium text-slate-800">Standard Template</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          Use the default CivQuest email design. Includes data table and CSV download.
+                        </p>
+                      </button>
+
+                      {/* Custom Template Option */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleTemplateTypeChange('custom');
+                          initializeCustomTemplate();
+                        }}
+                        className={`p-3 rounded-lg border-2 text-left transition-all ${
+                          templateType === 'custom'
+                            ? 'border-[#004E7C] bg-[#004E7C]/5 ring-1 ring-[#004E7C]'
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Palette className="w-4 h-4 text-[#004E7C]" />
+                          <span className="text-sm font-medium text-slate-800">Custom Template</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          Design your own email with custom branding, statistics, and layout.
+                        </p>
+                      </button>
+                    </div>
                   </div>
 
+                  {/* Standard Template Settings */}
+                  {templateType === 'standard' && (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1.5 flex items-center gap-1.5">
+                          <LayoutTemplate className="w-3.5 h-3.5" />
+                          Email Template
+                        </label>
+                        {loadingTemplates ? (
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Loading templates...
+                          </div>
+                        ) : (
+                          <>
+                            <select
+                              value={selectedTemplateId}
+                              onChange={(e) => handleTemplateSelect(e.target.value)}
+                              className="w-full px-2 py-2 border border-slate-200 rounded text-xs bg-white"
+                            >
+                              <option value="">Default Template (Standard Layout)</option>
+                              {emailTemplates.map(t => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name} {t.category ? `(${t.category})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                            {selectedTemplateId && (
+                              <div className="mt-2 flex items-center gap-2 text-xs text-green-600">
+                                <Check className="w-3 h-3" />
+                                <span>Custom template selected: Uses {`{{placeholders}}`} for dynamic content</span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Custom Template Settings */}
+                  {templateType === 'custom' && (
+                    <div className="bg-gradient-to-br from-[#004E7C]/5 to-[#0077B6]/5 p-3 rounded-lg border border-[#004E7C]/20 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">Custom Template Designer</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            {formData.customTemplate?.statistics?.length || 0} statistics configured
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowCustomTemplateEditor(true)}
+                          className="px-3 py-1.5 bg-[#004E7C] text-white rounded text-xs font-medium hover:bg-[#003d61] flex items-center gap-1.5"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          Open Designer
+                        </button>
+                      </div>
+
+                      {formData.customTemplate && (
+                        <div className="grid grid-cols-3 gap-2 mt-2">
+                          <div className="p-2 bg-white rounded border border-slate-200">
+                            <p className="text-[10px] text-slate-500 uppercase">Theme</p>
+                            <div className="flex gap-1 mt-1">
+                              <div
+                                className="w-4 h-4 rounded border border-slate-200"
+                                style={{ backgroundColor: formData.customTemplate.theme?.primaryColor || '#004E7C' }}
+                                title="Primary Color"
+                              />
+                              <div
+                                className="w-4 h-4 rounded border border-slate-200"
+                                style={{ backgroundColor: formData.customTemplate.theme?.secondaryColor || '#f2f2f2' }}
+                                title="Secondary Color"
+                              />
+                              <div
+                                className="w-4 h-4 rounded border border-slate-200"
+                                style={{ backgroundColor: formData.customTemplate.theme?.accentColor || '#0077B6' }}
+                                title="Accent Color"
+                              />
+                            </div>
+                          </div>
+                          <div className="p-2 bg-white rounded border border-slate-200">
+                            <p className="text-[10px] text-slate-500 uppercase">Statistics</p>
+                            <p className="text-sm font-bold text-[#004E7C]">
+                              {formData.customTemplate.statistics?.length || 0}
+                            </p>
+                          </div>
+                          <div className="p-2 bg-white rounded border border-slate-200">
+                            <p className="text-[10px] text-slate-500 uppercase">CSV</p>
+                            <p className="text-xs font-medium text-slate-700">
+                              {formData.customTemplate.includeCSV !== false ? 'Included' : 'Disabled'}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Subject */}
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">Subject</label>
                     <input
@@ -1235,9 +1523,11 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                         className="w-full px-2 py-2 border rounded text-xs"
                     />
                   </div>
+
+                  {/* Intro */}
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">
-                      {selectedTemplateId ? 'Email Intro (used as {{emailIntro}})' : 'Intro'}
+                      {templateType === 'custom' || selectedTemplateId ? 'Email Intro (used as {{emailIntro}})' : 'Intro'}
                     </label>
                     <textarea
                         value={formData.message?.intro || ''}
@@ -1248,7 +1538,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                         placeholder="Here are the latest updates..."
                         className="w-full px-2 py-2 border rounded text-xs h-16"
                     />
-                    {selectedTemplateId && (
+                    {(templateType === 'custom' || selectedTemplateId) && (
                       <p className="text-[10px] text-slate-400 mt-1">
                         This text will be inserted where {`{{emailIntro}}`} appears in the template.
                       </p>
@@ -1258,7 +1548,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                   {/* Zero State Message */}
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">
-                      Zero State Message {selectedTemplateId && '(used as {{emailZeroStateMessage}})'}
+                      Zero State Message {(templateType === 'custom' || selectedTemplateId) && '(used as {{emailZeroStateMessage}})'}
                     </label>
                     <textarea
                         value={formData.emailZeroStateMessage || ''}
