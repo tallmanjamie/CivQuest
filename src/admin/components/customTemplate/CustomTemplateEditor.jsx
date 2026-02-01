@@ -182,6 +182,7 @@ const VISUAL_ELEMENTS = [
     category: 'content',
     defaultContent: {
       type: 'statistics',
+      selectedStatistics: [], // Empty = show all, otherwise array of stat IDs
       placeholder: '{{statisticsHtml}}'
     }
   },
@@ -268,6 +269,24 @@ const VISUAL_ELEMENTS = [
     }
   },
   {
+    id: 'row',
+    name: 'Row (Icon + Content)',
+    icon: 'Columns',
+    category: 'structure',
+    defaultContent: {
+      type: 'row',
+      iconName: 'Star',
+      iconSize: '32',
+      iconColor: '{{primaryColor}}',
+      iconPosition: 'left',
+      contentType: 'text',
+      content: '<p>Add your content here...</p>',
+      selectedStatistics: [],
+      verticalAlign: 'center',
+      gap: '15'
+    }
+  },
+  {
     id: 'footer',
     name: 'Footer',
     icon: 'FileText',
@@ -281,6 +300,35 @@ const VISUAL_ELEMENTS = [
 
 // Configuration for the proxy service
 const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
+
+/**
+ * Helper function to generate statistics HTML for a subset of statistics
+ */
+function generateSelectedStatisticsHtml(statistics, sampleContext, theme) {
+  if (!statistics || statistics.length === 0) return '';
+
+  const primaryColor = theme?.primaryColor || '#004E7C';
+  const secondaryColor = theme?.secondaryColor || '#f2f2f2';
+  const mutedTextColor = theme?.mutedTextColor || '#666666';
+
+  const cards = statistics.map(stat => {
+    const value = sampleContext[`stat_${stat.id}`] || '-';
+    const label = stat.label || stat.id;
+
+    return `<td style="width: ${100 / statistics.length}%; padding: 10px; text-align: center; vertical-align: top;">
+      <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <p style="margin: 0; font-size: 11px; color: ${mutedTextColor}; text-transform: uppercase; letter-spacing: 0.5px;">${label}</p>
+        <p style="margin: 8px 0 0 0; font-size: 24px; font-weight: bold; color: ${primaryColor};">${value}</p>
+      </div>
+    </td>`;
+  }).join('');
+
+  return `<div style="padding: 0; margin: 0;">
+    <table style="width: 100%; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px;">
+      <tr>${cards}</tr>
+    </table>
+  </div>`;
+}
 
 /**
  * CustomTemplateEditor Component
@@ -479,6 +527,96 @@ export default function CustomTemplateEditor({
     }
   }, [notification.source?.endpoint]);
 
+  // Helper function to calculate a statistic from records
+  const calculateStatistic = useCallback((records, field, operation) => {
+    if (!records || records.length === 0) return null;
+
+    const values = records.map(r => r[field]).filter(v => v !== null && v !== undefined && v !== '');
+
+    if (values.length === 0) return null;
+
+    // Convert to numbers for numeric operations
+    const numericValues = values.map(v => typeof v === 'number' ? v : parseFloat(v)).filter(n => !isNaN(n));
+
+    switch (operation) {
+      case 'count':
+        return values.length;
+      case 'distinct':
+        return new Set(values.map(v => String(v))).size;
+      case 'sum':
+        return numericValues.reduce((a, b) => a + b, 0);
+      case 'mean':
+        return numericValues.length > 0 ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : null;
+      case 'min':
+        return numericValues.length > 0 ? Math.min(...numericValues) : null;
+      case 'max':
+        return numericValues.length > 0 ? Math.max(...numericValues) : null;
+      case 'median':
+        if (numericValues.length === 0) return null;
+        const sorted = [...numericValues].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      case 'first':
+        return values[0];
+      case 'last':
+        return values[values.length - 1];
+      default:
+        return null;
+    }
+  }, []);
+
+  // Helper function to format a statistic value
+  const formatStatisticValue = useCallback((value, formatOptions = {}) => {
+    if (value === null || value === undefined) return '-';
+
+    const { format = 'auto', decimals = 0, prefix = '', suffix = '', currency = 'USD' } = formatOptions;
+
+    if (format === 'currency') {
+      try {
+        const formatted = new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: currency,
+          minimumFractionDigits: decimals,
+          maximumFractionDigits: decimals
+        }).format(value);
+        return prefix + formatted + suffix;
+      } catch {
+        return prefix + '$' + Number(value).toLocaleString() + suffix;
+      }
+    }
+
+    if (format === 'percent') {
+      return prefix + (value * 100).toFixed(decimals) + '%' + suffix;
+    }
+
+    if (typeof value === 'number') {
+      return prefix + value.toLocaleString('en-US', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      }) + suffix;
+    }
+
+    return prefix + String(value) + suffix;
+  }, []);
+
+  // Calculate live statistics from records
+  const liveStatistics = useMemo(() => {
+    if (!useLiveData || !liveDataRecords.length || !template.statistics.length) {
+      return null;
+    }
+
+    const stats = {};
+    template.statistics.forEach(stat => {
+      const rawValue = calculateStatistic(liveDataRecords, stat.field, stat.operation);
+      const formattedValue = formatStatisticValue(rawValue, stat.format);
+      stats[`stat_${stat.id}`] = formattedValue;
+      stats[`stat_${stat.id}_value`] = rawValue;
+      stats[`stat_${stat.id}_label`] = stat.label || stat.id;
+    });
+
+    return stats;
+  }, [useLiveData, liveDataRecords, template.statistics, calculateStatistic, formatStatisticValue]);
+
   // Generate sample context with live data if available
   const sampleContext = useMemo(() => {
     const baseContext = generateSampleContext(notification, template, locality, {
@@ -510,10 +648,20 @@ export default function CustomTemplateEditor({
       } else {
         baseContext.moreRecordsMessage = '';
       }
+
+      // Override statistics with live calculated values
+      if (liveStatistics) {
+        Object.assign(baseContext, liveStatistics);
+
+        // Regenerate statisticsHtml with live values
+        const theme = template.theme || {};
+        const statsHtml = generateSelectedStatisticsHtml(template.statistics, { ...baseContext, ...liveStatistics }, theme);
+        baseContext.statisticsHtml = statsHtml;
+      }
     }
 
     return baseContext;
-  }, [notification, template, locality, useLiveData, liveDataRecords, liveDataFields, liveRecordCount]);
+  }, [notification, template, locality, useLiveData, liveDataRecords, liveDataFields, liveRecordCount, liveStatistics]);
 
   // Process template HTML with context
   const processedHtml = useMemo(() => {
@@ -673,6 +821,35 @@ export default function CustomTemplateEditor({
     <span style="display: inline-block; width: ${iconSize}px; height: ${iconSize}px; color: ${iconColor};">{{icon_${el.iconName}_${iconSize}}}</span>
   </div>\n`;
           break;
+        case 'row':
+          const rowIconSize = el.iconSize || '32';
+          const rowIconColor = el.iconColor || '{{primaryColor}}';
+          const rowGap = el.gap || '15';
+          const vertAlign = el.verticalAlign === 'top' ? 'flex-start' : el.verticalAlign === 'bottom' ? 'flex-end' : 'center';
+          const isIconLeft = el.iconPosition !== 'right';
+
+          // Generate content HTML based on contentType
+          let rowContent = '';
+          if (el.contentType === 'statistics') {
+            // Use specific statistics placeholder or reference selected stats
+            const selectedIds = el.selectedStatistics || [];
+            if (selectedIds.length > 0) {
+              rowContent = `{{statisticsHtml_${el.id}}}`;
+            } else {
+              rowContent = '{{statisticsHtml}}';
+            }
+          } else {
+            rowContent = el.content || '<p>Content here</p>';
+          }
+
+          const iconHtml = `<span style="display: inline-block; width: ${rowIconSize}px; height: ${rowIconSize}px; color: ${rowIconColor}; flex-shrink: 0;">{{icon_${el.iconName}_${rowIconSize}}}</span>`;
+          const contentHtml = `<div style="flex: 1; min-width: 0;">${rowContent}</div>`;
+
+          html += `  <!-- Row: Icon + Content -->
+  <div style="padding: 15px 25px; display: flex; align-items: ${vertAlign}; gap: ${rowGap}px;">
+    ${isIconLeft ? iconHtml + '\n    ' + contentHtml : contentHtml + '\n    ' + iconHtml}
+  </div>\n`;
+          break;
         case 'footer':
           html += `  <!-- Footer -->
   <div style="margin-top: 30px; padding: 20px 25px; border-top: 1px solid {{borderColor}}; font-size: 12px; color: {{mutedTextColor}};">
@@ -777,9 +954,31 @@ export default function CustomTemplateEditor({
           <div style={{ padding: '15px 25px' }} dangerouslySetInnerHTML={{ __html: processContent(element.content) }} />
         )}
 
-        {element.type === 'statistics' && (
-          <div style={{ padding: '15px 25px' }} dangerouslySetInnerHTML={{ __html: processContent(element.placeholder) || '<span style="color:#999;font-style:italic;">Statistics will appear here</span>' }} />
-        )}
+        {element.type === 'statistics' && (() => {
+          // Get the statistics to display (selected or all)
+          const selectedIds = element.selectedStatistics || [];
+          const statsToShow = selectedIds.length > 0
+            ? template.statistics.filter(s => selectedIds.includes(s.id))
+            : template.statistics;
+
+          if (statsToShow.length === 0) {
+            return (
+              <div style={{ padding: '15px 25px' }}>
+                <span style={{ color: '#999', fontStyle: 'italic' }}>
+                  {template.statistics.length === 0
+                    ? 'No statistics configured. Add statistics in the left panel.'
+                    : 'No statistics selected. Click edit to select which statistics to show.'}
+                </span>
+              </div>
+            );
+          }
+
+          // Generate statistics HTML for the selected stats
+          const statsHtml = generateSelectedStatisticsHtml(statsToShow, sampleContext, template.theme);
+          return (
+            <div style={{ padding: '15px 25px' }} dangerouslySetInnerHTML={{ __html: statsHtml }} />
+          );
+        })()}
 
         {element.type === 'record-count' && (
           <p style={{ fontSize: '16px', padding: '0 25px', margin: '20px 0' }} dangerouslySetInnerHTML={{ __html: processContent(element.template) }} />
@@ -826,6 +1025,62 @@ export default function CustomTemplateEditor({
           return (
             <div style={{ textAlign: element.alignment || 'center', padding: '15px 25px' }}>
               <IconComponent style={{ width: iconSize, height: iconSize, color: iconColor }} />
+            </div>
+          );
+        })()}
+
+        {element.type === 'row' && (() => {
+          const IconComponent = AVAILABLE_ICONS[element.iconName] || Star;
+          const iconSize = parseInt(element.iconSize) || 32;
+          const iconColor = element.iconColor?.startsWith('{{')
+            ? (template.theme?.primaryColor || '#004E7C')
+            : (element.iconColor || template.theme?.primaryColor || '#004E7C');
+          const gap = element.gap || '15';
+          const verticalAlign = element.verticalAlign || 'center';
+          const isIconLeft = element.iconPosition !== 'right';
+
+          // Render the content based on contentType
+          const renderContent = () => {
+            if (element.contentType === 'statistics') {
+              const selectedIds = element.selectedStatistics || [];
+              const statsToShow = selectedIds.length > 0
+                ? template.statistics.filter(s => selectedIds.includes(s.id))
+                : template.statistics;
+
+              if (statsToShow.length === 0) {
+                return <span style={{ color: '#999', fontStyle: 'italic' }}>Select statistics to display</span>;
+              }
+
+              const statsHtml = generateSelectedStatisticsHtml(statsToShow, sampleContext, template.theme);
+              return <div dangerouslySetInnerHTML={{ __html: statsHtml }} />;
+            }
+            return <div dangerouslySetInnerHTML={{ __html: processContent(element.content || '<p>Add content...</p>') }} />;
+          };
+
+          const iconElement = (
+            <div style={{ flexShrink: 0 }}>
+              <IconComponent style={{ width: iconSize, height: iconSize, color: iconColor }} />
+            </div>
+          );
+
+          const contentElement = (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {renderContent()}
+            </div>
+          );
+
+          return (
+            <div style={{
+              padding: '15px 25px',
+              display: 'flex',
+              alignItems: verticalAlign === 'top' ? 'flex-start' : verticalAlign === 'bottom' ? 'flex-end' : 'center',
+              gap: `${gap}px`
+            }}>
+              {isIconLeft ? (
+                <>{iconElement}{contentElement}</>
+              ) : (
+                <>{contentElement}{iconElement}</>
+              )}
             </div>
           );
         })()}
@@ -975,8 +1230,24 @@ export default function CustomTemplateEditor({
                     {liveDataError}
                   </div>
                 ) : useLiveData ? (
-                  <div className="bg-green-50 p-2 rounded text-xs text-green-700">
-                    {liveRecordCount?.toLocaleString() || liveDataRecords.length} records, {liveDataFields.length} fields
+                  <div className="space-y-2">
+                    <div className="bg-green-50 p-2 rounded text-xs text-green-700">
+                      {liveRecordCount?.toLocaleString() || liveDataRecords.length} records, {liveDataFields.length} fields
+                    </div>
+                    {/* Show calculated statistics */}
+                    {liveStatistics && template.statistics.length > 0 && (
+                      <div className="bg-blue-50 p-2 rounded">
+                        <p className="text-[10px] font-medium text-blue-700 mb-1.5">Calculated Statistics:</p>
+                        <div className="space-y-1">
+                          {template.statistics.map(stat => (
+                            <div key={stat.id} className="flex items-center justify-between text-[10px]">
+                              <span className="text-blue-600">{stat.label || stat.id}:</span>
+                              <span className="font-medium text-blue-800">{liveStatistics[`stat_${stat.id}`] || '-'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : null}
                 <button
@@ -1012,7 +1283,7 @@ export default function CustomTemplateEditor({
             </label>
           </div>
 
-          {/* Branding Section */}
+          {/* Logo Section */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <button
               type="button"
@@ -1020,7 +1291,7 @@ export default function CustomTemplateEditor({
               className="w-full px-3 py-2 flex items-center justify-between text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
               <span className="flex items-center gap-2">
-                Branding & Logo
+                Logo
                 {template.branding?.logoUrl && (
                   <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded-full">Set</span>
                 )}
@@ -1420,14 +1691,48 @@ export default function CustomTemplateEditor({
 
                       {/* Statistics Editor */}
                       {elementType === 'statistics' && (
-                        <div>
-                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Statistics Display</label>
-                          <p className="text-[9px] text-slate-500 mb-2">
-                            Configure statistics in the left panel under "Statistics" section.
-                          </p>
-                          <p className="text-[9px] text-slate-400">
-                            This widget displays all configured statistics from your data source.
-                          </p>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Select Statistics to Display</label>
+                            {template.statistics.length === 0 ? (
+                              <p className="text-[9px] text-slate-500 p-2 bg-slate-50 rounded">
+                                No statistics configured yet. Add statistics in the left panel under "Statistics" section.
+                              </p>
+                            ) : (
+                              <div className="space-y-1 max-h-48 overflow-y-auto">
+                                {template.statistics.map(stat => {
+                                  const isSelected = (element.selectedStatistics || []).includes(stat.id);
+                                  return (
+                                    <label key={stat.id} className="flex items-center gap-2 p-2 bg-slate-50 rounded hover:bg-slate-100 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={(e) => {
+                                          const currentSelected = element.selectedStatistics || [];
+                                          const newSelected = e.target.checked
+                                            ? [...currentSelected, stat.id]
+                                            : currentSelected.filter(id => id !== stat.id);
+                                          updateElement(selectedElementIndex, { selectedStatistics: newSelected });
+                                        }}
+                                        className="rounded text-blue-500"
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-xs font-medium text-slate-700">{stat.label || stat.id}</span>
+                                        <span className="text-[9px] text-slate-400 ml-2">{stat.operation} of {stat.field}</span>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-2 bg-blue-50 border border-blue-100 rounded">
+                            <p className="text-[9px] text-blue-700">
+                              {(element.selectedStatistics || []).length === 0
+                                ? 'No statistics selected - all statistics will be shown'
+                                : `${(element.selectedStatistics || []).length} statistic(s) selected`}
+                            </p>
+                          </div>
                         </div>
                       )}
 
@@ -1514,11 +1819,214 @@ export default function CustomTemplateEditor({
                         </>
                       )}
 
+                      {/* Row Editor */}
+                      {elementType === 'row' && (
+                        <div className="space-y-3">
+                          {/* Icon Selection */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Icon</label>
+                            <div className="grid grid-cols-6 gap-1 max-h-24 overflow-y-auto p-1 border border-slate-200 rounded bg-slate-50">
+                              {Object.keys(AVAILABLE_ICONS).map(iconName => {
+                                const IconComp = AVAILABLE_ICONS[iconName];
+                                const isSelected = element.iconName === iconName;
+                                return (
+                                  <button
+                                    key={iconName}
+                                    type="button"
+                                    onClick={() => updateElement(selectedElementIndex, { iconName })}
+                                    className={`p-1.5 rounded hover:bg-white transition-colors ${
+                                      isSelected ? 'bg-blue-100 ring-1 ring-blue-400' : ''
+                                    }`}
+                                    title={iconName}
+                                  >
+                                    <IconComp className="w-3 h-3 text-slate-600" />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Icon Size and Color */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Size</label>
+                              <select
+                                value={element.iconSize || '32'}
+                                onChange={(e) => updateElement(selectedElementIndex, { iconSize: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                              >
+                                <option value="24">24px</option>
+                                <option value="32">32px</option>
+                                <option value="40">40px</option>
+                                <option value="48">48px</option>
+                                <option value="64">64px</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Color</label>
+                              <div className="flex gap-1">
+                                <input
+                                  type="color"
+                                  value={element.iconColor?.startsWith('{{') ? (template.theme?.primaryColor || '#004E7C') : (element.iconColor || '#004E7C')}
+                                  onChange={(e) => updateElement(selectedElementIndex, { iconColor: e.target.value })}
+                                  className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { iconColor: '{{primaryColor}}' })}
+                                  className={`flex-1 px-1 py-1 text-[9px] rounded border transition-colors ${
+                                    element.iconColor === '{{primaryColor}}'
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600'
+                                  }`}
+                                >
+                                  Theme
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Icon Position */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Icon Position</label>
+                            <div className="flex gap-1">
+                              {['left', 'right'].map(pos => (
+                                <button
+                                  key={pos}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { iconPosition: pos })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.iconPosition || 'left') === pos
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {pos}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Content Type */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Content Type</label>
+                            <div className="flex gap-1">
+                              <button
+                                type="button"
+                                onClick={() => updateElement(selectedElementIndex, { contentType: 'text' })}
+                                className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors ${
+                                  (element.contentType || 'text') === 'text'
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                Text/HTML
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateElement(selectedElementIndex, { contentType: 'statistics' })}
+                                className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors ${
+                                  element.contentType === 'statistics'
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                Statistics
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Text Content (when contentType is text) */}
+                          {(element.contentType || 'text') === 'text' && (
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Content</label>
+                              <textarea
+                                value={element.content || ''}
+                                onChange={(e) => updateElement(selectedElementIndex, { content: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded min-h-[80px] resize-y"
+                                placeholder="Enter text or HTML content..."
+                              />
+                            </div>
+                          )}
+
+                          {/* Statistics Selection (when contentType is statistics) */}
+                          {element.contentType === 'statistics' && (
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Select Statistics</label>
+                              {template.statistics.length === 0 ? (
+                                <p className="text-[9px] text-slate-500 p-2 bg-slate-50 rounded">
+                                  No statistics configured. Add them in the Statistics section.
+                                </p>
+                              ) : (
+                                <div className="space-y-1 max-h-32 overflow-y-auto">
+                                  {template.statistics.map(stat => {
+                                    const isSelected = (element.selectedStatistics || []).includes(stat.id);
+                                    return (
+                                      <label key={stat.id} className="flex items-center gap-2 p-1.5 bg-slate-50 rounded hover:bg-slate-100 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={(e) => {
+                                            const currentSelected = element.selectedStatistics || [];
+                                            const newSelected = e.target.checked
+                                              ? [...currentSelected, stat.id]
+                                              : currentSelected.filter(id => id !== stat.id);
+                                            updateElement(selectedElementIndex, { selectedStatistics: newSelected });
+                                          }}
+                                          className="rounded text-blue-500"
+                                        />
+                                        <span className="text-[10px] text-slate-700">{stat.label || stat.id}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Vertical Alignment */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Vertical Align</label>
+                            <div className="flex gap-1">
+                              {['top', 'center', 'bottom'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { verticalAlign: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.verticalAlign || 'center') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Gap */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Gap</label>
+                            <select
+                              value={element.gap || '15'}
+                              onChange={(e) => updateElement(selectedElementIndex, { gap: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="10">Small (10px)</option>
+                              <option value="15">Medium (15px)</option>
+                              <option value="20">Large (20px)</option>
+                              <option value="30">Extra Large (30px)</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Non-editable elements info */}
                       {['logo', 'datatable', 'download-button', 'more-records', 'divider'].includes(elementType) && (
                         <div className="p-3 bg-slate-50 rounded-lg">
                           <p className="text-[10px] text-slate-600">
-                            {elementType === 'logo' && 'Logo is configured in the Branding section.'}
+                            {elementType === 'logo' && 'Logo is configured in the Logo section.'}
                             {elementType === 'datatable' && 'Data table is auto-generated from your data source fields.'}
                             {elementType === 'download-button' && 'Download button appears when CSV attachment is enabled.'}
                             {elementType === 'more-records' && 'This message appears automatically when there are more records than displayed.'}
