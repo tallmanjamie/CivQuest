@@ -16,7 +16,8 @@ import ThemeCustomizer from './ThemeCustomizer';
 import StatisticsBuilder from './StatisticsBuilder';
 import HTMLTemplateEditor from './HTMLTemplateEditor';
 import TemplatePreview from './TemplatePreview';
-import { DEFAULT_THEME, DEFAULT_CUSTOM_TEMPLATE_HTML } from './constants';
+import BrandingCustomizer from './BrandingCustomizer';
+import { DEFAULT_THEME, DEFAULT_CUSTOM_TEMPLATE_HTML, DEFAULT_BRANDING } from './constants';
 import { validateCustomTemplate } from './validation';
 
 /**
@@ -41,16 +42,21 @@ export default function CustomTemplateEditor({
   const [showPreview, setShowPreview] = useState(true);
   const [previewMode, setPreviewMode] = useState('desktop');
   const [expandedSections, setExpandedSections] = useState({
+    branding: true,
     theme: true,
     statistics: true,
     template: true
   });
+
+  // Reference for HTML editor to insert icons
+  const [htmlEditorRef, setHtmlEditorRef] = useState(null);
 
   // Ensure default values
   const template = {
     html: customTemplate.html || DEFAULT_CUSTOM_TEMPLATE_HTML,
     includeCSV: customTemplate.includeCSV !== false,
     theme: { ...DEFAULT_THEME, ...(customTemplate.theme || {}) },
+    branding: { ...DEFAULT_BRANDING, ...(customTemplate.branding || {}) },
     statistics: customTemplate.statistics || [],
     ...customTemplate
   };
@@ -67,6 +73,21 @@ export default function CustomTemplateEditor({
   const handleThemeChange = useCallback((theme) => {
     handleUpdate({ theme });
   }, [handleUpdate]);
+
+  // Branding update handler
+  const handleBrandingChange = useCallback((branding) => {
+    handleUpdate({ branding });
+  }, [handleUpdate]);
+
+  // Insert icon into HTML template
+  const handleInsertIcon = useCallback((iconHtml) => {
+    // Insert icon at cursor position or append to end
+    const currentHtml = template.html || '';
+    // For now, just show an alert with the icon HTML for the user to copy
+    // In a more advanced implementation, this could insert at cursor position
+    alert(`Icon HTML copied! Paste this into your template:\n\n${iconHtml}`);
+    navigator.clipboard.writeText(iconHtml);
+  }, [template.html]);
 
   // Statistics update handler
   const handleStatisticsChange = useCallback((statistics) => {
@@ -98,9 +119,9 @@ export default function CustomTemplateEditor({
   const validationResult = validateCustomTemplate(template, notification);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-h-0">
       {/* Left Panel - Editor */}
-      <div className={`flex flex-col ${showPreview ? 'w-1/2' : 'w-full'} overflow-hidden`}>
+      <div className={`flex flex-col min-h-0 ${showPreview ? 'w-1/2' : 'w-full'} overflow-hidden`}>
         {/* Toolbar */}
         <div className="flex items-center justify-between p-3 border-b border-slate-200 bg-white shrink-0">
           <div className="flex items-center gap-2">
@@ -133,7 +154,7 @@ export default function CustomTemplateEditor({
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           {/* CSV Toggle */}
           <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
             <label className="flex items-center gap-2 cursor-pointer">
@@ -153,6 +174,39 @@ export default function CustomTemplateEditor({
                 <AlertCircle className="w-3 h-3" />
                 Download button hidden
               </span>
+            )}
+          </div>
+
+          {/* Branding Section */}
+          <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection('branding')}
+              className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              <span className="flex items-center gap-2">
+                Branding & Icons
+                {template.branding?.logoUrl && (
+                  <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded-full">
+                    Logo Set
+                  </span>
+                )}
+              </span>
+              {expandedSections.branding ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+            </button>
+            {expandedSections.branding && (
+              <div className="p-4 bg-white">
+                <BrandingCustomizer
+                  branding={template.branding}
+                  onChange={handleBrandingChange}
+                  theme={template.theme}
+                  onInsertIcon={handleInsertIcon}
+                />
+              </div>
             )}
           </div>
 
@@ -278,7 +332,7 @@ export default function CustomTemplateEditor({
 
       {/* Right Panel - Preview */}
       {showPreview && (
-        <div className="w-1/2 border-l border-slate-200 bg-slate-100">
+        <div className="w-1/2 border-l border-slate-200 bg-slate-100 min-h-0 flex flex-col">
           <TemplatePreview
             template={template}
             notification={notification}

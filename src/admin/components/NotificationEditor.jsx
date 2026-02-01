@@ -691,7 +691,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <CustomTemplateEditor
                 customTemplate={formData.customTemplate || {}}
                 onChange={handleCustomTemplateChange}
