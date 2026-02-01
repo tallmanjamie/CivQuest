@@ -183,6 +183,8 @@ const VISUAL_ELEMENTS = [
     defaultContent: {
       type: 'statistics',
       selectedStatistics: [], // Empty = show all, otherwise array of stat IDs
+      valueSize: '24',
+      alignment: 'center',
       placeholder: '{{statisticsHtml}}'
     }
   },
@@ -282,6 +284,8 @@ const VISUAL_ELEMENTS = [
       contentType: 'text',
       content: '<p>Add your content here...</p>',
       selectedStatistics: [],
+      statisticsValueSize: '24',
+      statisticsAlignment: 'left',
       verticalAlign: 'center',
       gap: '15'
     }
@@ -303,13 +307,22 @@ const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
 
 /**
  * Helper function to generate statistics HTML for a subset of statistics
+ * @param {Array} statistics - Array of statistic definitions
+ * @param {Object} sampleContext - Sample context with stat values
+ * @param {Object} theme - Theme colors
+ * @param {Object} options - Optional display options (valueSize, alignment)
  */
-function generateSelectedStatisticsHtml(statistics, sampleContext, theme) {
+function generateSelectedStatisticsHtml(statistics, sampleContext, theme, options = {}) {
   if (!statistics || statistics.length === 0) return '';
 
   const primaryColor = theme?.primaryColor || '#004E7C';
   const secondaryColor = theme?.secondaryColor || '#f2f2f2';
   const mutedTextColor = theme?.mutedTextColor || '#666666';
+
+  // Options for customizing statistics display
+  const valueSize = options.valueSize || '24';
+  const alignment = options.alignment || 'center';
+  const labelSize = Math.max(9, Math.round(parseInt(valueSize) * 0.45));
 
   const cards = statistics.map(stat => {
     const value = sampleContext[`stat_${stat.id}`] || '-';
@@ -317,14 +330,21 @@ function generateSelectedStatisticsHtml(statistics, sampleContext, theme) {
 
     return `<td style="width: ${100 / statistics.length}%; padding: 10px; text-align: center; vertical-align: top;">
       <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-        <p style="margin: 0; font-size: 11px; color: ${mutedTextColor}; text-transform: uppercase; letter-spacing: 0.5px;">${label}</p>
-        <p style="margin: 8px 0 0 0; font-size: 24px; font-weight: bold; color: ${primaryColor};">${value}</p>
+        <p style="margin: 0; font-size: ${labelSize}px; color: ${mutedTextColor}; text-transform: uppercase; letter-spacing: 0.5px;">${label}</p>
+        <p style="margin: 8px 0 0 0; font-size: ${valueSize}px; font-weight: bold; color: ${primaryColor};">${value}</p>
       </div>
     </td>`;
   }).join('');
 
-  return `<div style="padding: 0; margin: 0;">
-    <table style="width: 100%; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px;">
+  // Alignment determines how the table is positioned
+  const tableStyle = alignment === 'left'
+    ? 'margin-right: auto;'
+    : alignment === 'right'
+      ? 'margin-left: auto;'
+      : 'margin: 0 auto;';
+
+  return `<div style="padding: 0; margin: 0; text-align: ${alignment};">
+    <table style="width: 100%; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px; ${tableStyle}">
       <tr>${cards}</tr>
     </table>
   </div>`;
@@ -660,6 +680,36 @@ export default function CustomTemplateEditor({
       }
     }
 
+    // Generate statistics HTML for each element with custom options
+    const theme = template.theme || {};
+    const contextWithLiveStats = liveStatistics ? { ...baseContext, ...liveStatistics } : baseContext;
+
+    (template.visualElements || []).forEach(el => {
+      if (el.type === 'statistics') {
+        // Get selected statistics or all
+        const selectedIds = el.selectedStatistics || [];
+        const statsToShow = selectedIds.length > 0
+          ? template.statistics.filter(s => selectedIds.includes(s.id))
+          : template.statistics;
+
+        const valueSize = el.valueSize || '24';
+        const alignment = el.alignment || 'center';
+        const key = `statisticsHtml_${el.id}_${valueSize}_${alignment}`;
+        baseContext[key] = generateSelectedStatisticsHtml(statsToShow, contextWithLiveStats, theme, { valueSize, alignment });
+      } else if (el.type === 'row' && el.contentType === 'statistics') {
+        // Get selected statistics for row or all
+        const selectedIds = el.selectedStatistics || [];
+        const statsToShow = selectedIds.length > 0
+          ? template.statistics.filter(s => selectedIds.includes(s.id))
+          : template.statistics;
+
+        const valueSize = el.statisticsValueSize || '24';
+        const alignment = el.statisticsAlignment || 'left';
+        const key = `statisticsHtml_${el.id}_${valueSize}_${alignment}`;
+        baseContext[key] = generateSelectedStatisticsHtml(statsToShow, contextWithLiveStats, theme, { valueSize, alignment });
+      }
+    });
+
     return baseContext;
   }, [notification, template, locality, useLiveData, liveDataRecords, liveDataFields, liveRecordCount, liveStatistics]);
 
@@ -789,7 +839,10 @@ export default function CustomTemplateEditor({
           html += `  <div style="padding: 15px 25px;">${el.content}</div>\n`;
           break;
         case 'statistics':
-          html += `  <!-- Statistics -->\n  <div style="padding: 15px 25px;">{{statisticsHtml}}</div>\n`;
+          // Use element-specific placeholder with options
+          const statsValueSize = el.valueSize || '24';
+          const statsAlignment = el.alignment || 'center';
+          html += `  <!-- Statistics -->\n  <div style="padding: 15px 25px;">{{statisticsHtml_${el.id}_${statsValueSize}_${statsAlignment}}}</div>\n`;
           break;
         case 'record-count':
           html += `  <p style="font-size: 16px; padding: 0 25px; margin: 20px 0;">${el.template}</p>\n`;
@@ -831,13 +884,10 @@ export default function CustomTemplateEditor({
           // Generate content HTML based on contentType
           let rowContent = '';
           if (el.contentType === 'statistics') {
-            // Use specific statistics placeholder or reference selected stats
-            const selectedIds = el.selectedStatistics || [];
-            if (selectedIds.length > 0) {
-              rowContent = `{{statisticsHtml_${el.id}}}`;
-            } else {
-              rowContent = '{{statisticsHtml}}';
-            }
+            // Use specific statistics placeholder with options
+            const rowStatsValueSize = el.statisticsValueSize || '24';
+            const rowStatsAlignment = el.statisticsAlignment || 'left';
+            rowContent = `{{statisticsHtml_${el.id}_${rowStatsValueSize}_${rowStatsAlignment}}}`;
           } else {
             rowContent = el.content || '<p>Content here</p>';
           }
@@ -872,7 +922,7 @@ export default function CustomTemplateEditor({
         handleUpdate({ html: generatedHtml });
       }
     }
-  }, [template.visualElements, rightPanelMode]);
+  }, [template.visualElements, rightPanelMode, visualElementsToHtml, template.html, handleUpdate]);
 
   // Get icon component for visual element
   const getElementIcon = (iconName) => {
@@ -973,8 +1023,12 @@ export default function CustomTemplateEditor({
             );
           }
 
-          // Generate statistics HTML for the selected stats
-          const statsHtml = generateSelectedStatisticsHtml(statsToShow, sampleContext, template.theme);
+          // Generate statistics HTML for the selected stats with customization options
+          const statsOptions = {
+            valueSize: element.valueSize || '24',
+            alignment: element.alignment || 'center'
+          };
+          const statsHtml = generateSelectedStatisticsHtml(statsToShow, sampleContext, template.theme, statsOptions);
           return (
             <div style={{ padding: '15px 25px' }} dangerouslySetInnerHTML={{ __html: statsHtml }} />
           );
@@ -1051,7 +1105,12 @@ export default function CustomTemplateEditor({
                 return <span style={{ color: '#999', fontStyle: 'italic' }}>Select statistics to display</span>;
               }
 
-              const statsHtml = generateSelectedStatisticsHtml(statsToShow, sampleContext, template.theme);
+              // Use row-specific statistics options
+              const statsOptions = {
+                valueSize: element.statisticsValueSize || '24',
+                alignment: element.statisticsAlignment || 'left'
+              };
+              const statsHtml = generateSelectedStatisticsHtml(statsToShow, sampleContext, template.theme, statsOptions);
               return <div dangerouslySetInnerHTML={{ __html: statsHtml }} />;
             }
             return <div dangerouslySetInnerHTML={{ __html: processContent(element.content || '<p>Add content...</p>') }} />;
@@ -1733,6 +1792,41 @@ export default function CustomTemplateEditor({
                                 : `${(element.selectedStatistics || []).length} statistic(s) selected`}
                             </p>
                           </div>
+                          {/* Value Size */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Value Size</label>
+                            <select
+                              value={element.valueSize || '24'}
+                              onChange={(e) => updateElement(selectedElementIndex, { valueSize: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              <option value="16">Small (16px)</option>
+                              <option value="20">Medium (20px)</option>
+                              <option value="24">Large (24px)</option>
+                              <option value="32">Extra Large (32px)</option>
+                              <option value="40">Huge (40px)</option>
+                            </select>
+                          </div>
+                          {/* Alignment */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.alignment || 'center') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -1951,37 +2045,74 @@ export default function CustomTemplateEditor({
 
                           {/* Statistics Selection (when contentType is statistics) */}
                           {element.contentType === 'statistics' && (
-                            <div>
-                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Select Statistics</label>
-                              {template.statistics.length === 0 ? (
-                                <p className="text-[9px] text-slate-500 p-2 bg-slate-50 rounded">
-                                  No statistics configured. Add them in the Statistics section.
-                                </p>
-                              ) : (
-                                <div className="space-y-1 max-h-32 overflow-y-auto">
-                                  {template.statistics.map(stat => {
-                                    const isSelected = (element.selectedStatistics || []).includes(stat.id);
-                                    return (
-                                      <label key={stat.id} className="flex items-center gap-2 p-1.5 bg-slate-50 rounded hover:bg-slate-100 cursor-pointer">
-                                        <input
-                                          type="checkbox"
-                                          checked={isSelected}
-                                          onChange={(e) => {
-                                            const currentSelected = element.selectedStatistics || [];
-                                            const newSelected = e.target.checked
-                                              ? [...currentSelected, stat.id]
-                                              : currentSelected.filter(id => id !== stat.id);
-                                            updateElement(selectedElementIndex, { selectedStatistics: newSelected });
-                                          }}
-                                          className="rounded text-blue-500"
-                                        />
-                                        <span className="text-[10px] text-slate-700">{stat.label || stat.id}</span>
-                                      </label>
-                                    );
-                                  })}
+                            <>
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-600 mb-1">Select Statistics</label>
+                                {template.statistics.length === 0 ? (
+                                  <p className="text-[9px] text-slate-500 p-2 bg-slate-50 rounded">
+                                    No statistics configured. Add them in the Statistics section.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                                    {template.statistics.map(stat => {
+                                      const isSelected = (element.selectedStatistics || []).includes(stat.id);
+                                      return (
+                                        <label key={stat.id} className="flex items-center gap-2 p-1.5 bg-slate-50 rounded hover:bg-slate-100 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={(e) => {
+                                              const currentSelected = element.selectedStatistics || [];
+                                              const newSelected = e.target.checked
+                                                ? [...currentSelected, stat.id]
+                                                : currentSelected.filter(id => id !== stat.id);
+                                              updateElement(selectedElementIndex, { selectedStatistics: newSelected });
+                                            }}
+                                            className="rounded text-blue-500"
+                                          />
+                                          <span className="text-[10px] text-slate-700">{stat.label || stat.id}</span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                              {/* Statistics Value Size */}
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-600 mb-1">Statistics Value Size</label>
+                                <select
+                                  value={element.statisticsValueSize || '24'}
+                                  onChange={(e) => updateElement(selectedElementIndex, { statisticsValueSize: e.target.value })}
+                                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                                >
+                                  <option value="16">Small (16px)</option>
+                                  <option value="20">Medium (20px)</option>
+                                  <option value="24">Large (24px)</option>
+                                  <option value="32">Extra Large (32px)</option>
+                                  <option value="40">Huge (40px)</option>
+                                </select>
+                              </div>
+                              {/* Statistics Alignment */}
+                              <div>
+                                <label className="block text-[10px] font-medium text-slate-600 mb-1">Statistics Alignment</label>
+                                <div className="flex gap-1">
+                                  {['left', 'center', 'right'].map(align => (
+                                    <button
+                                      key={align}
+                                      type="button"
+                                      onClick={() => updateElement(selectedElementIndex, { statisticsAlignment: align })}
+                                      className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                        (element.statisticsAlignment || 'left') === align
+                                          ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      {align}
+                                    </button>
+                                  ))}
                                 </div>
-                              )}
-                            </div>
+                              </div>
+                            </>
                           )}
 
                           {/* Vertical Alignment */}
