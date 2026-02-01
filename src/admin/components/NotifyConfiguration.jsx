@@ -111,7 +111,7 @@ export default function NotifyConfiguration({
     emailIntro: "",
     source: {
       type: "arcgis_rest",
-      url: "",
+      endpoint: "",
       dateField: "",
       definitionQuery: "",
       queryConfig: { mode: 'none', rules: [] },
