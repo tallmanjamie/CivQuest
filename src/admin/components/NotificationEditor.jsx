@@ -101,6 +101,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
   });
 
   const [availableFields, setAvailableFields] = useState([]);
+  const [availableDateFields, setAvailableDateFields] = useState([]); // Date fields for time-based filtering
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null); // { type: 'success'|'error', message: '', recordCount?: number }
   
@@ -365,6 +366,14 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       // Extract field names
       const fields = metadata.fields.map(f => f.name);
       setAvailableFields(fields);
+
+      // Extract date fields for time-based filtering
+      const dateFields = metadata.fields.filter(f =>
+        f.type === 'esriFieldTypeDate' ||
+        f.type === 'esriFieldTypeDateOnly' ||
+        f.type === 'esriFieldTypeTimestampOffset'
+      ).map(f => ({ name: f.name, alias: f.alias || f.name }));
+      setAvailableDateFields(dateFields);
       
       const successMessage = getPlainEnglishMessage('success', '', fields.length);
       setValidationResult({ 
@@ -946,8 +955,8 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                       )}
                     </div>
 
-                    {/* Lookback Settings - for sub-daily types */}
-                    {['hours', 'minutes'].includes(formData.type) && (
+                    {/* Lookback Settings - for sub-daily types when date field is selected */}
+                    {['hours', 'minutes'].includes(formData.type) && formData.source?.dateField && (
                         <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
                             <label className="block text-xs font-medium text-amber-800 mb-1 flex items-center gap-1">
                                 <History className="w-3 h-3" /> Lookback Window
@@ -975,14 +984,14 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                         </div>
                     )}
                     
-                    {/* Lag Settings - Hidden for sub-daily types */}
-                    {!['hours', 'minutes'].includes(formData.type) && (
+                    {/* Lag Settings - for calendar types when date field is selected */}
+                    {!['hours', 'minutes'].includes(formData.type) && formData.source?.dateField && (
                         <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                             <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                                 <History className="w-3 h-3" /> Lookback Lag (Days)
                             </label>
                             <div className="flex items-center gap-2">
-                                <input 
+                                <input
                                     type="number"
                                     min="0"
                                     max="365"
@@ -1067,7 +1076,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                     {/* Validation result */}
                     {validationResult && (
                         <div className={`p-2 rounded text-xs flex items-center gap-2 ${
-                            validationResult.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 
+                            validationResult.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' :
                             'bg-red-50 text-red-700 border border-red-200'
                         }`}>
                             {validationResult.type === 'success' ? (
@@ -1076,6 +1085,33 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                                 <AlertCircle className="w-3.5 h-3.5" />
                             )}
                             {validationResult.message}
+                        </div>
+                    )}
+
+                    {/* Date Field Selection - for time-based filtering */}
+                    {availableDateFields.length > 0 && (
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                            <label className="block text-xs font-medium text-slate-600 mb-1.5 flex items-center gap-1.5">
+                                <History className="w-3.5 h-3.5" />
+                                Date Field (optional)
+                            </label>
+                            <select
+                                value={formData.source?.dateField || ''}
+                                onChange={e => handleSourceChange('dateField', e.target.value)}
+                                className="w-full px-2 py-2 border rounded text-xs bg-white"
+                            >
+                                <option value="">No date filtering</option>
+                                {availableDateFields.map(f => (
+                                    <option key={f.name} value={f.name}>
+                                        {f.alias !== f.name ? `${f.alias} (${f.name})` : f.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="text-[10px] text-slate-500 mt-1.5 leading-tight">
+                                {formData.source?.dateField
+                                    ? 'Records will be filtered based on this date field and the lookback window.'
+                                    : 'Without a date field, all matching records will be included regardless of when they were created or modified.'}
+                            </p>
                         </div>
                     )}
                 </section>
