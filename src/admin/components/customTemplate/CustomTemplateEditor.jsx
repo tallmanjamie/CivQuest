@@ -310,17 +310,15 @@ export default function CustomTemplateEditor({
 
       // Get total record count
       const baseUrl = endpoint.replace(/\/$/, '');
-      const countParams = new URLSearchParams({
-        where: '1=1',
-        returnCountOnly: 'true',
-        f: 'json'
-      });
 
-      const countRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/proxy`, {
+      const countRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          serviceUrl: `${baseUrl}/query?${countParams.toString()}`,
+          serviceUrl: baseUrl,
+          where: '1=1',
+          returnCountOnly: true,
+          f: 'json',
           ...(username && password ? { username, password } : {})
         })
       });
@@ -331,18 +329,15 @@ export default function CustomTemplateEditor({
       }
 
       // Get sample records (first 10)
-      const queryParams = new URLSearchParams({
-        where: '1=1',
-        outFields: '*',
-        resultRecordCount: '10',
-        f: 'json'
-      });
-
-      const dataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/proxy`, {
+      const dataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          serviceUrl: `${baseUrl}/query?${queryParams.toString()}`,
+          serviceUrl: baseUrl,
+          where: '1=1',
+          outFields: '*',
+          resultRecordCount: 10,
+          f: 'json',
           ...(username && password ? { username, password } : {})
         })
       });

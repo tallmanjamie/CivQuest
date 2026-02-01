@@ -555,24 +555,20 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     try {
       // Build query URL
       const baseUrl = endpoint.replace(/\/$/, '');
-      const params = new URLSearchParams({
-        where: whereClause,
-        returnCountOnly: 'true',
-        f: 'json'
-      });
 
-      // Use proxy for the query
-      const proxyBody = {
-        serviceUrl: `${baseUrl}/query?${params.toString()}`,
-        ...(formData.source?.username && formData.source?.password 
-          ? { username: formData.source.username, password: formData.source.password } 
-          : {})
-      };
-
-      const res = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/proxy`, {
+      // Use query endpoint for the query
+      const res = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(proxyBody)
+        body: JSON.stringify({
+          serviceUrl: baseUrl,
+          where: whereClause,
+          returnCountOnly: true,
+          f: 'json',
+          ...(formData.source?.username && formData.source?.password
+            ? { username: formData.source.username, password: formData.source.password }
+            : {})
+        })
       });
 
       if (!res.ok) {
