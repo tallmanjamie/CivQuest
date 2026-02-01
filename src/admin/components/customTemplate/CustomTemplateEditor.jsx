@@ -31,13 +31,105 @@ import {
   FileText,
   Columns,
   Copy,
-  Search
+  Search,
+  X,
+  Settings2,
+  // Icons available for the icon widget
+  Bell,
+  Star,
+  Heart,
+  Bookmark,
+  Flag,
+  Award,
+  Zap,
+  Sun,
+  Moon,
+  Cloud,
+  MapPin,
+  Phone,
+  Mail,
+  Calendar,
+  Clock,
+  Users,
+  User,
+  Home,
+  Building,
+  Car,
+  Plane,
+  Ship,
+  TreePine,
+  Droplet,
+  Flame,
+  Wind,
+  Thermometer,
+  Shield,
+  Lock,
+  Key,
+  Wifi,
+  Signal,
+  Battery,
+  Camera,
+  Image,
+  Music,
+  Video,
+  Mic,
+  Speaker,
+  Headphones,
+  Globe,
+  Map,
+  Compass,
+  Navigation,
+  Target,
+  Crosshair,
+  Activity,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  CreditCard,
+  ShoppingCart,
+  Package,
+  Truck,
+  Gift,
+  Tag,
+  Percent,
+  Hash,
+  AtSign,
+  Link,
+  Paperclip,
+  Scissors,
+  Clipboard,
+  FileCheck,
+  FolderOpen,
+  Archive,
+  Inbox,
+  Send,
+  MessageSquare,
+  MessageCircle,
+  ThumbsUp,
+  ThumbsDown,
+  Smile,
+  Frown,
+  Meh
 } from 'lucide-react';
 import ThemeCustomizer from './ThemeCustomizer';
 import StatisticsBuilder from './StatisticsBuilder';
 import BrandingCustomizer from './BrandingCustomizer';
 import { DEFAULT_THEME, DEFAULT_CUSTOM_TEMPLATE_HTML, DEFAULT_BRANDING, PLACEHOLDER_SECTIONS } from './constants';
 import { validateCustomTemplate, generateSampleContext } from './validation';
+
+// Icon map for the icon widget - allows users to select from these icons
+const AVAILABLE_ICONS = {
+  Bell, Star, Heart, Bookmark, Flag, Award, Zap, Sun, Moon, Cloud,
+  MapPin, Phone, Mail, Calendar, Clock, Users, User, Home, Building,
+  Car, Plane, Ship, TreePine, Droplet, Flame, Wind, Thermometer,
+  Shield, Lock, Key, Wifi, Signal, Battery, Camera, Image, Music,
+  Video, Mic, Speaker, Headphones, Globe, Map, Compass, Navigation,
+  Target, Crosshair, Activity, TrendingUp, TrendingDown, DollarSign,
+  CreditCard, ShoppingCart, Package, Truck, Gift, Tag, Percent, Hash,
+  AtSign, Link, Paperclip, Scissors, Clipboard, FileCheck, FolderOpen,
+  Archive, Inbox, Send, MessageSquare, MessageCircle, ThumbsUp,
+  ThumbsDown, Smile, Frown, Meh, AlertCircle, Info, Check, Database
+};
 
 // Visual Builder Element Types for drag-and-drop
 const VISUAL_ELEMENTS = [
@@ -163,6 +255,19 @@ const VISUAL_ELEMENTS = [
     }
   },
   {
+    id: 'icon',
+    name: 'Icon',
+    icon: 'Star',
+    category: 'structure',
+    defaultContent: {
+      type: 'icon',
+      iconName: 'Star',
+      iconSize: '24',
+      iconColor: '{{primaryColor}}',
+      alignment: 'center'
+    }
+  },
+  {
     id: 'footer',
     name: 'Footer',
     icon: 'FileText',
@@ -225,6 +330,9 @@ export default function CustomTemplateEditor({
   // Copied placeholder
   const [copiedPlaceholder, setCopiedPlaceholder] = useState(null);
 
+  // Element editing state
+  const [selectedElementIndex, setSelectedElementIndex] = useState(null);
+
   // Ensure default values
   const template = {
     html: customTemplate.html || DEFAULT_CUSTOM_TEMPLATE_HTML,
@@ -268,6 +376,13 @@ export default function CustomTemplateEditor({
   const handleCSVToggle = useCallback((includeCSV) => {
     handleUpdate({ includeCSV });
   }, [handleUpdate]);
+
+  // Update a specific visual element
+  const updateElement = useCallback((index, updates) => {
+    const newElements = [...(template.visualElements || [])];
+    newElements[index] = { ...newElements[index], ...updates };
+    handleUpdate({ visualElements: newElements });
+  }, [template.visualElements, handleUpdate]);
 
   // Section toggle
   const toggleSection = (section) => {
@@ -489,6 +604,14 @@ export default function CustomTemplateEditor({
   };
 
   const removeElement = (index) => {
+    // Clear or adjust selection when removing elements
+    if (selectedElementIndex !== null) {
+      if (selectedElementIndex === index) {
+        setSelectedElementIndex(null);
+      } else if (selectedElementIndex > index) {
+        setSelectedElementIndex(selectedElementIndex - 1);
+      }
+    }
     handleUpdate({
       visualElements: (template.visualElements || []).filter((_, i) => i !== index)
     });
@@ -541,6 +664,15 @@ export default function CustomTemplateEditor({
         case 'spacer':
           html += `  <div style="height: ${el.height || '20px'};"></div>\n`;
           break;
+        case 'icon':
+          const iconAlignment = el.alignment || 'center';
+          const iconSize = el.iconSize || '24';
+          const iconColor = el.iconColor || '{{primaryColor}}';
+          html += `  <!-- Icon: ${el.iconName} -->
+  <div style="text-align: ${iconAlignment}; padding: 15px 25px;">
+    <span style="display: inline-block; width: ${iconSize}px; height: ${iconSize}px; color: ${iconColor};">{{icon_${el.iconName}_${iconSize}}}</span>
+  </div>\n`;
+          break;
         case 'footer':
           html += `  <!-- Footer -->
   <div style="margin-top: 30px; padding: 20px 25px; border-top: 1px solid {{borderColor}}; font-size: 12px; color: {{mutedTextColor}};">
@@ -567,7 +699,7 @@ export default function CustomTemplateEditor({
 
   // Get icon component for visual element
   const getElementIcon = (iconName) => {
-    const icons = { LayoutTemplate, Type, BarChart3, Columns, Table, Download, FileText, Info };
+    const icons = { LayoutTemplate, Type, BarChart3, Columns, Table, Download, FileText, Info, Star };
     return icons[iconName] || FileText;
   };
 
@@ -578,6 +710,8 @@ export default function CustomTemplateEditor({
       return content.replace(/\{\{(\w+)\}\}/g, (match, key) => sampleContext[key] || match);
     };
 
+    const isSelected = selectedElementIndex === index;
+
     return (
       <div
         key={element.id}
@@ -587,15 +721,37 @@ export default function CustomTemplateEditor({
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDrop={(e) => handleDrop(e, index)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedElementIndex(index);
+        }}
         className={`group relative border-2 transition-all cursor-move ${
-          dragOverIndex === index ? 'border-blue-400 bg-blue-50' : 'border-transparent hover:border-slate-300'
+          isSelected
+            ? 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-200'
+            : dragOverIndex === index
+              ? 'border-blue-400 bg-blue-50'
+              : 'border-transparent hover:border-slate-300'
         }`}
       >
         {/* Element Controls */}
         <div className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex gap-1">
           <button
             type="button"
-            onClick={() => removeElement(index)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedElementIndex(index);
+            }}
+            className="p-1 bg-blue-500 text-white rounded shadow-sm hover:bg-blue-600"
+            title="Edit element"
+          >
+            <Settings2 className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              removeElement(index);
+            }}
             className="p-1 bg-red-500 text-white rounded shadow-sm hover:bg-red-600"
           >
             <Trash2 className="w-3 h-3" />
@@ -660,6 +816,19 @@ export default function CustomTemplateEditor({
             <span className="text-xs text-slate-400">Spacer ({element.height || '20px'})</span>
           </div>
         )}
+
+        {element.type === 'icon' && (() => {
+          const IconComponent = AVAILABLE_ICONS[element.iconName] || Star;
+          const iconSize = parseInt(element.iconSize) || 24;
+          const iconColor = element.iconColor?.startsWith('{{')
+            ? (template.theme?.primaryColor || '#004E7C')
+            : (element.iconColor || template.theme?.primaryColor || '#004E7C');
+          return (
+            <div style={{ textAlign: element.alignment || 'center', padding: '15px 25px' }}>
+              <IconComponent style={{ width: iconSize, height: iconSize, color: iconColor }} />
+            </div>
+          );
+        })()}
 
         {element.type === 'footer' && (
           <div style={{ marginTop: '30px', padding: '20px 25px', borderTop: `1px solid ${template.theme?.borderColor || '#ddd'}`, fontSize: '12px', color: template.theme?.mutedTextColor || '#666' }}>
@@ -1095,6 +1264,7 @@ export default function CustomTemplateEditor({
               className="flex-1 overflow-y-auto p-4"
               onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
               onDrop={handleDropOnCanvas}
+              onClick={() => setSelectedElementIndex(null)}
             >
               <div className="max-w-xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden min-h-[400px]">
                 {(template.visualElements || []).length === 0 ? (
@@ -1124,6 +1294,243 @@ export default function CustomTemplateEditor({
                 )}
               </div>
             </div>
+
+            {/* Element Editor Panel */}
+            {selectedElementIndex !== null && template.visualElements?.[selectedElementIndex] && (
+              <div className="w-64 border-l border-slate-200 bg-white p-3 overflow-y-auto shrink-0">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Settings2 className="w-3.5 h-3.5" />
+                    Edit Element
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedElementIndex(null)}
+                    className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Element-specific editors */}
+                {(() => {
+                  const element = template.visualElements[selectedElementIndex];
+                  const elementType = element.type;
+
+                  return (
+                    <div className="space-y-3">
+                      {/* Header Editor */}
+                      {elementType === 'header' && (
+                        <>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Title</label>
+                            <input
+                              type="text"
+                              value={element.title || ''}
+                              onChange={(e) => updateElement(selectedElementIndex, { title: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              placeholder="Header title"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Subtitle</label>
+                            <input
+                              type="text"
+                              value={element.subtitle || ''}
+                              onChange={(e) => updateElement(selectedElementIndex, { subtitle: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              placeholder="Header subtitle"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {/* Text/Intro Editor */}
+                      {elementType === 'text' && (
+                        <div>
+                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Content</label>
+                          <textarea
+                            value={element.content || ''}
+                            onChange={(e) => updateElement(selectedElementIndex, { content: e.target.value })}
+                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[120px] resize-y"
+                            placeholder="Enter text content (HTML supported)"
+                          />
+                          <p className="text-[9px] text-slate-400 mt-1">Supports HTML and placeholders like {'{{organizationName}}'}</p>
+                        </div>
+                      )}
+
+                      {/* Record Count Editor */}
+                      {elementType === 'record-count' && (
+                        <div>
+                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Template</label>
+                          <textarea
+                            value={element.template || ''}
+                            onChange={(e) => updateElement(selectedElementIndex, { template: e.target.value })}
+                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[80px] resize-y"
+                            placeholder="We found {{recordCount}} records"
+                          />
+                          <p className="text-[9px] text-slate-400 mt-1">Use {'{{recordCount}}'} for the count</p>
+                        </div>
+                      )}
+
+                      {/* Date Range Editor */}
+                      {elementType === 'date-range' && (
+                        <div>
+                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Template</label>
+                          <textarea
+                            value={element.template || ''}
+                            onChange={(e) => updateElement(selectedElementIndex, { template: e.target.value })}
+                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[80px] resize-y"
+                            placeholder="Period: {{dateRangeStart}} - {{dateRangeEnd}}"
+                          />
+                          <p className="text-[9px] text-slate-400 mt-1">Use {'{{dateRangeStart}}'} and {'{{dateRangeEnd}}'}</p>
+                        </div>
+                      )}
+
+                      {/* Footer Editor */}
+                      {elementType === 'footer' && (
+                        <div>
+                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Footer Text</label>
+                          <textarea
+                            value={element.text || ''}
+                            onChange={(e) => updateElement(selectedElementIndex, { text: e.target.value })}
+                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[80px] resize-y"
+                            placeholder="Footer text"
+                          />
+                        </div>
+                      )}
+
+                      {/* Spacer Editor */}
+                      {elementType === 'spacer' && (
+                        <div>
+                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Height</label>
+                          <select
+                            value={element.height || '20px'}
+                            onChange={(e) => updateElement(selectedElementIndex, { height: e.target.value })}
+                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="10px">Small (10px)</option>
+                            <option value="20px">Medium (20px)</option>
+                            <option value="30px">Large (30px)</option>
+                            <option value="40px">Extra Large (40px)</option>
+                            <option value="60px">Huge (60px)</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Statistics Editor */}
+                      {elementType === 'statistics' && (
+                        <div>
+                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Statistics Display</label>
+                          <p className="text-[9px] text-slate-500 mb-2">
+                            Configure statistics in the left panel under "Statistics" section.
+                          </p>
+                          <p className="text-[9px] text-slate-400">
+                            This widget displays all configured statistics from your data source.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Icon Editor */}
+                      {elementType === 'icon' && (
+                        <>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Icon</label>
+                            <div className="grid grid-cols-6 gap-1 max-h-32 overflow-y-auto p-1 border border-slate-200 rounded bg-slate-50">
+                              {Object.keys(AVAILABLE_ICONS).map(iconName => {
+                                const IconComp = AVAILABLE_ICONS[iconName];
+                                const isSelected = element.iconName === iconName;
+                                return (
+                                  <button
+                                    key={iconName}
+                                    type="button"
+                                    onClick={() => updateElement(selectedElementIndex, { iconName })}
+                                    className={`p-1.5 rounded hover:bg-white transition-colors ${
+                                      isSelected ? 'bg-blue-100 ring-1 ring-blue-400' : ''
+                                    }`}
+                                    title={iconName}
+                                  >
+                                    <IconComp className="w-3.5 h-3.5 text-slate-600" />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Size</label>
+                            <select
+                              value={element.iconSize || '24'}
+                              onChange={(e) => updateElement(selectedElementIndex, { iconSize: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              <option value="16">Small (16px)</option>
+                              <option value="24">Medium (24px)</option>
+                              <option value="32">Large (32px)</option>
+                              <option value="48">Extra Large (48px)</option>
+                              <option value="64">Huge (64px)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Color</label>
+                            <div className="flex gap-2">
+                              <input
+                                type="color"
+                                value={element.iconColor?.startsWith('{{') ? (template.theme?.primaryColor || '#004E7C') : (element.iconColor || '#004E7C')}
+                                onChange={(e) => updateElement(selectedElementIndex, { iconColor: e.target.value })}
+                                className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => updateElement(selectedElementIndex, { iconColor: '{{primaryColor}}' })}
+                                className={`flex-1 px-2 py-1 text-[10px] rounded border transition-colors ${
+                                  element.iconColor === '{{primaryColor}}'
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                Use Theme Color
+                              </button>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.alignment || 'center') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Non-editable elements info */}
+                      {['logo', 'datatable', 'download-button', 'more-records', 'divider'].includes(elementType) && (
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                          <p className="text-[10px] text-slate-600">
+                            {elementType === 'logo' && 'Logo is configured in the Branding section.'}
+                            {elementType === 'datatable' && 'Data table is auto-generated from your data source fields.'}
+                            {elementType === 'download-button' && 'Download button appears when CSV attachment is enabled.'}
+                            {elementType === 'more-records' && 'This message appears automatically when there are more records than displayed.'}
+                            {elementType === 'divider' && 'This is a simple divider line. No configuration needed.'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 
