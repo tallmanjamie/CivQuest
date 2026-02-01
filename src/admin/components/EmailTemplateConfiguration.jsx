@@ -461,7 +461,7 @@ function TemplateCard({
 // --- Template Preview Modal ---
 function TemplatePreviewModal({ template, onClose, accentColor }) {
   const [sampleData, setSampleData] = useState({
-    organizationName: 'Acme Organization',
+    organizationName: 'One South Realty',
     notificationName: 'Daily Market Report',
     recordCount: '1686',
     dateRangeStart: '01/01/2026',
