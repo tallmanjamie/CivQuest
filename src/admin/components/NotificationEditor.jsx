@@ -7,17 +7,17 @@
 // - Organization: Public or private allowed
 
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  Settings, 
-  History, 
-  MessageSquare, 
-  LinkIcon, 
-  Lock, 
-  ListFilter, 
-  LayoutList, 
-  ArrowUp, 
-  ArrowDown, 
+import {
+  X,
+  Settings,
+  History,
+  MessageSquare,
+  LinkIcon,
+  Lock,
+  ListFilter,
+  LayoutList,
+  ArrowUp,
+  ArrowDown,
   Save,
   Loader2,
   AlertCircle,
@@ -28,8 +28,12 @@ import {
   Trash2,
   FlaskConical,
   Shield,
-  Eye
+  Eye,
+  LayoutTemplate,
+  Mail,
+  ChevronDown
 } from 'lucide-react';
+import { getFirestore, collection, getDocs } from 'firebase/firestore';
 import ServiceFinder from './ServiceFinder';
 import SpatialFilter from './SpatialFilter';
 import { 
@@ -107,8 +111,55 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     !canBePublic && (data.access === 'public' || data.isPublic)
   );
 
+  // Email Templates State
+  const [emailTemplates, setEmailTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(data.emailTemplateId || '');
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+
   // Configuration for the proxy service
   const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
+
+  // Fetch email templates from Firestore on mount
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const db = getFirestore();
+        const templatesRef = collection(db, 'email_templates');
+        const snapshot = await getDocs(templatesRef);
+        const temps = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(t => t.isActive !== false); // Only show active templates
+        setEmailTemplates(temps);
+      } catch (err) {
+        console.error('Failed to fetch email templates:', err);
+      } finally {
+        setLoadingTemplates(false);
+      }
+    };
+    fetchTemplates();
+  }, []);
+
+  // Handle email template selection
+  const handleTemplateSelect = (templateId) => {
+    setSelectedTemplateId(templateId);
+    if (templateId === '') {
+      // Clear template - use default email format
+      setFormData(prev => ({
+        ...prev,
+        emailTemplateId: '',
+        emailTemplate: ''
+      }));
+    } else {
+      const selected = emailTemplates.find(t => t.id === templateId);
+      if (selected) {
+        setFormData(prev => ({
+          ...prev,
+          emailTemplateId: templateId,
+          emailTemplate: selected.html || ''
+        }));
+      }
+    }
+  };
 
   const handleChange = (field, value) => {
     let finalValue = value;
@@ -1125,10 +1176,57 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                   <h4 className="font-semibold text-slate-800 flex items-center gap-2">
                       <MessageSquare className="w-4 h-4" /> Message Template
                   </h4>
+
+                  {/* Email Template Selector */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <label className="block text-xs font-medium text-slate-600 mb-2 flex items-center gap-1.5">
+                      <LayoutTemplate className="w-3.5 h-3.5" />
+                      Email Template
+                    </label>
+                    {loadingTemplates ? (
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Loading templates...
+                      </div>
+                    ) : (
+                      <>
+                        <select
+                          value={selectedTemplateId}
+                          onChange={(e) => handleTemplateSelect(e.target.value)}
+                          className="w-full px-2 py-2 border border-slate-200 rounded text-xs bg-white"
+                        >
+                          <option value="">Default Template (Standard Layout)</option>
+                          {emailTemplates.map(t => (
+                            <option key={t.id} value={t.id}>
+                              {t.name} {t.category ? `(${t.category})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedTemplateId && (
+                          <div className="mt-2 flex items-center gap-2 text-xs text-green-600">
+                            <Check className="w-3 h-3" />
+                            <span>Custom template selected: Uses {{`{{placeholders}}`}} for dynamic content</span>
+                          </div>
+                        )}
+                        {!selectedTemplateId && (
+                          <p className="mt-1.5 text-[10px] text-slate-500">
+                            Choose a custom template for statistics-based emails, or use the default for standard record lists.
+                          </p>
+                        )}
+                        {emailTemplates.length === 0 && (
+                          <p className="mt-2 text-xs text-amber-600 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            No custom templates available. Super admins can create templates in Notify → Email Templates.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">Subject</label>
-                    <input 
-                        value={formData.message?.subject || ''} 
+                    <input
+                        value={formData.message?.subject || ''}
                         onChange={e => setFormData(prev => ({
                             ...prev,
                             message: { ...prev.message, subject: e.target.value }
@@ -1138,9 +1236,11 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Intro</label>
-                    <textarea 
-                        value={formData.message?.intro || ''} 
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      {selectedTemplateId ? 'Email Intro (used as {{emailIntro}})' : 'Intro'}
+                    </label>
+                    <textarea
+                        value={formData.message?.intro || ''}
                         onChange={e => setFormData(prev => ({
                             ...prev,
                             message: { ...prev.message, intro: e.target.value }
@@ -1148,6 +1248,27 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                         placeholder="Here are the latest updates..."
                         className="w-full px-2 py-2 border rounded text-xs h-16"
                     />
+                    {selectedTemplateId && (
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        This text will be inserted where {`{{emailIntro}}`} appears in the template.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Zero State Message */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      Zero State Message {selectedTemplateId && '(used as {{emailZeroStateMessage}})'}
+                    </label>
+                    <textarea
+                        value={formData.emailZeroStateMessage || ''}
+                        onChange={e => handleChange('emailZeroStateMessage', e.target.value)}
+                        placeholder="No new records found for this period."
+                        className="w-full px-2 py-2 border rounded text-xs h-12"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Shown when the notification runs but finds no records (requires "Send even if empty" enabled).
+                    </p>
                   </div>
                 </section>
 
