@@ -4,6 +4,7 @@
 //
 // Templates support custom HTML with {{placeholders}} for dynamic content
 // Now includes visual drag-and-drop builder and feature service connection
+// Right panel has Designer mode (drag-and-drop) and HTML mode (raw code)
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -38,7 +39,12 @@ import {
   FileDown,
   ToggleLeft,
   ToggleRight,
-  Layers
+  Layers,
+  Monitor,
+  Smartphone,
+  RefreshCw,
+  MousePointer2,
+  Move
 } from 'lucide-react';
 import ServiceFinder from './ServiceFinder';
 
@@ -424,13 +430,18 @@ export default function EmailTemplateEditor({
     featureServiceCredentials: template.featureServiceCredentials || { username: '', password: '' },
     visualElements: template.visualElements || []
   });
-  const [showPreview, setShowPreview] = useState(true);
-  const [showPlaceholders, setShowPlaceholders] = useState(false);
+  const [showPlaceholders, setShowPlaceholders] = useState(true);
   const [copiedPlaceholder, setCopiedPlaceholder] = useState(null);
   const [errors, setErrors] = useState({});
 
-  // Editor mode: 'html' or 'visual'
-  const [editorMode, setEditorMode] = useState(template.visualElements?.length > 0 ? 'visual' : 'html');
+  // Right panel mode: 'designer' (drag-and-drop) or 'html' (raw code)
+  const [rightPanelMode, setRightPanelMode] = useState('designer');
+
+  // Preview mode: 'desktop' or 'mobile'
+  const [previewMode, setPreviewMode] = useState('desktop');
+
+  // Show preview overlay in designer mode
+  const [showPreviewOverlay, setShowPreviewOverlay] = useState(false);
 
   // Feature Service State
   const [showServiceFinder, setShowServiceFinder] = useState(false);
@@ -438,10 +449,12 @@ export default function EmailTemplateEditor({
   const [serviceFields, setServiceFields] = useState([]);
   const [sampleServiceData, setSampleServiceData] = useState([]);
   const [serviceError, setServiceError] = useState(null);
+  const [liveDataRecordCount, setLiveDataRecordCount] = useState(null);
 
   // Drag and drop state
   const [draggedElement, setDraggedElement] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [selectedElementIndex, setSelectedElementIndex] = useState(null);
   const dragCounter = useRef(0);
 
   // Sample data for preview
@@ -494,11 +507,19 @@ export default function EmailTemplateEditor({
         </tbody>
       </table>`;
       base.dataTable = tableHtml;
-      base.recordCount = String(sampleServiceData.length);
+      // Use actual record count from service if available
+      base.recordCount = liveDataRecordCount !== null ? String(liveDataRecordCount) : String(sampleServiceData.length);
+      // Update more records message with actual count
+      const actualCount = liveDataRecordCount !== null ? liveDataRecordCount : sampleServiceData.length;
+      if (actualCount > 5) {
+        base.moreRecordsMessage = `<p style="font-style: italic; color: #666; margin-top: 15px; font-size: 13px;">Showing first 5 of ${actualCount} records. Download the CSV to see all data.</p>`;
+      } else {
+        base.moreRecordsMessage = '';
+      }
     }
 
     return base;
-  }, [sampleData, sampleServiceData, serviceFields]);
+  }, [sampleData, sampleServiceData, serviceFields, liveDataRecordCount]);
 
   const processedHtml = formData.html?.replace(/\{\{(\w+)\}\}/g, (match, key) => {
     const previewData = getPreviewSampleData();
@@ -546,8 +567,29 @@ export default function EmailTemplateEditor({
       const fields = (metadata.fields || []).map(f => f.name);
       setServiceFields(fields);
 
-      // Then, get sample data (first 10 records)
+      // Get total record count
       const baseUrl = url.replace(/\/$/, '');
+      const countParams = new URLSearchParams({
+        where: '1=1',
+        returnCountOnly: 'true',
+        f: 'json'
+      });
+
+      const countRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/proxy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceUrl: `${baseUrl}/query?${countParams.toString()}`,
+          ...(username && password ? { username, password } : {})
+        })
+      });
+
+      if (countRes.ok) {
+        const countData = await countRes.json();
+        setLiveDataRecordCount(countData.count || 0);
+      }
+
+      // Then, get sample data (first 10 records)
       const queryParams = new URLSearchParams({
         where: '1=1',
         outFields: '*',
@@ -750,15 +792,15 @@ export default function EmailTemplateEditor({
     return html;
   }, [formData.visualElements, formData.csvExportEnabled]);
 
-  // Sync visual elements to HTML when in visual mode
+  // Sync visual elements to HTML when in designer mode
   useEffect(() => {
-    if (editorMode === 'visual' && formData.visualElements.length > 0) {
+    if (rightPanelMode === 'designer' && formData.visualElements.length > 0) {
       const generatedHtml = visualElementsToHtml();
       if (generatedHtml) {
         setFormData(prev => ({ ...prev, html: generatedHtml }));
       }
     }
-  }, [formData.visualElements, editorMode, visualElementsToHtml]);
+  }, [formData.visualElements, rightPanelMode, visualElementsToHtml]);
 
   // Handle form changes
   const handleChange = (field, value) => {
@@ -814,11 +856,16 @@ export default function EmailTemplateEditor({
     if (!formData.name?.trim()) {
       newErrors.name = 'Template name is required';
     }
-    if (editorMode === 'html' && !formData.html?.trim()) {
+    // Check for HTML content if in HTML mode, or visual elements if in designer mode
+    if (rightPanelMode === 'html' && !formData.html?.trim()) {
       newErrors.html = 'Template HTML is required';
     }
-    if (editorMode === 'visual' && formData.visualElements.length === 0) {
+    if (rightPanelMode === 'designer' && formData.visualElements.length === 0) {
       newErrors.visual = 'Add at least one element to the template';
+    }
+    // Also validate that we have some content (either HTML or visual elements)
+    if (!formData.html?.trim() && formData.visualElements.length === 0) {
+      newErrors.html = 'Template HTML is required';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -827,8 +874,8 @@ export default function EmailTemplateEditor({
   // Handle save
   const handleSave = () => {
     if (!validate()) return;
-    // Ensure HTML is generated from visual elements before saving
-    if (editorMode === 'visual') {
+    // Ensure HTML is generated from visual elements before saving if we have visual elements
+    if (formData.visualElements.length > 0) {
       const generatedHtml = visualElementsToHtml();
       onSave({ ...formData, html: generatedHtml });
     } else {
@@ -962,54 +1009,89 @@ export default function EmailTemplateEditor({
         />
       )}
 
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col mx-4">
+      {/* Preview Overlay Modal */}
+      {showPreviewOverlay && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col mx-4">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <div className="flex items-center gap-3">
+                <Eye className="w-5 h-5" style={{ color: accentColor }} />
+                <div>
+                  <h4 className="font-bold text-slate-800">Template Preview</h4>
+                  <p className="text-xs text-slate-500">
+                    {liveDataRecordCount !== null
+                      ? `Rendered with ${liveDataRecordCount.toLocaleString()} records from connected service`
+                      : 'Rendered with sample data'
+                    }
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Desktop/Mobile Toggle */}
+                <div className="flex items-center bg-slate-100 rounded p-0.5">
+                  <button
+                    onClick={() => setPreviewMode('desktop')}
+                    className={`p-1.5 rounded transition-colors ${
+                      previewMode === 'desktop'
+                        ? 'bg-white shadow-sm text-slate-700'
+                        : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                    title="Desktop view"
+                  >
+                    <Monitor className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setPreviewMode('mobile')}
+                    className={`p-1.5 rounded transition-colors ${
+                      previewMode === 'mobile'
+                        ? 'bg-white shadow-sm text-slate-700'
+                        : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                    title="Mobile view"
+                  >
+                    <Smartphone className="w-4 h-4" />
+                  </button>
+                </div>
+                <button
+                  onClick={() => setShowPreviewOverlay(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-6 bg-slate-100">
+              <div
+                className="mx-auto bg-white shadow-lg rounded-lg overflow-hidden transition-all duration-300"
+                style={{ maxWidth: previewMode === 'mobile' ? '375px' : '600px' }}
+              >
+                <div dangerouslySetInnerHTML={{ __html: processedHtml }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl h-[95vh] flex flex-col mx-4">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
+        <div className="flex items-center justify-between p-3 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3">
             <LayoutTemplate className="w-5 h-5" style={{ color: accentColor }} />
             <div>
               <h3 className="text-lg font-bold text-slate-800">
                 {template.isNew ? 'New Email Template' : 'Edit Email Template'}
               </h3>
-              <p className="text-sm text-slate-500">Design custom email layouts with placeholders</p>
+              <p className="text-xs text-slate-500">Configure template settings on the left, design your email on the right</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Editor Mode Toggle */}
-            <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
-              <button
-                onClick={() => setEditorMode('visual')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  editorMode === 'visual'
-                    ? 'bg-white shadow-sm text-slate-800'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                Visual
-              </button>
-              <button
-                onClick={() => setEditorMode('html')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  editorMode === 'html'
-                    ? 'bg-white shadow-sm text-slate-800'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                <Code className="w-4 h-4" />
-                HTML
-              </button>
-            </div>
+            {/* Preview Button */}
             <button
-              onClick={() => setShowPreview(!showPreview)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                showPreview
-                  ? 'bg-slate-100 border-slate-300 text-slate-700'
-                  : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-              }`}
+              onClick={() => setShowPreviewOverlay(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
             >
-              {showPreview ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              {showPreview ? 'Hide Preview' : 'Show Preview'}
+              <Eye className="w-4 h-4" />
+              Preview
             </button>
             <button
               onClick={onClose}
@@ -1021,12 +1103,17 @@ export default function EmailTemplateEditor({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden flex">
-          {/* Left Panel - Editor */}
-          <div className={`flex flex-col ${showPreview ? 'w-1/2' : 'w-full'} border-r border-slate-200`}>
-            {/* Basic Info */}
-            <div className="p-4 border-b border-slate-200 space-y-3 shrink-0">
-              <div className="grid grid-cols-2 gap-3">
+        <div className="flex-1 overflow-hidden flex min-h-0">
+          {/* Left Panel - Configuration */}
+          <div className="w-80 flex flex-col border-r border-slate-200 bg-slate-50 shrink-0">
+            {/* Scrollable Configuration */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Basic Info Section */}
+              <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
+                <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                  <FileText className="w-4 h-4" style={{ color: accentColor }} />
+                  Template Info
+                </h4>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">
                     Template Name *
@@ -1057,188 +1144,251 @@ export default function EmailTemplateEditor({
                     ))}
                   </select>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Description
-                </label>
-                <input
-                  value={formData.description || ''}
-                  onChange={(e) => handleChange('description', e.target.value)}
-                  placeholder="Custom email template for daily market reports"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-
-              {/* Starter Templates - only show in HTML mode */}
-              {editorMode === 'html' && (
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">
-                    Start from Template
+                    Description
                   </label>
-                  <div className="flex gap-2 flex-wrap">
-                    {Object.entries(STARTER_TEMPLATES).map(([key, starter]) => (
-                      <button
-                        key={key}
-                        onClick={() => applyStarterTemplate(key)}
-                        className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors"
-                      >
-                        <Sparkles className="w-3 h-3 inline mr-1.5" style={{ color: accentColor }} />
-                        {starter.name}
-                      </button>
-                    ))}
-                  </div>
+                  <textarea
+                    value={formData.description || ''}
+                    onChange={(e) => handleChange('description', e.target.value)}
+                    placeholder="Custom email template for daily market reports"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-none"
+                    rows={2}
+                  />
                 </div>
-              )}
-
-              {/* Active Toggle & CSV Export Toggle */}
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.isActive !== false}
-                    onChange={(e) => handleChange('isActive', e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="text-sm text-slate-700">Template is active</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.csvExportEnabled !== false}
-                    onChange={(e) => handleChange('csvExportEnabled', e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="text-sm text-slate-700 flex items-center gap-1.5">
-                    <FileDown className="w-4 h-4 text-slate-400" />
-                    Include CSV export/download
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            {/* Feature Service Connection (Collapsible) */}
-            <div className="border-b border-slate-200 shrink-0">
-              <button
-                onClick={() => setShowPlaceholders(!showPlaceholders)}
-                className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <span className="flex items-center gap-2">
-                  <Database className="w-4 h-4" style={{ color: accentColor }} />
-                  Data Source Preview (Optional)
-                </span>
-                {showPlaceholders ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              </button>
-
-              {showPlaceholders && (
-                <div className="px-4 pb-3 space-y-3">
-                  <p className="text-xs text-slate-500">
-                    Connect a feature service to preview what your template will look like with real data.
-                  </p>
-
-                  {/* Service URL Display */}
-                  <div className="flex gap-2">
+                <div className="flex flex-col gap-2 pt-2 border-t border-slate-100">
+                  <label className="flex items-center gap-2 cursor-pointer">
                     <input
-                      value={formData.featureServiceUrl || ''}
-                      onChange={(e) => handleChange('featureServiceUrl', e.target.value)}
-                      placeholder="Connect a feature service to preview data..."
-                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono"
-                      readOnly
+                      type="checkbox"
+                      checked={formData.isActive !== false}
+                      onChange={(e) => handleChange('isActive', e.target.checked)}
+                      className="rounded"
                     />
+                    <span className="text-sm text-slate-700">Template is active</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.csvExportEnabled !== false}
+                      onChange={(e) => handleChange('csvExportEnabled', e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm text-slate-700 flex items-center gap-1.5">
+                      <FileDown className="w-4 h-4 text-slate-400" />
+                      Include CSV export
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Starter Templates Section */}
+              <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
+                <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" style={{ color: accentColor }} />
+                  Starter Templates
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Start from a pre-built template to save time
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(STARTER_TEMPLATES).map(([key, starter]) => (
                     <button
-                      onClick={() => setShowServiceFinder(true)}
-                      className="px-3 py-2 text-white rounded-lg text-xs flex items-center gap-1.5"
-                      style={{ backgroundColor: accentColor }}
+                      key={key}
+                      onClick={() => applyStarterTemplate(key)}
+                      className="px-3 py-2 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors text-left"
                     >
-                      <Search className="w-3.5 h-3.5" />
-                      Find Service
+                      {starter.name}
                     </button>
-                    {formData.featureServiceUrl && (
-                      <button
-                        onClick={() => fetchServiceData()}
-                        disabled={isLoadingServiceData}
-                        className="px-3 py-2 border border-slate-200 rounded-lg text-xs flex items-center gap-1.5 hover:bg-slate-50"
-                      >
-                        {isLoadingServiceData ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
-                        Refresh
-                      </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Data Source Section (Collapsible) */}
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <button
+                  onClick={() => setShowPlaceholders(!showPlaceholders)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  <span className="flex items-center gap-2">
+                    <Database className="w-4 h-4" style={{ color: accentColor }} />
+                    Live Data Preview
+                    {sampleServiceData.length > 0 && (
+                      <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded-full">
+                        Connected
+                      </span>
                     )}
-                  </div>
+                  </span>
+                  {showPlaceholders ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </button>
 
-                  {/* Service Status */}
-                  {isLoadingServiceData && (
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Loading sample data...
-                    </div>
-                  )}
+                {showPlaceholders && (
+                  <div className="px-4 pb-4 space-y-3 border-t border-slate-100">
+                    <p className="text-xs text-slate-500 pt-3">
+                      Connect a feature service to preview with real data.
+                    </p>
 
-                  {serviceError && (
-                    <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      {serviceError}
-                    </div>
-                  )}
-
-                  {sampleServiceData.length > 0 && (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-xs text-green-700 flex items-center gap-2">
-                      <Check className="w-3.5 h-3.5" />
-                      Connected! Loaded {sampleServiceData.length} sample records with {serviceFields.length} fields.
-                    </div>
-                  )}
-
-                  {/* Available Fields Preview */}
-                  {serviceFields.length > 0 && (
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Available Fields:</label>
-                      <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-2 bg-slate-50 rounded border">
-                        {serviceFields.slice(0, 15).map(field => (
-                          <span key={field} className="px-2 py-0.5 bg-white border border-slate-200 rounded text-xs font-mono">
-                            {field}
-                          </span>
-                        ))}
-                        {serviceFields.length > 15 && (
-                          <span className="px-2 py-0.5 text-xs text-slate-400">+{serviceFields.length - 15} more</span>
+                    {/* Service URL Display */}
+                    <div className="space-y-2">
+                      <input
+                        value={formData.featureServiceUrl || ''}
+                        onChange={(e) => handleChange('featureServiceUrl', e.target.value)}
+                        placeholder="No service connected..."
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-slate-50"
+                        readOnly
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setShowServiceFinder(true)}
+                          className="flex-1 px-3 py-2 text-white rounded-lg text-xs flex items-center justify-center gap-1.5"
+                          style={{ backgroundColor: accentColor }}
+                        >
+                          <Search className="w-3.5 h-3.5" />
+                          Find Service
+                        </button>
+                        {formData.featureServiceUrl && (
+                          <button
+                            onClick={() => fetchServiceData()}
+                            disabled={isLoadingServiceData}
+                            className="px-3 py-2 border border-slate-200 rounded-lg text-xs flex items-center gap-1.5 hover:bg-slate-50"
+                          >
+                            {isLoadingServiceData ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                          </button>
                         )}
                       </div>
                     </div>
-                  )}
 
-                  {/* Placeholder Reference */}
-                  <div className="border-t border-slate-200 pt-3 mt-3">
-                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                      <Code className="w-3 h-3" />
-                      Available Placeholders:
-                    </label>
-                    <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
-                      {PLACEHOLDERS.map(p => (
-                        <button
-                          key={p.key}
-                          onClick={() => editorMode === 'html' && insertPlaceholder(p.key)}
-                          className={`flex items-center justify-between px-2 py-1.5 text-xs text-left bg-slate-50 rounded transition-colors group ${editorMode === 'html' ? 'hover:bg-slate-100 cursor-pointer' : 'cursor-default'}`}
-                          title={`${p.desc}\nExample: ${p.example}`}
-                          disabled={editorMode !== 'html'}
-                        >
-                          <span className="font-mono text-slate-700">{`{{${p.key}}}`}</span>
-                          {editorMode === 'html' && (
-                            <span className="text-slate-400 group-hover:text-slate-600">
-                              <Plus className="w-3 h-3" />
+                    {/* Service Status */}
+                    {isLoadingServiceData && (
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Loading data...
+                      </div>
+                    )}
+
+                    {serviceError && (
+                      <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-2 rounded">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {serviceError}
+                      </div>
+                    )}
+
+                    {sampleServiceData.length > 0 && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-xs text-green-700">
+                        <div className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5" />
+                          <span className="font-medium">Connected!</span>
+                        </div>
+                        <p className="mt-1 text-green-600">
+                          {liveDataRecordCount !== null ? liveDataRecordCount.toLocaleString() : sampleServiceData.length} records, {serviceFields.length} fields
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Available Fields Preview */}
+                    {serviceFields.length > 0 && (
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Fields:</label>
+                        <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto p-2 bg-slate-50 rounded border text-[10px]">
+                          {serviceFields.slice(0, 10).map(field => (
+                            <span key={field} className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono">
+                              {field}
                             </span>
+                          ))}
+                          {serviceFields.length > 10 && (
+                            <span className="px-1.5 py-0.5 text-slate-400">+{serviceFields.length - 10}</span>
                           )}
-                        </button>
-                      ))}
-                    </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
+                )}
+              </div>
+
+              {/* Placeholders Reference */}
+              <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
+                <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                  <Code className="w-4 h-4" style={{ color: accentColor }} />
+                  Available Placeholders
+                </h4>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {PLACEHOLDERS.map(p => (
+                    <button
+                      key={p.key}
+                      onClick={() => {
+                        if (rightPanelMode === 'html') {
+                          insertPlaceholder(p.key);
+                        } else {
+                          copyPlaceholder(p.key);
+                        }
+                      }}
+                      className="w-full flex items-center justify-between px-2 py-1.5 text-xs text-left bg-slate-50 rounded transition-colors hover:bg-slate-100 group"
+                      title={`${p.desc}\nExample: ${p.example}`}
+                    >
+                      <span className="font-mono text-slate-700">{`{{${p.key}}}`}</span>
+                      {copiedPlaceholder === p.key ? (
+                        <Check className="w-3 h-3 text-green-500" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-400 group-hover:text-slate-600" />
+                      )}
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Panel - Designer/HTML Editor */}
+          <div className="flex-1 flex flex-col min-h-0 bg-slate-100">
+            {/* Right Panel Header with Mode Toggle */}
+            <div className="flex items-center justify-between p-3 border-b border-slate-200 bg-white shrink-0">
+              <div className="flex items-center gap-3">
+                {/* Mode Toggle */}
+                <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setRightPanelMode('designer')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                      rightPanelMode === 'designer'
+                        ? 'bg-white shadow-sm text-slate-800'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <MousePointer2 className="w-4 h-4" />
+                    Designer
+                  </button>
+                  <button
+                    onClick={() => setRightPanelMode('html')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                      rightPanelMode === 'html'
+                        ? 'bg-white shadow-sm text-slate-800'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Code className="w-4 h-4" />
+                    HTML
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {rightPanelMode === 'designer' && (
+                  <span className="text-xs text-slate-500 flex items-center gap-1">
+                    <Move className="w-3 h-3" />
+                    Drag elements to reorder
+                  </span>
+                )}
+                {liveDataRecordCount !== null && (
+                  <span className="flex items-center gap-1 text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-200">
+                    <Database className="w-3 h-3" />
+                    Live: {liveDataRecordCount.toLocaleString()} records
+                  </span>
+                )}
+              </div>
             </div>
 
-            {/* Visual Builder */}
-            {editorMode === 'visual' && (
+            {/* Designer Mode */}
+            {rightPanelMode === 'designer' && (
               <div className="flex-1 flex min-h-0 overflow-hidden">
                 {/* Element Palette */}
-                <div className="w-48 border-r border-slate-200 p-3 overflow-y-auto bg-slate-50 shrink-0">
+                <div className="w-44 border-r border-slate-200 p-3 overflow-y-auto bg-white shrink-0">
                   <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Elements</h4>
 
                   {/* Structure Elements */}
@@ -1252,7 +1402,7 @@ export default function EmailTemplateEditor({
                             key={el.id}
                             draggable
                             onDragStart={(e) => handleDragStart(e, el)}
-                            className="flex items-center gap-2 px-2 py-1.5 bg-white border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm"
+                            className="flex items-center gap-2 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm hover:bg-white transition-all"
                           >
                             <Icon className="w-3.5 h-3.5 text-slate-500" />
                             {el.name}
@@ -1273,7 +1423,7 @@ export default function EmailTemplateEditor({
                             key={el.id}
                             draggable
                             onDragStart={(e) => handleDragStart(e, el)}
-                            className="flex items-center gap-2 px-2 py-1.5 bg-white border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm"
+                            className="flex items-center gap-2 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm hover:bg-white transition-all"
                           >
                             <Icon className="w-3.5 h-3.5 text-slate-500" />
                             {el.name}
@@ -1294,13 +1444,10 @@ export default function EmailTemplateEditor({
                             key={el.id}
                             draggable
                             onDragStart={(e) => handleDragStart(e, el)}
-                            className={`flex items-center gap-2 px-2 py-1.5 bg-white border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm ${el.id === 'download-button' && !formData.csvExportEnabled ? 'opacity-50' : ''}`}
+                            className={`flex items-center gap-2 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs cursor-grab hover:border-slate-300 hover:shadow-sm hover:bg-white transition-all ${el.id === 'download-button' && !formData.csvExportEnabled ? 'opacity-50' : ''}`}
                           >
                             <Icon className="w-3.5 h-3.5 text-slate-500" />
-                            {el.name}
-                            {el.id === 'download-button' && !formData.csvExportEnabled && (
-                              <span className="text-[9px] text-slate-400">(disabled)</span>
-                            )}
+                            <span className="truncate">{el.name}</span>
                           </div>
                         );
                       })}
@@ -1308,18 +1455,18 @@ export default function EmailTemplateEditor({
                   </div>
                 </div>
 
-                {/* Canvas */}
+                {/* Designer Canvas */}
                 <div
-                  className="flex-1 overflow-y-auto p-4 bg-slate-100"
+                  className="flex-1 overflow-y-auto p-4"
                   onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
                   onDrop={handleDropOnCanvas}
                 >
-                  <div className="max-w-lg mx-auto bg-white shadow-lg rounded-lg overflow-hidden min-h-[400px]">
+                  <div className="max-w-xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden min-h-[500px]">
                     {formData.visualElements.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-[400px] text-slate-400 border-2 border-dashed border-slate-200 m-4 rounded-lg">
+                      <div className="flex flex-col items-center justify-center h-[500px] text-slate-400 border-2 border-dashed border-slate-200 m-4 rounded-lg">
                         <Layers className="w-12 h-12 mb-3 opacity-40" />
                         <p className="text-sm font-medium">Drag elements here to build your template</p>
-                        <p className="text-xs mt-1">Drop structure, content, and data elements to create your email</p>
+                        <p className="text-xs mt-1 text-center px-4">Drop structure, content, and data elements to create your email</p>
                       </div>
                     ) : (
                       formData.visualElements.map((element, index) => renderVisualElement(element, index))
@@ -1332,7 +1479,7 @@ export default function EmailTemplateEditor({
                         onDragEnter={handleDragEnter}
                         onDragLeave={handleDragLeave}
                         onDrop={(e) => handleDrop(e, formData.visualElements.length)}
-                        className={`h-16 border-2 border-dashed m-4 rounded-lg flex items-center justify-center text-xs text-slate-400 transition-colors ${
+                        className={`h-20 border-2 border-dashed m-4 rounded-lg flex items-center justify-center text-xs text-slate-400 transition-colors ${
                           dragOverIndex === formData.visualElements.length ? 'border-blue-400 bg-blue-50 text-blue-500' : 'border-slate-200'
                         }`}
                       >
@@ -1349,75 +1496,43 @@ export default function EmailTemplateEditor({
               </div>
             )}
 
-            {/* HTML Editor - only show in HTML mode */}
-            {editorMode === 'html' && (
+            {/* HTML Mode */}
+            {rightPanelMode === 'html' && (
               <div className="flex-1 flex flex-col min-h-0 p-4">
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  HTML Template *
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-medium text-slate-500">
+                    HTML Template
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    Use inline CSS for email compatibility
+                  </span>
+                </div>
                 <textarea
                   id="html-editor"
                   value={formData.html || ''}
                   onChange={(e) => handleChange('html', e.target.value)}
                   placeholder="<div>Your email HTML here...</div>"
-                  className={`flex-1 w-full px-3 py-2 border rounded-lg text-xs font-mono resize-none ${
-                    errors.html ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                  className={`flex-1 w-full px-4 py-3 border rounded-lg text-xs font-mono resize-none bg-slate-900 text-green-400 ${
+                    errors.html ? 'border-red-300' : 'border-slate-700'
                   }`}
-                  style={{ minHeight: '200px' }}
+                  spellCheck={false}
                 />
                 {errors.html && (
                   <p className="text-xs text-red-500 mt-1">{errors.html}</p>
                 )}
-                <p className="text-xs text-slate-400 mt-2">
-                  Use inline CSS styles for email compatibility. Tables are recommended for complex layouts.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Right Panel - Preview */}
-          {showPreview && (
-            <div className="w-1/2 flex flex-col bg-slate-100">
-              <div className="p-3 border-b border-slate-200 bg-white shrink-0">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                      <Eye className="w-4 h-4" />
-                      Live Preview
-                    </h4>
-                    <p className="text-xs text-slate-400">
-                      {sampleServiceData.length > 0
-                        ? `Rendered with ${sampleServiceData.length} records from connected service`
-                        : 'Rendered with sample data'
-                      }
-                    </p>
-                  </div>
-                  {sampleServiceData.length > 0 && (
-                    <span className="flex items-center gap-1 text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-200">
-                      <Database className="w-3 h-3" />
-                      Live Data
-                    </span>
-                  )}
-                </div>
                 {!formData.csvExportEnabled && (
                   <div className="mt-2 flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 px-2 py-1 rounded border border-amber-200">
                     <AlertCircle className="w-3 h-3" />
-                    CSV export is disabled - download button will not appear in emails
+                    CSV export is disabled - download button placeholders will not render
                   </div>
                 )}
               </div>
-
-              <div className="flex-1 overflow-auto p-4">
-                <div className="max-w-xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
-                  <div dangerouslySetInnerHTML={{ __html: processedHtml }} />
-                </div>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 flex justify-between items-center shrink-0 bg-white">
+        <div className="p-3 border-t border-slate-200 flex justify-between items-center shrink-0 bg-white">
           <p className="text-xs text-slate-400">
             Template ID: <code className="font-mono">{formData.id}</code>
           </p>
