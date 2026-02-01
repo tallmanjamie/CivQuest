@@ -917,6 +917,7 @@ export default function AtlasSettingsEditor({
               <p className="text-xs text-slate-400 mt-2">
                 Controls where and how the map tools (Search Results, Markup, Layers, etc.) are displayed on the map. Icon Justification aligns the icon and text within each tool button.
               </p>
+            </div>
 
             {/* Logos & Images */}
             <div className="mt-4 pt-4 border-t border-slate-200">
