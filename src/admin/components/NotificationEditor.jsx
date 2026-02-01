@@ -78,6 +78,9 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       ...data,
       source: {
           ...data.source,
+          // Normalize url to endpoint for backwards compatibility
+          // Some older notifications stored the REST endpoint as 'url' instead of 'endpoint'
+          endpoint: data.source?.endpoint || data.source?.url || '',
           // Ensure queryConfig structure exists and has defaults
           queryConfig: {
             mode: 'none',
@@ -378,10 +381,11 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     }
   };
 
-  // Auto-validate on mount if endpoint exists
+  // Auto-validate on mount if endpoint exists (check both endpoint and url for backwards compatibility)
   useEffect(() => {
-    if (data.source?.endpoint) {
-      validateAndFetchFields(data.source.endpoint, data.source.username, data.source.password);
+    const endpointUrl = data.source?.endpoint || data.source?.url;
+    if (endpointUrl) {
+      validateAndFetchFields(endpointUrl, data.source.username, data.source.password);
     }
   }, []);
 
