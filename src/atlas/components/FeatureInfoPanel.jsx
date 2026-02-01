@@ -74,13 +74,16 @@ export default function FeatureInfoPanel({
 
   // Notify parent of width changes for positioning navigation controls
   // When maximized, report a very large width to push controls out of view
+  // When minimized, report 0 to move controls back to the right
   useEffect(() => {
     if (isMaximized) {
       onWidthChange?.(9999); // Signal maximized state
+    } else if (isMinimized) {
+      onWidthChange?.(0); // When minimized, buttons should move back to right
     } else {
       onWidthChange?.(desktopWidth);
     }
-  }, [desktopWidth, isMaximized, onWidthChange]);
+  }, [desktopWidth, isMaximized, isMinimized, onWidthChange]);
 
   // Reset maximized and minimized state when feature changes
   useEffect(() => {

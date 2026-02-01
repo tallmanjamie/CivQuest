@@ -227,9 +227,14 @@ export default function MarkupPopup({
   }, []);
 
   // Notify parent of width changes
+  // When minimized, report 0 to move controls back to the right
   useEffect(() => {
-    onWidthChange?.(desktopWidth);
-  }, [desktopWidth, onWidthChange]);
+    if (isMinimized) {
+      onWidthChange?.(0);
+    } else {
+      onWidthChange?.(desktopWidth);
+    }
+  }, [desktopWidth, isMinimized, onWidthChange]);
 
   // Handle name save
   const handleSaveName = useCallback(() => {
