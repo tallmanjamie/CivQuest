@@ -190,6 +190,10 @@ export const validateCustomTemplate = (customTemplate, notification = {}) => {
 export const generateSampleContext = (notification = {}, customTemplate = {}, locality = {}, options = {}) => {
   const { mockRecordCount = 42 } = options;
   const theme = customTemplate.theme || {};
+  const branding = customTemplate.branding || {};
+
+  // Generate logo HTML if configured
+  const logoHtml = branding.logoUrl ? generateLogoHtml(branding) : '';
 
   // Generate mock statistics values
   const statValues = {};
@@ -212,6 +216,10 @@ export const generateSampleContext = (notification = {}, customTemplate = {}, lo
   const statisticsHtml = generateStatisticsHtml(customTemplate.statistics || [], statValues, theme);
 
   return {
+    // Branding
+    logoHtml,
+    logoUrl: branding.logoUrl || '',
+
     // Organization & Notification
     organizationName: locality.name || 'Sample Organization',
     organizationId: locality.id || 'sample_org',
@@ -324,6 +332,21 @@ function generateStatisticsHtml(statistics, statValues, theme) {
     <table style="width: 100%; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px;">
       <tr>${cards}</tr>
     </table>
+  </div>`;
+}
+
+/**
+ * Generate logo HTML based on branding settings
+ */
+function generateLogoHtml(branding) {
+  if (!branding.logoUrl) return '';
+
+  const alignment = branding.logoAlignment || 'left';
+  const width = branding.logoWidth || '150';
+  const textAlign = alignment === 'center' ? 'center' : alignment === 'right' ? 'right' : 'left';
+
+  return `<div style="text-align: ${textAlign}; margin-bottom: 15px;">
+    <img src="${branding.logoUrl}" alt="Logo" style="max-width: ${width}px; height: auto; display: inline-block;" />
   </div>`;
 }
 
