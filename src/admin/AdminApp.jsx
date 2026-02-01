@@ -69,7 +69,8 @@ import {
   BarChart3,
   ExternalLink,
   MessageSquare,
-  Sparkles
+  Sparkles,
+  Mail
 } from 'lucide-react';
 
 // Import admin components
@@ -82,6 +83,8 @@ import AtlasAdminSection from './components/AtlasAdminSection';
 import SystemHelpEditor from './components/SystemHelpEditor';
 import IntegrationsManagement from './components/IntegrationsManagement';
 import GlobalExportTemplateLibrary from './components/GlobalExportTemplateLibrary';
+import EmailTemplateConfiguration from './components/EmailTemplateConfiguration';
+import EmailTemplateEditor from './components/EmailTemplateEditor';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
@@ -605,10 +608,11 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const notifyItems = role === 'super_admin' 
+  const notifyItems = role === 'super_admin'
     ? [
         { id: 'subscribers', label: 'Subscribers', icon: Users },
         { id: 'configuration', label: 'Configuration', icon: Settings },
+        { id: 'email-templates', label: 'Email Templates', icon: Mail },
         { id: 'archive', label: 'Archive', icon: History },
       ]
     : [
@@ -966,18 +970,28 @@ function SuperAdminDashboard({ user }) {
           );
         case 'archive':
           return (
-            <Archive 
+            <Archive
               db={db}
               role="admin"
               addToast={addToast}
               accentColor="#004E7C"
             />
           );
+        case 'email-templates':
+          return (
+            <EmailTemplateConfiguration
+              db={db}
+              addToast={addToast}
+              confirm={confirm}
+              accentColor="#004E7C"
+              EmailTemplateEditor={EmailTemplateEditor}
+            />
+          );
         default:
           return null;
       }
     }
-    
+
     if (activeSection === 'atlas') {
       return (
         <AtlasAdminSection
