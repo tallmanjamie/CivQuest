@@ -44,8 +44,8 @@ import ServiceFinder from './ServiceFinder';
 
 // Available placeholder documentation
 const PLACEHOLDERS = [
-  { key: 'organizationName', desc: 'Name of the organization', example: 'One South Realty' },
-  { key: 'organizationId', desc: 'ID of the organization', example: 'one_south_realty' },
+  { key: 'organizationName', desc: 'Name of the organization', example: 'Acme Organization' },
+  { key: 'organizationId', desc: 'ID of the organization', example: 'acme_organization' },
   { key: 'notificationName', desc: 'Name of the notification', example: 'Daily Market Report' },
   { key: 'notificationId', desc: 'ID of the notification', example: 'daily_market_report' },
   { key: 'recordCount', desc: 'Number of records found', example: '1686' },
@@ -429,8 +429,10 @@ export default function EmailTemplateEditor({
   const [copiedPlaceholder, setCopiedPlaceholder] = useState(null);
   const [errors, setErrors] = useState({});
 
-  // Editor mode: 'html' or 'visual'
-  const [editorMode, setEditorMode] = useState(template.visualElements?.length > 0 ? 'visual' : 'html');
+  // Editor mode: 'html' or 'visual' - default to visual for new templates
+  const [editorMode, setEditorMode] = useState(
+    template.visualElements?.length > 0 ? 'visual' : (template.isNew ? 'visual' : 'html')
+  );
 
   // Feature Service State
   const [showServiceFinder, setShowServiceFinder] = useState(false);
@@ -446,8 +448,8 @@ export default function EmailTemplateEditor({
 
   // Sample data for preview
   const sampleData = {
-    organizationName: 'One South Realty',
-    organizationId: 'one_south_realty',
+    organizationName: 'Acme Organization',
+    organizationId: 'acme_organization',
     notificationName: 'Daily Market Report',
     notificationId: 'daily_market_report',
     recordCount: '1686',
