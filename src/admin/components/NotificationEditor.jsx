@@ -1205,7 +1205,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                         {selectedTemplateId && (
                           <div className="mt-2 flex items-center gap-2 text-xs text-green-600">
                             <Check className="w-3 h-3" />
-                            <span>Custom template selected: Uses {{`{{placeholders}}`}} for dynamic content</span>
+                            <span>Custom template selected: Uses {`{{placeholders}}`} for dynamic content</span>
                           </div>
                         )}
                         {!selectedTemplateId && (
