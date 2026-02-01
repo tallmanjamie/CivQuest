@@ -670,29 +670,46 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
           />
       )}
 
-      {/* Custom Template Editor Modal */}
+      {/* Custom Template Editor Modal - Full screen for better visibility */}
       {showCustomTemplateEditor && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col mx-4 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-2xl w-[95vw] h-[95vh] flex flex-col mx-4 overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 bg-white">
               <div className="flex items-center gap-3">
                 <Palette className="w-5 h-5 text-[#004E7C]" />
                 <div>
                   <h3 className="text-lg font-bold text-slate-800">Custom Template Designer</h3>
-                  <p className="text-sm text-slate-500">Design your email template with branding and statistics</p>
+                  <p className="text-xs text-slate-500">Design your email with Designer mode or edit HTML directly</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowCustomTemplateEditor(false)}
-                className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomTemplateEditor(false)}
+                  className="px-3 py-1.5 border border-slate-200 rounded text-sm hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomTemplateEditor(false)}
+                  className="px-3 py-1.5 bg-[#004E7C] text-white rounded text-sm font-medium flex items-center gap-2 hover:bg-[#003d61]"
+                >
+                  <Check className="w-4 h-4" />
+                  Apply Changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomTemplateEditor(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700 ml-2"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            {/* Content */}
+            {/* Content - Full height editor */}
             <div className="flex-1 min-h-0 overflow-hidden">
               <CustomTemplateEditor
                 customTemplate={formData.customTemplate || {}}
@@ -700,25 +717,6 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
                 notification={formData}
                 locality={orgData}
               />
-            </div>
-
-            {/* Footer */}
-            <div className="p-4 border-t border-slate-200 flex justify-end gap-2 bg-white shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowCustomTemplateEditor(false)}
-                className="px-4 py-2 border border-slate-200 rounded text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCustomTemplateEditor(false)}
-                className="px-4 py-2 bg-[#004E7C] text-white rounded text-sm font-medium flex items-center gap-2"
-              >
-                <Check className="w-4 h-4" />
-                Apply Changes
-              </button>
             </div>
           </div>
         </div>
