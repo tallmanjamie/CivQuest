@@ -1,0 +1,224 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+
+    // Check if user is the system admin (legacy)
+    function isSystemAdmin() {
+      return request.auth != null && request.auth.token.email == "support@civicvanguard.com";
+    }
+
+    // Get admin document (returns null if doesn't exist)
+    function getAdminDoc() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Check if user is a super admin (new structure)
+    function isSuperAdmin() {
+      return request.auth != null &&
+        getAdminDoc() != null &&
+        getAdminDoc().data.role == 'super_admin';
+    }
+
+    // Check if user is any org admin (new structure)
+    function isAnyOrgAdmin() {
+      return request.auth != null &&
+        getAdminDoc() != null &&
+        getAdminDoc().data.role == 'org_admin';
+    }
+
+    // Check if user is org admin for specific org
+    function isOrgAdminFor(orgId) {
+      return request.auth != null &&
+        getAdminDoc() != null &&
+        getAdminDoc().data.role == 'org_admin' &&
+        getAdminDoc().data.organizationId == orgId;
+    }
+
+    // Check if user is legacy org admin
+    function isLegacyOrgAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/artifacts/civquest_notifications/org_admins/$(request.auth.token.email));
+    }
+
+    // Get legacy org admin's org ID
+    function getLegacyOrgAdminOrgId() {
+      return get(/databases/$(database)/documents/artifacts/civquest_notifications/org_admins/$(request.auth.token.email)).data.orgId;
+    }
+
+    // Unified: can manage a specific org
+    function canManageOrg(orgId) {
+      return isSystemAdmin() ||
+        isSuperAdmin() ||
+        isOrgAdminFor(orgId) ||
+        (isLegacyOrgAdmin() && getLegacyOrgAdminOrgId() == orgId);
+    }
+
+    // Unified: is any type of admin
+    function isAnyAdmin() {
+      return isSystemAdmin() || isSuperAdmin() || isAnyOrgAdmin() || isLegacyOrgAdmin();
+    }
+
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user owns this document
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // ============================================
+    // LEGACY: ARTIFACTS PATH
+    // ============================================
+
+    // User data (legacy)
+    match /artifacts/civquest_notifications/users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isSystemAdmin() || isLegacyOrgAdmin();
+      allow delete: if isSystemAdmin();
+    }
+
+    // Organization configuration (legacy)
+    match /artifacts/civquest_notifications/configuration/{orgId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isSystemAdmin() ||
+        (isLegacyOrgAdmin() && getLegacyOrgAdminOrgId() == orgId);
+      allow delete: if isSystemAdmin();
+    }
+
+    // Public archive logs (legacy)
+    match /artifacts/civquest_notifications/public/data/logs/{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Invitations (legacy)
+    match /artifacts/civquest_notifications/invitations/{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Force queue (legacy)
+    match /artifacts/civquest_notifications/force_queue/{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Org admins (legacy)
+    match /artifacts/civquest_notifications/org_admins/{email} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && email == request.auth.token.email;
+      allow update: if isSystemAdmin() ||
+        (isAuthenticated() && email == request.auth.token.email);
+      allow delete: if isSystemAdmin();
+    }
+
+    // ============================================
+    // NEW: ORGANIZATIONS
+    // ============================================
+    match /organizations/{orgId} {
+      allow read: if true;
+      allow create, delete: if isSystemAdmin() || isSuperAdmin();
+      allow update: if canManageOrg(orgId);
+
+      // Notify subscribers (per-org)
+      match /notifySubscribers/{userId} {
+        allow read: if canManageOrg(orgId) || isOwner(userId);
+        allow write: if canManageOrg(orgId) || isOwner(userId);
+      }
+
+      // Atlas users (per-org)
+      match /atlasUsers/{userId} {
+        allow read, write: if canManageOrg(orgId);
+      }
+
+      // Catch-all for other subcollections
+      match /{subcollection}/{docId} {
+        allow read: if canManageOrg(orgId);
+        allow write: if canManageOrg(orgId);
+      }
+    }
+
+    // ============================================
+    // NEW: USERS
+    // ============================================
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAnyAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAnyAdmin();
+      allow delete: if isSystemAdmin() || isSuperAdmin();
+    }
+
+    // ============================================
+    // NEW: ADMINS
+    // ============================================
+    match /admins/{adminId} {
+      // Allow read for auth check (needed for helper functions)
+      allow read: if isAuthenticated();
+      // Only super admins and system admin can write
+      allow write: if isSystemAdmin() || isSuperAdmin();
+    }
+
+    // ============================================
+    // NEW: LOGS
+    // ============================================
+    match /logs/{logId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // ============================================
+    // NEW: INVITATIONS
+    // ============================================
+    match /invitations/{email} {
+      allow read: if isAnyAdmin() ||
+        (isAuthenticated() && request.auth.token.email == email);
+      allow write: if isAnyAdmin();
+    }
+
+    // ============================================
+    // NEW: FORCE QUEUE
+    // ============================================
+    match /force_queue/{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // ============================================
+    // NEW: ARCHIVES
+    // ============================================
+    match /archives/{orgId} {
+      allow read: if isAuthenticated();
+      allow write: if canManageOrg(orgId);
+
+      match /notifications/{notificationId} {
+        allow read: if isAuthenticated();
+        allow write: if canManageOrg(orgId);
+      }
+
+      match /{subcollection}/{docId} {
+        allow read: if isAuthenticated();
+        allow write: if canManageOrg(orgId);
+      }
+    }
+
+    // ============================================
+    // SYSTEM CONFIGURATION
+    // ============================================
+    match /system/{document=**} {
+      allow read: if true;
+      allow write: if isSystemAdmin() || isSuperAdmin();
+    }
+
+    // ============================================
+    // EMAIL TEMPLATES (for Notify)
+    // ============================================
+    match /emailTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isSystemAdmin() || isSuperAdmin();
+    }
+  }
+}
