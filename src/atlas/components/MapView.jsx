@@ -2201,16 +2201,6 @@ const MapView = forwardRef(function MapView(props, ref) {
                 onClose={() => setShowMapExport(false)}
                 justification={mapToolsJustification}
               />
-
-              {/* 6. Help Button */}
-              <button
-                onClick={() => setShowHelpPanel?.(true)}
-                className={`flex items-center ${mapToolsJustification === 'center' ? 'justify-center' : mapToolsJustification === 'right' ? 'justify-end' : 'justify-start'} gap-1.5 w-24 px-2 py-1.5 bg-white rounded-lg shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors`}
-                title="Get Help"
-              >
-                <HelpCircle className="w-4 h-4" style={{ color: colors.bg600 }} />
-                <span className="text-sm font-medium text-slate-700">Help</span>
-              </button>
             </>
           )}
         </div>
