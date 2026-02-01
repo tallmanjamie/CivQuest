@@ -128,9 +128,9 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
   // Template Type State: 'standard' or 'custom'
-  // If customTemplate exists and has html, default to 'custom'
+  // Use saved templateType if available, otherwise infer from customTemplate presence
   const [templateType, setTemplateType] = useState(
-    data.customTemplate?.html ? 'custom' : 'standard'
+    data.templateType || (data.customTemplate?.html ? 'custom' : 'standard')
   );
 
   // Custom Template Editor Modal State
@@ -425,6 +425,8 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     // Clean up data before saving
     const cleanedData = {
       ...formData,
+      // Save the template type selection so it persists
+      templateType,
       // Remove isPublic legacy field, use access instead
       isPublic: undefined
     };
