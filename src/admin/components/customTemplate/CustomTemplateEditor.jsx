@@ -1190,7 +1190,7 @@ export default function CustomTemplateEditor({
   const validationResult = validateCustomTemplate(template, notification);
 
   // Get available fields for statistics
-  const availableFields = notification.source?.displayFields || [];
+  const availableFields = notification.source?.displayFields || liveDataFields;
 
   return (
     <div className="flex h-full min-h-0">
