@@ -26,6 +26,15 @@ import { validateStatisticId } from './validation';
  * StatisticModal - Modal for adding/editing a statistic
  */
 function StatisticModal({ statistic, existingIds, availableFields, onSave, onCancel, isEdit }) {
+  // Debug logging for field selection issue
+  console.log('[StatisticModal] Rendered with:', {
+    availableFields,
+    availableFieldsLength: availableFields?.length || 0,
+    availableFieldsType: Array.isArray(availableFields) ? 'array' : typeof availableFields,
+    isEdit,
+    statistic
+  });
+
   const [formData, setFormData] = useState({
     id: statistic?.id || '',
     field: statistic?.field || '',
@@ -190,14 +199,23 @@ function StatisticModal({ statistic, existingIds, availableFields, onSave, onCan
                 }`}
               >
                 <option value="">Select field...</option>
+                {(!availableFields || availableFields.length === 0) && (
+                  <option value="" disabled>No fields available - check console for details</option>
+                )}
                 {availableFields.map(f => {
                   const fieldName = typeof f === 'string' ? f : f.field;
                   const fieldLabel = typeof f === 'string' ? f : (f.label || f.field);
+                  console.log('[StatisticModal] Rendering field option:', { f, fieldName, fieldLabel });
                   return (
                     <option key={fieldName} value={fieldName}>{fieldLabel}</option>
                   );
                 })}
               </select>
+              {(!availableFields || availableFields.length === 0) && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No fields available. Ensure the data source is configured and live data is loaded.
+                </p>
+              )}
               {errors.field && <p className="text-xs text-red-500 mt-1">{errors.field}</p>}
             </div>
             <div>
@@ -353,6 +371,16 @@ export default function StatisticsBuilder({
   onChange,
   maxStatistics = MAX_STATISTICS
 }) {
+  // Debug logging for field selection issue
+  console.log('[StatisticsBuilder] Rendered with props:', {
+    statisticsCount: statistics?.length || 0,
+    availableFields,
+    availableFieldsLength: availableFields?.length || 0,
+    availableFieldsType: Array.isArray(availableFields) ? 'array' : typeof availableFields,
+    firstField: availableFields?.[0],
+    maxStatistics
+  });
+
   const [showModal, setShowModal] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
   const [dragIndex, setDragIndex] = useState(null);
@@ -361,6 +389,7 @@ export default function StatisticsBuilder({
   const existingIds = statistics.map(s => s.id);
 
   const handleAdd = () => {
+    console.log('[StatisticsBuilder] handleAdd called, availableFields at this point:', availableFields);
     setEditingIndex(null);
     setShowModal(true);
   };

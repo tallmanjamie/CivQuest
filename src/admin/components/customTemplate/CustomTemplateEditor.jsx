@@ -471,7 +471,10 @@ export default function CustomTemplateEditor({
   // Fetch live data from the notification's data source
   const fetchLiveData = useCallback(async () => {
     const endpoint = notification.source?.endpoint;
+    console.log('[CustomTemplateEditor] fetchLiveData called', { endpoint, source: notification.source });
+
     if (!endpoint) {
+      console.warn('[CustomTemplateEditor] No endpoint configured, skipping live data fetch');
       setLiveDataError('No data source endpoint configured');
       return;
     }
@@ -482,6 +485,7 @@ export default function CustomTemplateEditor({
     try {
       const username = notification.source?.username;
       const password = notification.source?.password;
+      console.log('[CustomTemplateEditor] Fetching metadata from:', `${ARCGIS_PROXY_URL}/api/arcgis/metadata`);
 
       // Fetch metadata
       const metadataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/metadata`, {
@@ -493,10 +497,22 @@ export default function CustomTemplateEditor({
         })
       });
 
-      if (!metadataRes.ok) throw new Error('Failed to fetch service metadata');
+      console.log('[CustomTemplateEditor] Metadata response status:', metadataRes.status, metadataRes.ok);
+      if (!metadataRes.ok) {
+        const errorText = await metadataRes.text();
+        console.error('[CustomTemplateEditor] Metadata fetch failed:', errorText);
+        throw new Error('Failed to fetch service metadata');
+      }
 
       const metadata = await metadataRes.json();
+      console.log('[CustomTemplateEditor] Metadata received:', {
+        fieldsCount: metadata.fields?.length,
+        fields: metadata.fields?.map(f => f.name),
+        rawMetadata: metadata
+      });
+
       const fields = (metadata.fields || []).map(f => f.name);
+      console.log('[CustomTemplateEditor] Extracted field names:', fields);
       setLiveDataFields(fields);
 
       // Get total record count
@@ -537,20 +553,36 @@ export default function CustomTemplateEditor({
 
       const data = await dataRes.json();
       const records = (data.features || []).map(f => f.attributes || {});
+      console.log('[CustomTemplateEditor] Sample records fetched:', {
+        recordCount: records.length,
+        sampleRecord: records[0],
+        allRecordKeys: records.length > 0 ? Object.keys(records[0]) : []
+      });
       setLiveDataRecords(records);
       setUseLiveData(true);
+      console.log('[CustomTemplateEditor] Live data fetch complete - useLiveData set to true');
 
     } catch (err) {
-      console.error('Live data fetch error:', err);
+      console.error('[CustomTemplateEditor] Live data fetch error:', err);
+      console.error('[CustomTemplateEditor] Error stack:', err.stack);
       setLiveDataError(err.message);
     } finally {
       setIsLoadingLiveData(false);
+      console.log('[CustomTemplateEditor] fetchLiveData finished, isLoadingLiveData set to false');
     }
   }, [notification.source]);
 
   // Auto-fetch live data if endpoint exists
   useEffect(() => {
+    console.log('[CustomTemplateEditor] Auto-fetch useEffect triggered:', {
+      hasEndpoint: !!notification.source?.endpoint,
+      endpoint: notification.source?.endpoint,
+      liveDataRecordsLength: liveDataRecords.length,
+      isLoadingLiveData,
+      willFetch: notification.source?.endpoint && !liveDataRecords.length && !isLoadingLiveData
+    });
     if (notification.source?.endpoint && !liveDataRecords.length && !isLoadingLiveData) {
+      console.log('[CustomTemplateEditor] Auto-fetching live data...');
       fetchLiveData();
     }
   }, [notification.source?.endpoint]);
@@ -1191,6 +1223,17 @@ export default function CustomTemplateEditor({
 
   // Get available fields for statistics
   const availableFields = notification.source?.displayFields || liveDataFields;
+
+  // Debug logging for statistics field selection
+  console.log('[CustomTemplateEditor] availableFields resolution:', {
+    'notification.source?.displayFields': notification.source?.displayFields,
+    'liveDataFields': liveDataFields,
+    'resolved availableFields': availableFields,
+    'availableFields.length': availableFields?.length || 0,
+    'useLiveData': useLiveData,
+    'isLoadingLiveData': isLoadingLiveData,
+    'liveDataRecords.length': liveDataRecords?.length || 0
+  });
 
   return (
     <div className="flex h-full min-h-0">
