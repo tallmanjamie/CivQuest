@@ -65,6 +65,19 @@ export const DEFAULT_CUSTOM_TEMPLATE_HTML = `<div style="font-family: {{fontFami
 </div>`;
 
 /**
+ * Filter operators for statistics filtering
+ */
+export const STAT_FILTER_OPERATORS = [
+  { value: '=', label: 'equals' },
+  { value: '<>', label: 'not equals' },
+  { value: '>', label: 'greater than' },
+  { value: '<', label: 'less than' },
+  { value: '>=', label: 'greater or equal' },
+  { value: '<=', label: 'less or equal' },
+  { value: 'LIKE', label: 'contains' }
+];
+
+/**
  * Available statistical operations
  */
 export const STAT_OPERATIONS = [
