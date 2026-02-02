@@ -685,7 +685,9 @@ export default function CustomTemplateEditor({
 
     // If we have live data, build a real data table
     if (useLiveData && liveDataRecords.length > 0 && liveDataFields.length > 0) {
-      const displayFields = notification.source?.displayFields || liveDataFields.slice(0, 3);
+      const displayFields = notification.source?.displayFields?.length > 0
+        ? notification.source.displayFields
+        : liveDataFields.slice(0, 3);
       const fieldNames = displayFields.map(f => typeof f === 'string' ? f : f.field);
       const fieldLabels = displayFields.map(f => typeof f === 'string' ? f : (f.label || f.field));
 
@@ -1222,7 +1224,10 @@ export default function CustomTemplateEditor({
   const validationResult = validateCustomTemplate(template, notification);
 
   // Get available fields for statistics
-  const availableFields = notification.source?.displayFields || liveDataFields;
+  // Note: Use length check because empty array [] is truthy and wouldn't fall back to liveDataFields
+  const availableFields = notification.source?.displayFields?.length > 0
+    ? notification.source.displayFields
+    : liveDataFields;
 
   // Debug logging for statistics field selection
   console.log('[CustomTemplateEditor] availableFields resolution:', {
