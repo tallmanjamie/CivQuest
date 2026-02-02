@@ -398,6 +398,10 @@ export default function CustomTemplateEditor({
   const [liveRecordCount, setLiveRecordCount] = useState(null);
   const [useLiveData, setUseLiveData] = useState(false);
 
+  // Server-side statistics state
+  const [serverStatistics, setServerStatistics] = useState({});
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+
   // Drag and drop state
   const [draggedElement, setDraggedElement] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -587,6 +591,185 @@ export default function CustomTemplateEditor({
     }
   }, [notification.source?.endpoint]);
 
+  // Build WHERE clause from a statistic's filter configuration
+  const buildStatFilterWhereClause = useCallback((filter) => {
+    if (!filter || filter.mode === 'none') return '1=1';
+    if (filter.mode === 'advanced') return filter.advancedWhere || '1=1';
+
+    const rules = filter.rules || [];
+    if (rules.length === 0) return '1=1';
+
+    const clauses = rules
+      .filter(r => r.field && r.value !== undefined && r.value !== '')
+      .map(r => {
+        const isNumeric = !isNaN(r.value) && String(r.value).trim() !== '';
+        const formattedValue = isNumeric ? r.value : `'${String(r.value).replace(/'/g, "''")}'`;
+        return `${r.field} ${r.operator} ${formattedValue}`;
+      });
+
+    if (clauses.length === 0) return '1=1';
+    return clauses.join(` ${filter.logic || 'AND'} `);
+  }, []);
+
+  // Map our operation names to ArcGIS statisticType values
+  const mapOperationToArcGIS = (operation) => {
+    const mapping = {
+      'sum': 'sum',
+      'mean': 'avg',
+      'min': 'min',
+      'max': 'max',
+      'count': 'count'
+    };
+    return mapping[operation] || null;
+  };
+
+  // Fetch server-side statistics from ArcGIS
+  const fetchServerStatistics = useCallback(async () => {
+    const endpoint = notification.source?.endpoint;
+    if (!endpoint || template.statistics.length === 0) {
+      return;
+    }
+
+    setIsLoadingStats(true);
+    const username = notification.source?.username;
+    const password = notification.source?.password;
+    const baseUrl = endpoint.replace(/\/$/, '');
+
+    const newStats = {};
+
+    try {
+      // Group statistics by their filter (so we can batch requests)
+      const statsByFilter = {};
+      template.statistics.forEach(stat => {
+        const filterKey = JSON.stringify(stat.filter || { mode: 'none' });
+        if (!statsByFilter[filterKey]) {
+          statsByFilter[filterKey] = [];
+        }
+        statsByFilter[filterKey].push(stat);
+      });
+
+      // Process each filter group
+      for (const [filterKey, stats] of Object.entries(statsByFilter)) {
+        const filter = JSON.parse(filterKey);
+        const whereClause = buildStatFilterWhereClause(filter);
+
+        // Separate stats into server-supported and client-calculated
+        const serverSupportedStats = stats.filter(s => mapOperationToArcGIS(s.operation));
+        const clientCalculatedStats = stats.filter(s => !mapOperationToArcGIS(s.operation));
+
+        // Fetch server-side statistics if any
+        if (serverSupportedStats.length > 0) {
+          const outStatistics = serverSupportedStats.map(stat => ({
+            statisticType: mapOperationToArcGIS(stat.operation),
+            onStatisticField: stat.field,
+            outStatisticFieldName: `stat_${stat.id}`
+          }));
+
+          try {
+            const statsRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                serviceUrl: baseUrl,
+                where: whereClause,
+                outStatistics: JSON.stringify(outStatistics),
+                f: 'json',
+                ...(username && password ? { username, password } : {})
+              })
+            });
+
+            if (statsRes.ok) {
+              const statsData = await statsRes.json();
+              if (statsData.features && statsData.features.length > 0) {
+                const attributes = statsData.features[0].attributes || {};
+                serverSupportedStats.forEach(stat => {
+                  newStats[stat.id] = attributes[`stat_${stat.id}`];
+                });
+              }
+            }
+          } catch (err) {
+            console.error('[CustomTemplateEditor] Server statistics fetch error:', err);
+          }
+        }
+
+        // For client-calculated stats (median, distinct, first, last), fetch all records
+        if (clientCalculatedStats.length > 0) {
+          try {
+            // Get the fields we need
+            const fieldsNeeded = [...new Set(clientCalculatedStats.map(s => s.field))];
+
+            // Fetch all records for these specific fields
+            const allRecordsRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                serviceUrl: baseUrl,
+                where: whereClause,
+                outFields: fieldsNeeded.join(','),
+                f: 'json',
+                ...(username && password ? { username, password } : {})
+              })
+            });
+
+            if (allRecordsRes.ok) {
+              const allRecordsData = await allRecordsRes.json();
+              const allRecords = (allRecordsData.features || []).map(f => f.attributes || {});
+
+              // Calculate each client-side statistic
+              clientCalculatedStats.forEach(stat => {
+                const values = allRecords.map(r => r[stat.field]).filter(v => v !== null && v !== undefined && v !== '');
+                if (values.length === 0) {
+                  newStats[stat.id] = null;
+                  return;
+                }
+
+                const numericValues = values.map(v => typeof v === 'number' ? v : parseFloat(v)).filter(n => !isNaN(n));
+
+                switch (stat.operation) {
+                  case 'median':
+                    if (numericValues.length === 0) {
+                      newStats[stat.id] = null;
+                    } else {
+                      const sorted = [...numericValues].sort((a, b) => a - b);
+                      const mid = Math.floor(sorted.length / 2);
+                      newStats[stat.id] = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+                    }
+                    break;
+                  case 'distinct':
+                    newStats[stat.id] = new Set(values.map(v => String(v))).size;
+                    break;
+                  case 'first':
+                    newStats[stat.id] = values[0];
+                    break;
+                  case 'last':
+                    newStats[stat.id] = values[values.length - 1];
+                    break;
+                  default:
+                    newStats[stat.id] = null;
+                }
+              });
+            }
+          } catch (err) {
+            console.error('[CustomTemplateEditor] Client statistics calculation error:', err);
+          }
+        }
+      }
+
+      setServerStatistics(newStats);
+    } catch (err) {
+      console.error('[CustomTemplateEditor] Statistics fetch error:', err);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, [notification.source, template.statistics, buildStatFilterWhereClause]);
+
+  // Fetch server statistics when statistics config or live data changes
+  useEffect(() => {
+    if (useLiveData && template.statistics.length > 0) {
+      fetchServerStatistics();
+    }
+  }, [useLiveData, template.statistics, fetchServerStatistics]);
+
   // Helper function to calculate a statistic from records
   const calculateStatistic = useCallback((records, field, operation) => {
     if (!records || records.length === 0) return null;
@@ -659,15 +842,25 @@ export default function CustomTemplateEditor({
     return prefix + String(value) + suffix;
   }, []);
 
-  // Calculate live statistics from records
+  // Calculate live statistics using server-side data when available
   const liveStatistics = useMemo(() => {
-    if (!useLiveData || !liveDataRecords.length || !template.statistics.length) {
+    if (!useLiveData || !template.statistics.length) {
       return null;
     }
 
     const stats = {};
     template.statistics.forEach(stat => {
-      const rawValue = calculateStatistic(liveDataRecords, stat.field, stat.operation);
+      // Use server-side statistics if available, otherwise fall back to sample calculation
+      let rawValue;
+      if (serverStatistics.hasOwnProperty(stat.id)) {
+        rawValue = serverStatistics[stat.id];
+      } else if (liveDataRecords.length > 0) {
+        // Fallback to sample data (for preview while loading)
+        rawValue = calculateStatistic(liveDataRecords, stat.field, stat.operation);
+      } else {
+        rawValue = null;
+      }
+
       const formattedValue = formatStatisticValue(rawValue, stat.format);
       stats[`stat_${stat.id}`] = formattedValue;
       stats[`stat_${stat.id}_value`] = rawValue;
@@ -675,7 +868,7 @@ export default function CustomTemplateEditor({
     });
 
     return stats;
-  }, [useLiveData, liveDataRecords, template.statistics, calculateStatistic, formatStatisticValue]);
+  }, [useLiveData, liveDataRecords, template.statistics, serverStatistics, calculateStatistic, formatStatisticValue]);
 
   // Generate sample context with live data if available
   const sampleContext = useMemo(() => {
