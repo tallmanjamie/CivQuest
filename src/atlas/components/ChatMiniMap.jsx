@@ -1,6 +1,6 @@
 // src/atlas/components/ChatMiniMap.jsx
 // Mini map component for displaying search results in chat view
-// Shows features with basemap and zoom controls only
+// Shows features with basemap, zoom controls, and pushpin markers for visibility when zoomed out
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
@@ -22,6 +22,38 @@ import Basemap from '@arcgis/core/Basemap';
 import { getThemeColors, COLOR_PALETTE } from '../utils/themeColors';
 
 /**
+ * Get center point from ArcGIS geometry
+ */
+function getGeometryCenter(geometry) {
+  if (!geometry) return null;
+
+  // Point geometry - return directly
+  if (geometry.x !== undefined && geometry.y !== undefined) {
+    return { x: geometry.x, y: geometry.y };
+  }
+
+  // Polygon geometry - calculate centroid from first ring
+  if (geometry.rings && geometry.rings.length > 0) {
+    const ring = geometry.rings[0];
+    let sumX = 0, sumY = 0;
+    for (const point of ring) {
+      sumX += point[0];
+      sumY += point[1];
+    }
+    return { x: sumX / ring.length, y: sumY / ring.length };
+  }
+
+  // Polyline geometry - use midpoint of first path
+  if (geometry.paths && geometry.paths.length > 0) {
+    const path = geometry.paths[0];
+    const midIndex = Math.floor(path.length / 2);
+    return { x: path[midIndex][0], y: path[midIndex][1] };
+  }
+
+  return null;
+}
+
+/**
  * ChatMiniMap - A lightweight map component for displaying search results
  * Features: basemap, zoom controls, feature display
  */
@@ -35,6 +67,7 @@ export default function ChatMiniMap({
   const viewRef = useRef(null);
   const mapRef = useRef(null);
   const graphicsLayerRef = useRef(null);
+  const pushpinLayerRef = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -62,6 +95,13 @@ export default function ChatMiniMap({
         });
         graphicsLayerRef.current = graphicsLayer;
         map.add(graphicsLayer);
+
+        // Create pushpin layer (on top of features)
+        const pushpinLayer = new GraphicsLayer({
+          id: 'chat-mini-map-pushpins'
+        });
+        pushpinLayerRef.current = pushpinLayer;
+        map.add(pushpinLayer);
 
         // Create map view
         const view = new EsriMapView({
@@ -103,6 +143,7 @@ export default function ChatMiniMap({
       }
       mapRef.current = null;
       graphicsLayerRef.current = null;
+      pushpinLayerRef.current = null;
     };
   }, [basemapId]);
 
@@ -114,12 +155,15 @@ export default function ChatMiniMap({
   }, [features]);
 
   /**
-   * Render features on the map
+   * Render features on the map with pushpin markers for visibility when zoomed out
    */
   const renderFeatures = useCallback((featuresToRender) => {
     if (!graphicsLayerRef.current || !viewRef.current) return;
 
     graphicsLayerRef.current.removeAll();
+    if (pushpinLayerRef.current) {
+      pushpinLayerRef.current.removeAll();
+    }
 
     if (!featuresToRender || featuresToRender.length === 0) return;
 
@@ -136,31 +180,36 @@ export default function ChatMiniMap({
     };
     const [r, g, b] = hexToRgb(hex500);
 
-    const graphics = featuresToRender.map((feature, idx) => {
-      if (!feature.geometry) return null;
+    const graphics = [];
+    const pushpins = [];
+    const hasMultipleFeatures = featuresToRender.length > 1;
+
+    featuresToRender.forEach((feature, idx) => {
+      if (!feature.geometry) return;
 
       let geometry;
       const geom = feature.geometry;
+      const spatialRef = geom.spatialReference || { wkid: 4326 };
 
       if (geom.rings) {
         geometry = new Polygon({
           rings: geom.rings,
-          spatialReference: geom.spatialReference || { wkid: 4326 }
+          spatialReference: spatialRef
         });
       } else if (geom.paths) {
         geometry = new Polyline({
           paths: geom.paths,
-          spatialReference: geom.spatialReference || { wkid: 4326 }
+          spatialReference: spatialRef
         });
       } else if (geom.x !== undefined) {
         geometry = new Point({
           x: geom.x,
           y: geom.y,
-          spatialReference: geom.spatialReference || { wkid: 4326 }
+          spatialReference: spatialRef
         });
       }
 
-      if (!geometry) return null;
+      if (!geometry) return;
 
       let symbol;
       if (geom.rings) {
@@ -184,14 +233,44 @@ export default function ChatMiniMap({
         });
       }
 
-      return new Graphic({
+      graphics.push(new Graphic({
         geometry,
         symbol,
         attributes: { _index: idx }
-      });
-    }).filter(Boolean);
+      }));
+
+      // Add pushpin marker at center for multiple results (helps visibility when zoomed out)
+      if (hasMultipleFeatures) {
+        const center = getGeometryCenter(geom);
+        if (center) {
+          const pushpinGeometry = new Point({
+            x: center.x,
+            y: center.y,
+            spatialReference: spatialRef
+          });
+
+          const pushpinSymbol = new SimpleMarkerSymbol({
+            style: 'circle',
+            color: [r, g, b],
+            size: 14,
+            outline: { color: [255, 255, 255], width: 2 }
+          });
+
+          pushpins.push(new Graphic({
+            geometry: pushpinGeometry,
+            symbol: pushpinSymbol,
+            attributes: { _index: idx }
+          }));
+        }
+      }
+    });
 
     graphicsLayerRef.current.addMany(graphics);
+
+    // Add pushpins on top layer for visibility
+    if (pushpinLayerRef.current && pushpins.length > 0) {
+      pushpinLayerRef.current.addMany(pushpins);
+    }
 
     // Zoom to features
     if (graphics.length > 0) {

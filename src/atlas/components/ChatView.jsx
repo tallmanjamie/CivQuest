@@ -1125,13 +1125,11 @@ function ResultsTable({ features, tableColumns, searchFields, colors }) {
     return null;
   }
 
-  // Show up to 5 rows
-  const displayFeatures = features.slice(0, 5);
-
+  // Show all rows for multi-result display
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto max-h-64 overflow-y-auto">
       <table className="min-w-full text-xs">
-        <thead>
+        <thead className="sticky top-0 bg-white">
           <tr className="border-b border-slate-200">
             {columns.map(col => (
               <th
@@ -1144,7 +1142,7 @@ function ResultsTable({ features, tableColumns, searchFields, colors }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {displayFeatures.map((feature, idx) => (
+          {features.map((feature, idx) => (
             <tr key={idx} className="hover:bg-slate-50">
               {columns.map(col => (
                 <td key={col.field} className="px-2 py-1.5 text-slate-700 truncate max-w-[150px]">
@@ -1155,11 +1153,9 @@ function ResultsTable({ features, tableColumns, searchFields, colors }) {
           ))}
         </tbody>
       </table>
-      {features.length > 5 && (
-        <p className="text-xs text-slate-400 mt-2 text-center">
-          Showing 5 of {features.length} results
-        </p>
-      )}
+      <p className="text-xs text-slate-400 mt-2 text-center">
+        Showing {features.length} results
+      </p>
     </div>
   );
 }
