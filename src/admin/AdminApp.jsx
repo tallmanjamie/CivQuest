@@ -84,6 +84,7 @@ import SystemHelpEditor from './components/SystemHelpEditor';
 import IntegrationsManagement from './components/IntegrationsManagement';
 import GlobalExportTemplateLibrary from './components/GlobalExportTemplateLibrary';
 import AISettingsEditor from './components/AISettingsEditor';
+import ESRISettingsEditor from './components/ESRISettingsEditor';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
@@ -688,6 +689,7 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
     { id: 'globaltemplates', label: 'Global Templates', icon: Printer },
     { id: 'orgadmins', label: 'Org Admins', icon: UserPlus },
     { id: 'ai', label: 'AI', icon: Sparkles },
+    { id: 'esri', label: 'ESRI', icon: Globe },
   ];
 
   // Use Atlas theme color for org_admin when available, otherwise fall back to defaults
@@ -1091,6 +1093,16 @@ function SuperAdminDashboard({ user }) {
         case 'ai':
           return (
             <AISettingsEditor
+              db={db}
+              addToast={addToast}
+              confirm={confirm}
+              adminEmail={user.email}
+              accentColor="#004E7C"
+            />
+          );
+        case 'esri':
+          return (
+            <ESRISettingsEditor
               db={db}
               addToast={addToast}
               confirm={confirm}
