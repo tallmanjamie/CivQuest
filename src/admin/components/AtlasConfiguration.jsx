@@ -300,9 +300,22 @@ export default function AtlasConfiguration({
   };
 
   // Save settings
+  // IMPORTANT: Merge incoming settings with existing config to preserve fields like
+  // exportTemplates, featureExportTemplates, printServiceUrl, elevationServiceUrl, etc.
+  // that are not edited by the settings editor
   const handleSaveSettings = (updatedConfig) => {
     if (editingSettings) {
-      handleSaveToDraft(editingSettings.orgId, updatedConfig);
+      const existingConfig = editingSettings.data || {};
+      const mergedConfig = {
+        ...existingConfig,  // Preserve exportTemplates, featureExportTemplates, etc.
+        ...updatedConfig,   // Apply the updated settings (ui, messages, basemaps, disclaimer)
+        data: {
+          ...existingConfig.data,
+          ...updatedConfig.data,
+          maps: existingConfig.data?.maps || [] // Preserve maps
+        }
+      };
+      handleSaveToDraft(editingSettings.orgId, mergedConfig);
     }
   };
 
