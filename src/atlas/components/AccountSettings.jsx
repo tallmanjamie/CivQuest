@@ -34,6 +34,7 @@ export default function AccountSettings({ isOpen, onClose }) {
 
   // Display preferences
   const [searchBarSize, setSearchBarSize] = useState('medium');
+  const [searchPlaceholder, setSearchPlaceholder] = useState('');
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [savedPreferences, setSavedPreferences] = useState(false);
 
@@ -42,7 +43,8 @@ export default function AccountSettings({ isOpen, onClose }) {
     if (userData) {
       setFirstName(userData.firstName || '');
       setLastName(userData.lastName || '');
-      setSearchBarSize(userData.preferences?.searchBarSize || config?.ui?.defaultSearchBarSize || 'medium');
+      setSearchBarSize(userData.preferences?.searchBarSize || 'medium');
+      setSearchPlaceholder(userData.preferences?.searchPlaceholder || '');
     }
   }, [userData, config?.ui?.defaultSearchBarSize]);
 
@@ -119,7 +121,8 @@ export default function AccountSettings({ isOpen, onClose }) {
     setSavingPreferences(true);
     try {
       await updateUserPreferences(user.uid, {
-        searchBarSize
+        searchBarSize,
+        searchPlaceholder
       });
       setSavedPreferences(true);
     } catch (error) {
@@ -258,6 +261,23 @@ export default function AccountSettings({ isOpen, onClose }) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Search Bar Placeholder
+              </label>
+              <p className="text-xs text-slate-500 mb-3">
+                Customize the placeholder text shown in the search bar. Leave empty to use the default.
+              </p>
+              <input
+                type="text"
+                value={searchPlaceholder}
+                onChange={(e) => setSearchPlaceholder(e.target.value)}
+                placeholder="Search properties..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2"
+                style={{ '--tw-ring-color': colors.bg500 }}
+              />
             </div>
 
             <div className="flex justify-end">
