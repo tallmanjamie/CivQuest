@@ -54,7 +54,7 @@ const OUTPUT_FORMATS = [
 
 // Common map scales (1 inch = X feet)
 const PRESET_SCALES = [
-  { value: null, label: 'Auto (fit to view)' },
+  { value: null, label: 'Auto' },
   { value: 50, label: '1" = 50\'' },
   { value: 100, label: '1" = 100\'' },
   { value: 200, label: '1" = 200\'' },
