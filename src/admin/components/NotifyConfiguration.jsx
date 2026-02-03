@@ -15,15 +15,15 @@ import {
   serverTimestamp,
   setDoc
 } from 'firebase/firestore';
-import { 
-  Building2, 
-  Bell, 
+import {
+  Building2,
+  Bell,
   BellOff,
-  Plus, 
-  Edit2, 
-  Trash2, 
+  Plus,
+  Edit2,
+  Trash2,
   Copy,
-  ChevronDown, 
+  ChevronDown,
   ChevronRight,
   Play,
   Pause,
@@ -31,7 +31,11 @@ import {
   Lock,
   Calendar,
   Clock,
-  Zap
+  Zap,
+  Eye,
+  X,
+  Monitor,
+  Smartphone
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
 
@@ -68,6 +72,7 @@ export default function NotifyConfiguration({
   const [loading, setLoading] = useState(true);
   const [editingNotification, setEditingNotification] = useState(null);
   const [expandedOrgs, setExpandedOrgs] = useState({});
+  const [previewingEmail, setPreviewingEmail] = useState(null);
 
   // Fetch all organizations for admin role
   useEffect(() => {
@@ -232,6 +237,15 @@ export default function NotifyConfiguration({
     });
   };
 
+  // Preview email
+  const handlePreviewEmail = (targetOrgId, notif, targetOrgData) => {
+    setPreviewingEmail({
+      orgId: targetOrgId,
+      orgData: targetOrgData,
+      notification: notif
+    });
+  };
+
   // Duplicate notification
   const handleDuplicateNotification = (targetOrgId, notif, allNotifications, targetOrgData) => {
     const duplicatedNotif = {
@@ -333,6 +347,7 @@ export default function NotifyConfiguration({
                 hasNotifyConfig={hasNotifyConfig(org)}
                 onInitialize={() => handleInitializeNotify(org.id, org.name)}
                 onUninitialize={() => handleUninitializeNotify(org.id, org.name, org.notifications?.length || 0)}
+                onPreviewEmail={(notif) => handlePreviewEmail(org.id, notif, org)}
                 onForceRun={(notifId, notifName) => handleForceRunBroadcast(org.id, notifId, notifName)}
                 onEditNotification={(idx, data) => handleEditNotification(org.id, idx, data, org.notifications, org)}
                 onDeleteNotification={(idx, name) => handleDeleteNotification(org.id, idx, name, org.notifications)}
@@ -345,11 +360,21 @@ export default function NotifyConfiguration({
 
         {/* Notification Edit Modal - NOW PASSES orgData */}
         {editingNotification && NotificationEditModal && (
-          <NotificationEditModal 
+          <NotificationEditModal
             data={editingNotification.data}
             orgData={editingNotification.orgData}
             onClose={() => setEditingNotification(null)}
             onSave={handleSaveNotification}
+          />
+        )}
+
+        {/* Email Preview Modal */}
+        {previewingEmail && (
+          <EmailPreviewModal
+            notification={previewingEmail.notification}
+            orgData={previewingEmail.orgData}
+            onClose={() => setPreviewingEmail(null)}
+            accentColor={accentColor}
           />
         )}
       </div>
@@ -426,6 +451,7 @@ export default function NotifyConfiguration({
                   onEdit={() => handleEditNotification(orgId, idx, notif, notifications, orgData)}
                   onDelete={() => handleDeleteNotification(orgId, idx, notif.name, notifications)}
                   onDuplicate={() => handleDuplicateNotification(orgId, notif, notifications, orgData)}
+                  onPreviewEmail={() => handlePreviewEmail(orgId, notif, orgData)}
                   onForceRun={() => handleForceRunBroadcast(orgId, notif.id, notif.name)}
                 />
               ))}
@@ -454,11 +480,21 @@ export default function NotifyConfiguration({
 
       {/* Notification Edit Modal - PASSES orgData */}
       {editingNotification && NotificationEditModal && (
-        <NotificationEditModal 
+        <NotificationEditModal
           data={editingNotification.data}
           orgData={editingNotification.orgData || orgData}
           onClose={() => setEditingNotification(null)}
           onSave={handleSaveNotification}
+        />
+      )}
+
+      {/* Email Preview Modal */}
+      {previewingEmail && (
+        <EmailPreviewModal
+          notification={previewingEmail.notification}
+          orgData={previewingEmail.orgData}
+          onClose={() => setPreviewingEmail(null)}
+          accentColor={accentColor}
         />
       )}
     </div>
@@ -466,7 +502,7 @@ export default function NotifyConfiguration({
 }
 
 // --- Notification Card Component ---
-function NotificationCard({ notification, accentColor, onEdit, onDelete, onDuplicate, onForceRun }) {
+function NotificationCard({ notification, accentColor, onEdit, onDelete, onDuplicate, onPreviewEmail, onForceRun }) {
   const scheduleLabels = {
     monthly: 'Monthly',
     weekly: 'Weekly',
@@ -515,6 +551,13 @@ function NotificationCard({ notification, accentColor, onEdit, onDelete, onDupli
         
         <div className="flex items-center gap-1 ml-4">
           <button
+            onClick={onPreviewEmail}
+            className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg"
+            title="Preview Email"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+          <button
             onClick={onForceRun}
             className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg"
             title="Force Run"
@@ -549,19 +592,20 @@ function NotificationCard({ notification, accentColor, onEdit, onDelete, onDupli
 }
 
 // --- Organization Notify Card (Admin view) ---
-function OrganizationNotifyCard({ 
-  org, 
-  expanded, 
-  onToggle, 
-  accentColor, 
+function OrganizationNotifyCard({
+  org,
+  expanded,
+  onToggle,
+  accentColor,
   hasNotifyConfig,
   onInitialize,
   onUninitialize,
-  onForceRun, 
-  onEditNotification, 
-  onAddNotification, 
-  onDeleteNotification, 
-  onDuplicateNotification 
+  onPreviewEmail,
+  onForceRun,
+  onEditNotification,
+  onAddNotification,
+  onDeleteNotification,
+  onDuplicateNotification
 }) {
   const notifications = org.notifications || [];
   const notificationCount = notifications.length;
@@ -664,6 +708,13 @@ function OrganizationNotifyCard({
                       </div>
                       <div className="flex items-center gap-1 ml-2">
                         <button
+                          onClick={(e) => { e.stopPropagation(); onPreviewEmail(notif); }}
+                          className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-white rounded"
+                          title="Preview Email"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={(e) => { e.stopPropagation(); onForceRun(notif.id, notif.name); }}
                           className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-white rounded"
                           title="Force Run"
@@ -712,6 +763,194 @@ function OrganizationNotifyCard({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Email Preview Modal Component ---
+function EmailPreviewModal({ notification, orgData, onClose, accentColor = '#004E7C' }) {
+  const [previewMode, setPreviewMode] = React.useState('desktop');
+
+  // Generate sample data for preview
+  const sampleData = {
+    organizationName: orgData?.name || 'Organization Name',
+    organizationId: orgData?.id || 'org_id',
+    notificationName: notification?.name || 'Notification',
+    notificationId: notification?.id || 'notif_id',
+    recordCount: '42',
+    dateRangeStart: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    dateRangeEnd: new Date().toLocaleDateString(),
+    emailIntro: notification?.emailIntro || '<p style="margin: 0 0 15px 0; color: #444;">Here is your notification summary with the latest data for your area.</p>',
+    emailZeroStateMessage: notification?.emailZeroStateMessage || 'No new records found for this period.',
+    downloadUrl: '#',
+  };
+
+  // Build display fields for sample table
+  const displayFields = notification?.source?.displayFields || [];
+  const fieldNames = displayFields.length > 0
+    ? displayFields.map(f => f.alias || f.name || f)
+    : ['Field 1', 'Field 2', 'Field 3'];
+
+  // Generate sample data table HTML
+  const generateDataTableHtml = () => {
+    const headers = fieldNames.slice(0, 4).map(f =>
+      `<th style="text-align: left; padding: 10px 8px; background-color: #f2f2f2; border-bottom: 2px solid #ddd; font-size: 13px;">${f}</th>`
+    ).join('');
+
+    const sampleRows = [
+      ['Sample Value 1', 'Sample Value 2', 'Sample Value 3', 'Sample Value 4'],
+      ['Example Data A', 'Example Data B', 'Example Data C', 'Example Data D'],
+      ['Record Entry 1', 'Record Entry 2', 'Record Entry 3', 'Record Entry 4'],
+    ].map(row =>
+      `<tr>${row.slice(0, fieldNames.length > 0 ? Math.min(fieldNames.length, 4) : 3).map(cell =>
+        `<td style="padding: 10px 8px; border-bottom: 1px solid #eee; font-size: 13px;">${cell}</td>`
+      ).join('')}</tr>`
+    ).join('');
+
+    return `<table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+      <thead><tr>${headers}</tr></thead>
+      <tbody>${sampleRows}</tbody>
+    </table>`;
+  };
+
+  // Generate download button HTML
+  const downloadButtonHtml = notification?.sendEmpty !== true
+    ? `<div style="margin: 20px 0;"><a href="#" style="display: inline-block; background-color: ${accentColor}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Download Full CSV Report</a></div>`
+    : '';
+
+  // Generate more records message
+  const moreRecordsMessage = '<p style="font-style: italic; color: #666; margin-top: 15px; font-size: 13px;">Showing first 3 of 42 records. Download the CSV to see all data.</p>';
+
+  // Check for custom template
+  const hasCustomTemplate = notification?.customTemplate?.html;
+
+  // Generate email HTML preview
+  const generateEmailHtml = () => {
+    if (hasCustomTemplate) {
+      // Use custom template with placeholder replacement
+      let html = notification.customTemplate.html;
+      html = html.replace(/\{\{organizationName\}\}/g, sampleData.organizationName);
+      html = html.replace(/\{\{organizationId\}\}/g, sampleData.organizationId);
+      html = html.replace(/\{\{notificationName\}\}/g, sampleData.notificationName);
+      html = html.replace(/\{\{notificationId\}\}/g, sampleData.notificationId);
+      html = html.replace(/\{\{recordCount\}\}/g, sampleData.recordCount);
+      html = html.replace(/\{\{dateRangeStart\}\}/g, sampleData.dateRangeStart);
+      html = html.replace(/\{\{dateRangeEnd\}\}/g, sampleData.dateRangeEnd);
+      html = html.replace(/\{\{emailIntro\}\}/g, sampleData.emailIntro);
+      html = html.replace(/\{\{downloadButton\}\}/g, downloadButtonHtml);
+      html = html.replace(/\{\{downloadUrl\}\}/g, sampleData.downloadUrl);
+      html = html.replace(/\{\{dataTable\}\}/g, generateDataTableHtml());
+      html = html.replace(/\{\{moreRecordsMessage\}\}/g, moreRecordsMessage);
+      return html;
+    }
+
+    // Default template
+    return `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: ${accentColor}; color: white; padding: 20px; text-align: center;">
+        <h1 style="margin: 0; font-size: 24px;">${sampleData.organizationName}</h1>
+        <h2 style="margin: 5px 0 0 0; font-weight: normal; font-size: 16px;">${sampleData.notificationName}</h2>
+      </div>
+
+      <div style="padding: 20px;">
+        <p style="color: #666; margin: 0 0 15px 0;">
+          <strong>Period:</strong> ${sampleData.dateRangeStart} to ${sampleData.dateRangeEnd}<br>
+          <strong>Records:</strong> ${sampleData.recordCount}
+        </p>
+
+        ${sampleData.emailIntro}
+
+        ${downloadButtonHtml}
+
+        ${generateDataTableHtml()}
+
+        ${moreRecordsMessage}
+      </div>
+
+      <div style="padding: 15px; background-color: #f5f5f5; text-align: center; font-size: 12px; color: #888;">
+        You are receiving this because you subscribed at CivQuest Notify.
+      </div>
+    </div>`;
+  };
+
+  const previewWidth = previewMode === 'mobile' ? '375px' : '600px';
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col mx-4">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-3">
+            <Eye className="w-5 h-5" style={{ color: accentColor }} />
+            <div>
+              <h3 className="font-bold text-slate-800">Email Preview</h3>
+              <p className="text-xs text-slate-500">{notification?.name} - Preview with sample data</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Desktop/Mobile Toggle */}
+            <div className="flex items-center bg-slate-100 rounded p-0.5">
+              <button
+                onClick={() => setPreviewMode('desktop')}
+                className={`p-1.5 rounded transition-colors ${
+                  previewMode === 'desktop'
+                    ? 'bg-white shadow-sm text-slate-700'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+                title="Desktop view (600px)"
+              >
+                <Monitor className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setPreviewMode('mobile')}
+                className={`p-1.5 rounded transition-colors ${
+                  previewMode === 'mobile'
+                    ? 'bg-white shadow-sm text-slate-700'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+                title="Mobile view (375px)"
+              >
+                <Smartphone className="w-4 h-4" />
+              </button>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Sample Data Notice */}
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-center gap-2 text-xs text-amber-700 shrink-0">
+          <Bell className="w-4 h-4" />
+          <span>This preview uses sample data. Actual emails will contain real data from your configured source.</span>
+        </div>
+
+        {/* Preview Container */}
+        <div className="flex-1 overflow-auto bg-slate-100 p-6">
+          <div
+            className="mx-auto bg-white shadow-lg rounded-lg overflow-hidden transition-all duration-300"
+            style={{ maxWidth: previewWidth }}
+          >
+            <div dangerouslySetInnerHTML={{ __html: generateEmailHtml() }} />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-slate-200 flex justify-between items-center shrink-0 bg-white">
+          <p className="text-xs text-slate-400">
+            Preview width: {previewMode === 'mobile' ? '375px (mobile)' : '600px (desktop)'}
+          </p>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-white rounded-lg text-sm font-medium"
+            style={{ backgroundColor: accentColor }}
+          >
+            Close Preview
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
