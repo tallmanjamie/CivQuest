@@ -15,10 +15,16 @@ import {
   ArrowUpAZ,
   ArrowDownAZ,
   Check,
-  Filter
+  Filter,
+  Download,
+  ChevronDown,
+  FileSpreadsheet,
+  FileArchive,
+  Loader2
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
+import { exportSearchResultsToShapefile } from '../utils/ShapefileExportService';
 
 /**
  * SearchResultsPanel Component
@@ -60,12 +66,15 @@ export default function SearchResultsPanel({
   const [displayField, setDisplayField] = useState(''); // Empty means auto-detect
   const [filterText, setFilterText] = useState('');
   const [showFilter, setShowFilter] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Refs
   const panelRef = useRef(null);
   const listRef = useRef(null);
   const configRef = useRef(null);
   const filterInputRef = useRef(null);
+  const exportMenuRef = useRef(null);
 
   // Get features from search results
   const rawFeatures = searchResults?.features || [];
@@ -83,6 +92,96 @@ export default function SearchResultsPanel({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showConfig]);
+
+  // Close export menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
+        setShowExportMenu(false);
+      }
+    };
+    if (showExportMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showExportMenu]);
+
+  /**
+   * Export to CSV
+   */
+  const exportCSV = useCallback(() => {
+    if (!searchResults?.features?.length) return;
+
+    setShowExportMenu(false);
+
+    // Get all unique field names from features
+    const allFields = new Set();
+    searchResults.features.forEach(feature => {
+      if (feature.attributes) {
+        Object.keys(feature.attributes).forEach(key => {
+          // Skip internal fields
+          if (!key.startsWith('_')) {
+            allFields.add(key);
+          }
+        });
+      }
+    });
+
+    const fields = Array.from(allFields);
+
+    // Build CSV content
+    const escapeCSV = (value) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const header = fields.map(escapeCSV).join(',');
+    const rows = searchResults.features.map(feature => {
+      return fields.map(field => escapeCSV(feature.attributes?.[field])).join(',');
+    });
+
+    const csvContent = [header, ...rows].join('\n');
+
+    // Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `search-results-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [searchResults?.features]);
+
+  /**
+   * Export to Shapefile
+   */
+  const exportShapefile = useCallback(async () => {
+    if (!searchResults?.features?.length) return;
+
+    setIsExporting(true);
+    setShowExportMenu(false);
+
+    try {
+      await exportSearchResultsToShapefile({
+        features: searchResults.features,
+        filename: 'search-results',
+        onProgress: (status) => {
+          console.log('[SearchResultsPanel] Shapefile export:', status);
+        }
+      });
+    } catch (err) {
+      console.error('[SearchResultsPanel] Shapefile export error:', err);
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [searchResults?.features]);
 
 
   /**
@@ -471,6 +570,42 @@ export default function SearchResultsPanel({
                         )}
                       </div>
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Export Dropdown */}
+              <div className="relative" ref={exportMenuRef}>
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  disabled={isExporting}
+                  className={`p-1 rounded transition ${showExportMenu ? 'bg-slate-200' : 'hover:bg-slate-200'} ${isExporting ? 'opacity-50' : ''}`}
+                  title="Export Results"
+                >
+                  {isExporting ? (
+                    <Loader2 className="w-4 h-4 text-slate-600 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 text-slate-600" />
+                  )}
+                </button>
+
+                {/* Export Menu */}
+                {showExportMenu && (
+                  <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-xl border border-slate-200 w-44 z-50">
+                    <button
+                      onClick={exportCSV}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors rounded-t-lg"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                      Export to CSV
+                    </button>
+                    <button
+                      onClick={exportShapefile}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors rounded-b-lg"
+                    >
+                      <FileArchive className="w-4 h-4 text-blue-600" />
+                      Export to Shapefile
+                    </button>
                   </div>
                 )}
               </div>
