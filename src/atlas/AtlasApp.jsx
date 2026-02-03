@@ -648,7 +648,7 @@ function SearchToolbar({
           />
 
           {/* Autocomplete Suggestions Dropdown */}
-          {showSuggestions && (suggestions.length > 0 || isLoadingSuggestions) && (
+          {showSuggestions && (
             <div
               ref={suggestionsRef}
               className={`absolute ${isBottom ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 right-0 bg-white border border-slate-200 shadow-xl rounded-lg overflow-hidden z-50`}
@@ -658,7 +658,7 @@ function SearchToolbar({
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">Loading suggestions...</span>
                 </div>
-              ) : (
+              ) : suggestions.length > 0 ? (
                 <div className="max-h-64 overflow-y-auto">
                   {suggestions.map((suggestion, idx) => (
                     <button
@@ -704,19 +704,18 @@ function SearchToolbar({
                     </button>
                   ))}
                 </div>
+              ) : (
+                <button
+                  onClick={handleSubmit}
+                  className="w-full p-3 flex items-center gap-2 text-slate-600 hover:bg-slate-50 transition-colors text-left"
+                >
+                  <Search className="w-4 h-4 flex-shrink-0" />
+                  <span className="text-sm">Search for "<span className="font-medium">{inputValue}</span>"</span>
+                </button>
               )}
             </div>
           )}
         </div>
-
-        {/* Help Button - Always visible beside the search input */}
-        <button
-          onClick={onShowHelp}
-          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg flex-shrink-0"
-          title="Help"
-        >
-          <HelpCircle className="w-5 h-5" />
-        </button>
 
         {/* Submit Button */}
         <button
