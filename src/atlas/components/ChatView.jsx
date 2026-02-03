@@ -68,6 +68,53 @@ function isParcelIdQuery(query) {
 }
 
 /**
+ * Detect if a WHERE clause is unrestricted (would return all records)
+ * This prevents queries like "1=1", "1 = 1", "'a'='a'", "2=2", etc.
+ */
+function isUnrestrictedQuery(whereClause) {
+  if (!whereClause || typeof whereClause !== 'string') return true;
+
+  const trimmed = whereClause.trim();
+  if (!trimmed) return true;
+
+  // Normalize whitespace for comparison
+  const normalized = trimmed.replace(/\s+/g, '').toLowerCase();
+
+  // Check for common tautology patterns
+  const tautologyPatterns = [
+    /^1=1$/,                           // 1=1
+    /^'[^']*'='[^']*'$/,               // 'a'='a' or any string equality
+    /^"[^"]*"="[^"]*"$/,               // "a"="a"
+    /^(\d+)=\1$/,                      // Any number equals itself (2=2, 100=100)
+    /^true$/i,                         // true
+    /^1$/,                             // just 1
+    /^\(1=1\)$/,                       // (1=1)
+    /^not\s*false$/i,                  // NOT FALSE
+    /^[\d.]+\s*[<>=!]+\s*[\d.]+$/,     // Catch numeric comparisons that are always true
+  ];
+
+  for (const pattern of tautologyPatterns) {
+    if (pattern.test(normalized)) {
+      return true;
+    }
+  }
+
+  // Check for numeric tautologies like "1=1", "2=2", etc. with spaces
+  const numericTautology = /^(\d+)\s*=\s*\1$/;
+  if (numericTautology.test(trimmed)) {
+    return true;
+  }
+
+  // Check for string tautologies with spaces
+  const stringTautology = /^'([^']*)'\s*=\s*'\1'$/i;
+  if (stringTautology.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Detect if query is a help/documentation question
  */
 function isHelpQuery(query, helpModeEnabled) {
@@ -677,6 +724,11 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
               console.log('[ChatView] Address from AI failed:', e);
             }
           } else if (aiResult.where) {
+            // Validate the WHERE clause to prevent unrestricted queries
+            if (isUnrestrictedQuery(aiResult.where)) {
+              console.warn('[ChatView] Blocked unrestricted query:', aiResult.where);
+              throw new Error('Your search is too broad. Please be more specific about what you\'re looking for (e.g., specify an address, owner name, price range, or other criteria).');
+            }
             setLoadingText('Searching database...');
             searchMetadata.whereClause = aiResult.where;
             console.log('[ChatView] Executing AI-generated WHERE clause:', aiResult.where);
