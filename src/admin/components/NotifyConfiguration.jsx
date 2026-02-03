@@ -38,6 +38,8 @@ import {
   Smartphone
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
+import { generateSampleContext } from './customTemplate/validation';
+import { DASHBOARD_ICONS } from './customTemplate/constants';
 
 /**
  * NotifyConfiguration Component
@@ -771,55 +773,211 @@ function OrganizationNotifyCard({
 function EmailPreviewModal({ notification, orgData, onClose, accentColor = '#004E7C' }) {
   const [previewMode, setPreviewMode] = React.useState('desktop');
 
-  // Generate sample data for preview
-  const sampleData = {
-    organizationName: orgData?.name || 'Organization Name',
-    organizationId: orgData?.id || 'org_id',
-    notificationName: notification?.name || 'Notification',
-    notificationId: notification?.id || 'notif_id',
-    recordCount: '42',
-    dateRangeStart: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-    dateRangeEnd: new Date().toLocaleDateString(),
-    emailIntro: notification?.emailIntro || '<p style="margin: 0 0 15px 0; color: #444;">Here is your notification summary with the latest data for your area.</p>',
-    emailZeroStateMessage: notification?.emailZeroStateMessage || 'No new records found for this period.',
-    downloadUrl: '#',
+  // Helper: Get icon SVG by name
+  const getIconSvg = (iconName) => {
+    const icon = DASHBOARD_ICONS.find(i => i.id === iconName.toLowerCase() || i.name.toLowerCase() === iconName.toLowerCase());
+    return icon?.svg || '';
   };
 
-  // Build display fields for sample table
-  const displayFields = notification?.source?.displayFields || [];
-  const fieldNames = displayFields.length > 0
-    ? displayFields.map(f => f.alias || f.name || f)
-    : ['Field 1', 'Field 2', 'Field 3'];
-
-  // Generate sample data table HTML
-  const generateDataTableHtml = () => {
-    const headers = fieldNames.slice(0, 4).map(f =>
-      `<th style="text-align: left; padding: 10px 8px; background-color: #f2f2f2; border-bottom: 2px solid #ddd; font-size: 13px;">${f}</th>`
-    ).join('');
-
-    const sampleRows = [
-      ['Sample Value 1', 'Sample Value 2', 'Sample Value 3', 'Sample Value 4'],
-      ['Example Data A', 'Example Data B', 'Example Data C', 'Example Data D'],
-      ['Record Entry 1', 'Record Entry 2', 'Record Entry 3', 'Record Entry 4'],
-    ].map(row =>
-      `<tr>${row.slice(0, fieldNames.length > 0 ? Math.min(fieldNames.length, 4) : 3).map(cell =>
-        `<td style="padding: 10px 8px; border-bottom: 1px solid #eee; font-size: 13px;">${cell}</td>`
-      ).join('')}</tr>`
-    ).join('');
-
-    return `<table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
-      <thead><tr>${headers}</tr></thead>
-      <tbody>${sampleRows}</tbody>
-    </table>`;
+  // Helper: Generate icon HTML for {{icon_Name_Size}} placeholders
+  const generateIconHtml = (iconName, size, color) => {
+    const svg = getIconSvg(iconName);
+    if (!svg) return '';
+    // Replace width/height in SVG
+    return svg.replace(/width="\d+"/, `width="${size}"`)
+              .replace(/height="\d+"/, `height="${size}"`)
+              .replace(/stroke="currentColor"/, `stroke="${color || '#004E7C'}"`);
   };
 
-  // Generate download button HTML
-  const downloadButtonHtml = notification?.sendEmpty !== true
-    ? `<div style="margin: 20px 0;"><a href="#" style="display: inline-block; background-color: ${accentColor}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Download Full CSV Report</a></div>`
-    : '';
+  // Helper: Generate statistics HTML for custom parameters
+  const generateCustomStatisticsHtml = (statistics, statValues, theme, options = {}) => {
+    if (!statistics || statistics.length === 0) return '';
 
-  // Generate more records message
-  const moreRecordsMessage = '<p style="font-style: italic; color: #666; margin-top: 15px; font-size: 13px;">Showing first 3 of 42 records. Download the CSV to see all data.</p>';
+    const primaryColor = theme?.primaryColor || '#004E7C';
+    const secondaryColor = theme?.secondaryColor || '#f2f2f2';
+    const mutedTextColor = theme?.mutedTextColor || '#666666';
+    const valueSize = options.valueSize || '24';
+    const valueAlignment = options.valueAlignment || 'center';
+    const containerWidth = options.containerWidth || '100';
+    const containerAlignment = options.containerAlignment || 'center';
+    const labelSize = Math.max(9, Math.round(parseInt(valueSize) * 0.45));
+
+    const cards = statistics.map(stat => {
+      const value = statValues[`stat_${stat.id}`] || '-';
+      const label = stat.label || stat.id;
+
+      return `<td style="width: ${100 / statistics.length}%; padding: 10px; text-align: ${valueAlignment}; vertical-align: top;">
+        <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+          <p style="margin: 0; font-size: ${labelSize}px; color: ${mutedTextColor}; text-transform: uppercase; letter-spacing: 0.5px;">${label}</p>
+          <p style="margin: 8px 0 0 0; font-size: ${valueSize}px; font-weight: bold; color: ${primaryColor};">${value}</p>
+        </div>
+      </td>`;
+    }).join('');
+
+    const tableMargin = containerAlignment === 'left'
+      ? 'margin-right: auto;'
+      : containerAlignment === 'right'
+        ? 'margin-left: auto;'
+        : 'margin: 0 auto;';
+    const widthValue = containerWidth === '100' ? '100%' : `${containerWidth}%`;
+
+    return `<div style="padding: 0; margin: 0;">
+      <table style="width: ${widthValue}; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px; ${tableMargin}">
+        <tr>${cards}</tr>
+      </table>
+    </div>`;
+  };
+
+  // Helper: Generate sample graph HTML
+  const generateGraphHtml = (graphType, theme, options = {}) => {
+    const primaryColor = theme?.primaryColor || '#004E7C';
+    const accentColor = theme?.accentColor || '#0077B6';
+    const textColor = theme?.textColor || '#333333';
+    const mutedTextColor = theme?.mutedTextColor || '#666666';
+    const title = options.title || 'Chart Preview';
+    const height = parseInt(options.height) || 250;
+    const alignment = options.alignment || 'center';
+
+    // Sample data for preview
+    const sampleData = [
+      { label: 'Category A', value: 120 },
+      { label: 'Category B', value: 85 },
+      { label: 'Category C', value: 150 },
+      { label: 'Category D', value: 70 },
+      { label: 'Category E', value: 95 }
+    ];
+
+    const colors = [primaryColor, accentColor, '#4CAF50', '#FF9800', '#9C27B0'];
+    const maxValue = Math.max(...sampleData.map(d => d.value));
+    const containerMargin = alignment === 'left' ? 'margin-right: auto;'
+      : alignment === 'right' ? 'margin-left: auto;'
+      : 'margin: 0 auto;';
+
+    const svgWidth = 400;
+    const svgHeight = height;
+    const padding = { top: 40, right: 20, bottom: 60, left: 50 };
+    const chartWidth = svgWidth - padding.left - padding.right;
+    const chartHeight = svgHeight - padding.top - padding.bottom;
+
+    if (graphType === 'pie') {
+      // Pie chart
+      const total = sampleData.reduce((sum, d) => sum + d.value, 0);
+      let currentAngle = 0;
+      const cx = svgWidth / 2;
+      const cy = svgHeight / 2;
+      const radius = Math.min(chartWidth, chartHeight) / 2 - 20;
+
+      const paths = sampleData.map((d, i) => {
+        const angle = (d.value / total) * 2 * Math.PI;
+        const x1 = cx + radius * Math.cos(currentAngle);
+        const y1 = cy + radius * Math.sin(currentAngle);
+        const x2 = cx + radius * Math.cos(currentAngle + angle);
+        const y2 = cy + radius * Math.sin(currentAngle + angle);
+        const largeArc = angle > Math.PI ? 1 : 0;
+        const path = `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${colors[i % colors.length]}"/>`;
+        currentAngle += angle;
+        return path;
+      }).join('');
+
+      return `<div style="width: 100%; max-width: 400px; ${containerMargin}">
+        ${title ? `<p style="text-align: center; font-weight: bold; margin-bottom: 10px; color: ${textColor};">${title}</p>` : ''}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth} ${svgHeight}" style="width: 100%; height: auto;">
+          ${paths}
+        </svg>
+      </div>`;
+    }
+
+    // Bar chart (default)
+    const barWidth = chartWidth / sampleData.length * 0.7;
+    const barGap = chartWidth / sampleData.length * 0.3;
+
+    const bars = sampleData.map((d, i) => {
+      const barHeight = maxValue > 0 ? (d.value / maxValue) * chartHeight : 0;
+      const x = padding.left + i * (barWidth + barGap) + barGap / 2;
+      const y = padding.top + chartHeight - barHeight;
+      const color = colors[i % colors.length];
+
+      return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${color}" rx="2"/>
+        <text x="${x + barWidth/2}" y="${y - 5}" text-anchor="middle" font-size="10" fill="${textColor}">${d.value}</text>
+        <text x="${x + barWidth/2}" y="${svgHeight - 25}" text-anchor="middle" font-size="9" fill="${mutedTextColor}">${d.label}</text>`;
+    }).join('');
+
+    return `<div style="width: 100%; max-width: 400px; ${containerMargin}">
+      ${title ? `<p style="text-align: center; font-weight: bold; margin-bottom: 10px; color: ${textColor};">${title}</p>` : ''}
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth} ${svgHeight}" style="width: 100%; height: auto;">
+        <line x1="${padding.left}" y1="${padding.top + chartHeight}" x2="${svgWidth - padding.right}" y2="${padding.top + chartHeight}" stroke="#ddd" stroke-width="1"/>
+        ${bars}
+      </svg>
+    </div>`;
+  };
+
+  // Use generateSampleContext to get all standard placeholders
+  const customTemplate = notification?.customTemplate || {};
+  const sampleContext = generateSampleContext(notification || {}, customTemplate, orgData || {}, {
+    mockRecordCount: 42
+  });
+
+  // Override with notification-specific values
+  sampleContext.organizationName = orgData?.name || 'Organization Name';
+  sampleContext.organizationId = orgData?.id || 'org_id';
+  sampleContext.notificationName = notification?.name || 'Notification';
+  sampleContext.notificationId = notification?.id || 'notif_id';
+
+  // Pre-generate dynamic placeholders for visual elements (icons, statistics, graphs)
+  const theme = customTemplate.theme || {};
+  const statistics = customTemplate.statistics || [];
+  const visualElements = customTemplate.visualElements || [];
+
+  // Generate statistics HTML placeholders for each statistics/row element
+  visualElements.forEach(el => {
+    if (el.type === 'statistics') {
+      const selectedIds = el.selectedStatistics || [];
+      const statsToShow = selectedIds.length > 0
+        ? statistics.filter(s => selectedIds.includes(s.id))
+        : statistics;
+
+      const valueSize = el.valueSize || '24';
+      const valueAlignment = el.valueAlignment || 'center';
+      const containerWidth = el.containerWidth || '100';
+      const containerAlignment = el.containerAlignment || 'center';
+      const key = `statisticsHtml_${el.id}_${valueSize}_${valueAlignment}_${containerWidth}_${containerAlignment}`;
+      sampleContext[key] = generateCustomStatisticsHtml(statsToShow, sampleContext, theme, {
+        valueSize,
+        valueAlignment,
+        containerWidth,
+        containerAlignment
+      });
+    } else if (el.type === 'row' && el.contentType === 'statistics') {
+      const selectedIds = el.selectedStatistics || [];
+      const statsToShow = selectedIds.length > 0
+        ? statistics.filter(s => selectedIds.includes(s.id))
+        : statistics;
+
+      const valueSize = el.statisticsValueSize || '24';
+      const valueAlignment = el.statisticsValueAlignment || 'left';
+      const containerWidth = el.statisticsContainerWidth || '100';
+      const containerAlignment = el.statisticsContainerAlignment || 'center';
+      const key = `statisticsHtml_${el.id}_${valueSize}_${valueAlignment}_${containerWidth}_${containerAlignment}`;
+      sampleContext[key] = generateCustomStatisticsHtml(statsToShow, sampleContext, theme, {
+        valueSize,
+        valueAlignment,
+        containerWidth,
+        containerAlignment
+      });
+    } else if (el.type === 'graph') {
+      sampleContext[`graph_${el.id}`] = generateGraphHtml(el.graphType || 'bar', theme, {
+        title: el.title || '',
+        height: el.height || '250',
+        alignment: el.alignment || 'center'
+      });
+    }
+
+    // Generate icon placeholder if element has an icon
+    if (el.iconName) {
+      const iconSize = el.iconSize || '32';
+      sampleContext[`icon_${el.iconName}_${iconSize}`] = generateIconHtml(el.iconName, iconSize, theme.primaryColor || accentColor);
+    }
+  });
 
   // Check for custom template
   const hasCustomTemplate = notification?.customTemplate?.html;
@@ -827,47 +985,71 @@ function EmailPreviewModal({ notification, orgData, onClose, accentColor = '#004
   // Generate email HTML preview
   const generateEmailHtml = () => {
     if (hasCustomTemplate) {
-      // Use custom template with placeholder replacement
       let html = notification.customTemplate.html;
-      html = html.replace(/\{\{organizationName\}\}/g, sampleData.organizationName);
-      html = html.replace(/\{\{organizationId\}\}/g, sampleData.organizationId);
-      html = html.replace(/\{\{notificationName\}\}/g, sampleData.notificationName);
-      html = html.replace(/\{\{notificationId\}\}/g, sampleData.notificationId);
-      html = html.replace(/\{\{recordCount\}\}/g, sampleData.recordCount);
-      html = html.replace(/\{\{dateRangeStart\}\}/g, sampleData.dateRangeStart);
-      html = html.replace(/\{\{dateRangeEnd\}\}/g, sampleData.dateRangeEnd);
-      html = html.replace(/\{\{emailIntro\}\}/g, sampleData.emailIntro);
-      html = html.replace(/\{\{downloadButton\}\}/g, downloadButtonHtml);
-      html = html.replace(/\{\{downloadUrl\}\}/g, sampleData.downloadUrl);
-      html = html.replace(/\{\{dataTable\}\}/g, generateDataTableHtml());
-      html = html.replace(/\{\{moreRecordsMessage\}\}/g, moreRecordsMessage);
+
+      // Replace all placeholders from sampleContext (including pre-generated dynamic ones)
+      Object.entries(sampleContext).forEach(([key, value]) => {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+        html = html.replace(regex, value);
+      });
+
+      // Process any remaining icon placeholders that weren't pre-generated: {{icon_IconName_Size}}
+      html = html.replace(/\{\{icon_(\w+)_(\d+)\}\}/g, (match, iconName, size) => {
+        return generateIconHtml(iconName, size, theme.primaryColor || accentColor);
+      });
+
+      // Process any remaining graph placeholders: {{graph_elementId}}
+      html = html.replace(/\{\{graph_([^}]+)\}\}/g, (match, elementId) => {
+        // Find the graph element configuration
+        const graphElement = visualElements.find(el => el.id === elementId && el.type === 'graph');
+        if (graphElement) {
+          return generateGraphHtml(graphElement.graphType || 'bar', theme, {
+            title: graphElement.title,
+            height: graphElement.height,
+            alignment: graphElement.alignment
+          });
+        }
+        // Default bar chart for unknown graphs
+        return generateGraphHtml('bar', theme, { title: 'Chart Preview' });
+      });
+
+      // Process any remaining statistics placeholders as fallback
+      html = html.replace(/\{\{statisticsHtml_([^}]+)\}\}/g, () => {
+        // Return basic statistics HTML if we have statistics defined
+        if (statistics.length > 0) {
+          return generateCustomStatisticsHtml(statistics, sampleContext, theme, {});
+        }
+        return '';
+      });
+
       return html;
     }
 
     // Default template
     return `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background-color: ${accentColor}; color: white; padding: 20px; text-align: center;">
-        <h1 style="margin: 0; font-size: 24px;">${sampleData.organizationName}</h1>
-        <h2 style="margin: 5px 0 0 0; font-weight: normal; font-size: 16px;">${sampleData.notificationName}</h2>
+        <h1 style="margin: 0; font-size: 24px;">${sampleContext.organizationName}</h1>
+        <h2 style="margin: 5px 0 0 0; font-weight: normal; font-size: 16px;">${sampleContext.notificationName}</h2>
       </div>
 
       <div style="padding: 20px;">
         <p style="color: #666; margin: 0 0 15px 0;">
-          <strong>Period:</strong> ${sampleData.dateRangeStart} to ${sampleData.dateRangeEnd}<br>
-          <strong>Records:</strong> ${sampleData.recordCount}
+          <strong>Period:</strong> ${sampleContext.dateRangeStart} to ${sampleContext.dateRangeEnd}<br>
+          <strong>Records:</strong> ${sampleContext.recordCount}
         </p>
 
-        ${sampleData.emailIntro}
+        ${sampleContext.emailIntro}
 
-        ${downloadButtonHtml}
+        ${sampleContext.downloadButton}
 
-        ${generateDataTableHtml()}
+        ${sampleContext.dataTable}
 
-        ${moreRecordsMessage}
+        ${sampleContext.moreRecordsMessage}
       </div>
 
       <div style="padding: 15px; background-color: #f5f5f5; text-align: center; font-size: 12px; color: #888;">
-        You are receiving this because you subscribed at CivQuest Notify.
+        You are receiving this because you subscribed to notifications.<br>
+        <a href="#" style="color: #666;">Manage Preferences</a>
       </div>
     </div>`;
   };
