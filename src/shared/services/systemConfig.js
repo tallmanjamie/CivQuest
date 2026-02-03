@@ -81,12 +81,21 @@ export const DEFAULT_AI_SETTINGS = {
   geminiFallbackModel: 'gemini-2.0-flash-001'
 };
 
+/**
+ * Default ESRI settings
+ * Settings for ESRI/ArcGIS integration
+ */
+export const DEFAULT_ESRI_SETTINGS = {
+  clientId: '' // ESRI/ArcGIS OAuth client ID for the app
+};
+
 export const DEFAULT_SYSTEM_CONFIG = {
   globalHelpDocumentation: [],
   integrations: [], // System-level integrations configuration
   globalExportTemplates: [], // Global map export templates for org admins to use
   globalFeatureExportTemplates: [], // Global feature export templates for org admins to use
   aiSettings: DEFAULT_AI_SETTINGS, // AI configuration settings
+  esriSettings: DEFAULT_ESRI_SETTINGS, // ESRI/ArcGIS configuration settings
   updatedAt: null,
   updatedBy: null
 };
@@ -258,6 +267,37 @@ export async function updateAISettings(aiSettings, userId = null) {
   await updateSystemConfig(updateData, userId);
 }
 
+/**
+ * Get ESRI settings
+ */
+export async function getESRISettings() {
+  const config = await getSystemConfig();
+  return {
+    ...DEFAULT_ESRI_SETTINGS,
+    ...(config.esriSettings || {})
+  };
+}
+
+/**
+ * Subscribe to ESRI settings changes
+ */
+export function subscribeToESRISettings(callback) {
+  return subscribeToSystemConfig((config) => {
+    callback({
+      ...DEFAULT_ESRI_SETTINGS,
+      ...(config.esriSettings || {})
+    });
+  });
+}
+
+/**
+ * Update ESRI settings
+ */
+export async function updateESRISettings(esriSettings, userId = null) {
+  const updateData = { esriSettings };
+  await updateSystemConfig(updateData, userId);
+}
+
 export default {
   getSystemConfig,
   subscribeToSystemConfig,
@@ -274,6 +314,10 @@ export default {
   getAISettings,
   subscribeToAISettings,
   updateAISettings,
+  getESRISettings,
+  subscribeToESRISettings,
+  updateESRISettings,
   DEFAULT_SYSTEM_CONFIG,
-  DEFAULT_AI_SETTINGS
+  DEFAULT_AI_SETTINGS,
+  DEFAULT_ESRI_SETTINGS
 };

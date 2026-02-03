@@ -38,3 +38,6 @@ export { default as LicenseManagement } from './LicenseManagement';
 
 // Global Export Template Library (Super Admin)
 export { default as GlobalExportTemplateLibrary } from './GlobalExportTemplateLibrary';
+
+// ESRI Settings Editor (Super Admin)
+export { default as ESRISettingsEditor } from './ESRISettingsEditor';
