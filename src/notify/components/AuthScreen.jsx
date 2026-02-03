@@ -16,10 +16,11 @@ import {
 } from "firebase/firestore";
 import { useToast } from '@shared/components/Toast';
 import { sendWelcomeEmail } from '@shared/services/email';
-import { 
-  initiateArcGISLogin, 
-  getOAuthRedirectUri 
+import {
+  initiateArcGISLogin,
+  getOAuthRedirectUri
 } from '@shared/services/arcgis-auth';
+import { getESRISettings } from '@shared/services/systemConfig';
 import { processInvitationSubscriptions } from '@shared/services/invitations';
 import { Mail, Lock, Loader2, Rss, Globe } from 'lucide-react';
 
@@ -43,6 +44,21 @@ export default function AuthScreen({
       setError(oauthError);
     }
   }, [oauthError]);
+
+  // Handle ArcGIS OAuth login
+  const handleArcGISAuth = async () => {
+    // Fetch admin-configured ESRI client ID
+    let esriClientId = null;
+    try {
+      const esriSettings = await getESRISettings();
+      esriClientId = esriSettings?.clientId || null;
+    } catch (err) {
+      console.warn('Could not fetch ESRI settings, using default client ID:', err);
+    }
+
+    const redirectUri = getOAuthRedirectUri();
+    initiateArcGISLogin(redirectUri, isLogin ? 'signin' : 'signup', esriClientId);
+  };
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -160,10 +176,7 @@ export default function AuthScreen({
       <div className="mb-6">
         <button
           type="button"
-          onClick={() => {
-            const redirectUri = getOAuthRedirectUri();
-            initiateArcGISLogin(redirectUri, isLogin ? 'signin' : 'signup');
-          }}
+          onClick={handleArcGISAuth}
           className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#0079C1] text-white rounded-lg font-medium hover:bg-[#006699] transition-colors"
         >
           <Globe className="w-5 h-5" />

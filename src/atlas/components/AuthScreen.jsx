@@ -7,6 +7,7 @@ import {
   initiateArcGISLogin,
   getOAuthRedirectUri
 } from '@shared/services/arcgis-auth';
+import { getESRISettings } from '@shared/services/systemConfig';
 import { Loader2, Map, Globe } from 'lucide-react';
 import { getThemeColors } from '../utils/themeColors';
 
@@ -31,7 +32,7 @@ export default function AuthScreen({
   }, [oauthError]);
 
   // Handle ArcGIS OAuth login
-  const handleArcGISAuth = () => {
+  const handleArcGISAuth = async () => {
     setLoading(true);
     setError('');
     setOauthError?.(null);
@@ -40,8 +41,18 @@ export default function AuthScreen({
     if (orgId) {
       sessionStorage.setItem('atlas_signup_org', orgId);
     }
+
+    // Fetch admin-configured ESRI client ID
+    let esriClientId = null;
+    try {
+      const esriSettings = await getESRISettings();
+      esriClientId = esriSettings?.clientId || null;
+    } catch (err) {
+      console.warn('Could not fetch ESRI settings, using default client ID:', err);
+    }
+
     const redirectUri = getOAuthRedirectUri();
-    initiateArcGISLogin(redirectUri, isLogin ? 'signin' : 'signup');
+    initiateArcGISLogin(redirectUri, isLogin ? 'signin' : 'signup', esriClientId);
   };
 
   return (

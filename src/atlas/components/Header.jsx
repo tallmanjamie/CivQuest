@@ -27,6 +27,7 @@ import {
   initiateArcGISLogin,
   getOAuthRedirectUri
 } from '@shared/services/arcgis-auth';
+import { getESRISettings } from '@shared/services/systemConfig';
 
 /**
  * Header Component
@@ -55,13 +56,23 @@ export default function Header({
   const [showInfoPopup, setShowInfoPopup] = useState(false);
 
   // Handle sign-in with Esri account
-  const handleSignIn = () => {
+  const handleSignIn = async () => {
     // Store the org ID in session storage so we can use it after OAuth callback
     if (orgId) {
       sessionStorage.setItem('atlas_signup_org', orgId);
     }
+
+    // Fetch admin-configured ESRI client ID
+    let esriClientId = null;
+    try {
+      const esriSettings = await getESRISettings();
+      esriClientId = esriSettings?.clientId || null;
+    } catch (err) {
+      console.warn('Could not fetch ESRI settings, using default client ID:', err);
+    }
+
     const redirectUri = getOAuthRedirectUri();
-    initiateArcGISLogin(redirectUri, 'signin');
+    initiateArcGISLogin(redirectUri, 'signin', esriClientId);
   };
 
   // Get theme colors from utility - this properly handles dynamic colors

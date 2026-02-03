@@ -19,6 +19,7 @@ import {
   initiateArcGISLogin,
   getOAuthRedirectUri
 } from '@shared/services/arcgis-auth';
+import { getESRISettings } from '@shared/services/systemConfig';
 
 export default function AccountSettings({ isOpen, onClose }) {
   const { user, userData, colors } = useAtlas();
@@ -81,11 +82,20 @@ export default function AccountSettings({ isOpen, onClose }) {
     }
   };
 
-  const handleLinkArcGIS = () => {
+  const handleLinkArcGIS = async () => {
+    // Fetch admin-configured ESRI client ID
+    let esriClientId = null;
+    try {
+      const esriSettings = await getESRISettings();
+      esriClientId = esriSettings?.clientId || null;
+    } catch (err) {
+      console.warn('Could not fetch ESRI settings, using default client ID:', err);
+    }
+
     const redirectUri = getOAuthRedirectUri();
     // Store that we want to link (not create new account)
     sessionStorage.setItem('arcgis_oauth_action', 'link');
-    initiateArcGISLogin(redirectUri, 'signin');
+    initiateArcGISLogin(redirectUri, 'signin', esriClientId);
   };
 
   if (!isOpen) return null;

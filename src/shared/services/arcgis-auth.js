@@ -14,8 +14,11 @@
  */
 
 // ArcGIS OAuth Configuration
-const ARCGIS_CLIENT_ID = 'SPmTwmqIB2qEz51L';
+const DEFAULT_ARCGIS_CLIENT_ID = 'SPmTwmqIB2qEz51L';
 const ARCGIS_OAUTH_BASE = 'https://www.arcgis.com/sharing/rest/oauth2';
+
+// Storage key for OAuth client ID (to persist across redirect)
+const OAUTH_CLIENT_ID_KEY = 'arcgis_oauth_client_id';
 
 /**
  * Gets the OAuth redirect URI based on current location
@@ -35,17 +38,19 @@ export function getOAuthRedirectUri() {
  * Generates the OAuth authorization URL for ArcGIS Online
  * @param {string} redirectUri - The URL to redirect back to after auth
  * @param {string} state - Optional state parameter for CSRF protection
+ * @param {string} clientId - Optional client ID (uses admin-configured or default if not provided)
  * @returns {string} The full authorization URL
  */
-export function getArcGISAuthUrl(redirectUri, state = '') {
+export function getArcGISAuthUrl(redirectUri, state = '', clientId = null) {
+  const effectiveClientId = clientId || DEFAULT_ARCGIS_CLIENT_ID;
   const params = new URLSearchParams({
-    client_id: ARCGIS_CLIENT_ID,
+    client_id: effectiveClientId,
     response_type: 'code',
     redirect_uri: redirectUri,
     expiration: 20160, // 14 days in minutes
     state: state || crypto.randomUUID?.() || Math.random().toString(36).substring(7)
   });
-  
+
   return `${ARCGIS_OAUTH_BASE}/authorize?${params.toString()}`;
 }
 
@@ -53,11 +58,14 @@ export function getArcGISAuthUrl(redirectUri, state = '') {
  * Exchanges an authorization code for an access token
  * @param {string} code - The authorization code from the callback
  * @param {string} redirectUri - Must match the redirect URI used in the auth request
+ * @param {string} clientId - Optional client ID (uses stored or default if not provided)
  * @returns {Promise<{access_token: string, refresh_token: string, expires_in: number, username: string}>}
  */
-export async function exchangeCodeForToken(code, redirectUri) {
+export async function exchangeCodeForToken(code, redirectUri, clientId = null) {
+  // Use provided clientId, or try to get stored one from initiateArcGISLogin, or use default
+  const effectiveClientId = clientId || getStoredOAuthClientId() || DEFAULT_ARCGIS_CLIENT_ID;
   const params = new URLSearchParams({
-    client_id: ARCGIS_CLIENT_ID,
+    client_id: effectiveClientId,
     grant_type: 'authorization_code',
     code: code,
     redirect_uri: redirectUri
@@ -239,16 +247,44 @@ export function getOAuthMode() {
 }
 
 /**
+ * Stores the OAuth client ID for use after redirect
+ * @param {string} clientId - The client ID to store
+ */
+export function storeOAuthClientId(clientId) {
+  if (typeof sessionStorage !== 'undefined' && clientId) {
+    sessionStorage.setItem(OAUTH_CLIENT_ID_KEY, clientId);
+  }
+}
+
+/**
+ * Gets and clears the stored OAuth client ID
+ * @returns {string|null} The stored client ID or null
+ */
+export function getStoredOAuthClientId() {
+  if (typeof sessionStorage === 'undefined') return null;
+
+  const clientId = sessionStorage.getItem(OAUTH_CLIENT_ID_KEY);
+  sessionStorage.removeItem(OAUTH_CLIENT_ID_KEY);
+  return clientId;
+}
+
+/**
  * Initiates the ArcGIS OAuth flow by redirecting the user
  * @param {string} redirectUri - Where to redirect after auth
  * @param {string} mode - 'signin' or 'signup' to track the user's intent
+ * @param {string} clientId - Optional client ID (uses admin-configured or default if not provided)
  */
-export function initiateArcGISLogin(redirectUri, mode = 'signin') {
+export function initiateArcGISLogin(redirectUri, mode = 'signin', clientId = null) {
   const state = crypto.randomUUID?.() || Math.random().toString(36).substring(7);
   storeOAuthState(state);
   storeOAuthMode(mode);
-  
-  const authUrl = getArcGISAuthUrl(redirectUri, state);
+
+  // Store client ID so it can be used after OAuth redirect
+  if (clientId) {
+    storeOAuthClientId(clientId);
+  }
+
+  const authUrl = getArcGISAuthUrl(redirectUri, state, clientId);
   window.location.href = authUrl;
 }
 
@@ -487,6 +523,8 @@ export default {
   verifyOAuthState,
   storeOAuthMode,
   getOAuthMode,
+  storeOAuthClientId,
+  getStoredOAuthClientId,
   initiateArcGISLogin,
   generateSecurePassword,
   generateDeterministicPassword,
