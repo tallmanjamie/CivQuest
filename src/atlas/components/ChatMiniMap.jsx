@@ -283,7 +283,16 @@ const ChatMiniMap = React.forwardRef(function ChatMiniMap({
 
     // Zoom to features
     if (graphics.length > 0) {
-      viewRef.current.goTo(graphics, { padding: 40, duration: 300 });
+      // For single point features (like geocoded locations), use a specific zoom level
+      const isSinglePoint = graphics.length === 1 && graphics[0].geometry.type === 'point';
+      if (isSinglePoint) {
+        viewRef.current.goTo(
+          { target: graphics[0].geometry, zoom: 17 },
+          { duration: 300 }
+        );
+      } else {
+        viewRef.current.goTo(graphics, { padding: 40, duration: 300 });
+      }
     }
   }, [themeColor]);
 
