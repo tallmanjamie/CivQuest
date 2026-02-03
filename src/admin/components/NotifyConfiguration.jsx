@@ -209,29 +209,35 @@ export default function NotifyConfiguration({
   };
 
   // Force run a broadcast
-  const handleForceRunBroadcast = (targetOrgId, notifId, notifName) => {
+  const handleForceRunBroadcast = (targetOrgId, notifId, notifName, notification, targetOrgData) => {
     confirm({
       title: "Force Run Broadcast",
       message: `This will immediately run "${notifName}" and send emails to all subscribers. Continue?`,
       confirmLabel: "Run Now",
       onConfirm: async () => {
         try {
+          addToast("Generating email content...", "info");
+
+          // Generate the complete email HTML with real data
+          const emailResult = await generateBroadcastEmailHtml(notification, targetOrgData);
+
+          if (!emailResult || !emailResult.html) {
+            throw new Error('Failed to generate email content');
+          }
+
           const forceRef = doc(db, 'force_queue', `${targetOrgId}_${notifId}_${Date.now()}`);
-          await updateDoc(forceRef, {
+          await setDoc(forceRef, {
             orgId: targetOrgId,
             notificationId: notifId,
+            notificationName: notifName,
+            emailHtml: emailResult.html,
+            recordCount: emailResult.recordCount,
+            dateRangeStart: emailResult.dateRange.startStr,
+            dateRangeEnd: emailResult.dateRange.endStr,
             requestedAt: serverTimestamp(),
             status: 'pending'
-          }).catch(() => {
-            // If doc doesn't exist, create it
-            return setDoc(forceRef, {
-              orgId: targetOrgId,
-              notificationId: notifId,
-              requestedAt: serverTimestamp(),
-              status: 'pending'
-            });
           });
-          addToast("Broadcast queued", "success");
+          addToast("Broadcast queued with content", "success");
         } catch (err) {
           addToast("Error: " + err.message, "error");
         }
@@ -350,7 +356,7 @@ export default function NotifyConfiguration({
                 onInitialize={() => handleInitializeNotify(org.id, org.name)}
                 onUninitialize={() => handleUninitializeNotify(org.id, org.name, org.notifications?.length || 0)}
                 onPreviewEmail={(notif) => handlePreviewEmail(org.id, notif, org)}
-                onForceRun={(notifId, notifName) => handleForceRunBroadcast(org.id, notifId, notifName)}
+                onForceRun={(notifId, notifName, notif) => handleForceRunBroadcast(org.id, notifId, notifName, notif, org)}
                 onEditNotification={(idx, data) => handleEditNotification(org.id, idx, data, org.notifications, org)}
                 onDeleteNotification={(idx, name) => handleDeleteNotification(org.id, idx, name, org.notifications)}
                 onDuplicateNotification={(notif) => handleDuplicateNotification(org.id, notif, org.notifications, org)}
@@ -454,7 +460,7 @@ export default function NotifyConfiguration({
                   onDelete={() => handleDeleteNotification(orgId, idx, notif.name, notifications)}
                   onDuplicate={() => handleDuplicateNotification(orgId, notif, notifications, orgData)}
                   onPreviewEmail={() => handlePreviewEmail(orgId, notif, orgData)}
-                  onForceRun={() => handleForceRunBroadcast(orgId, notif.id, notif.name)}
+                  onForceRun={() => handleForceRunBroadcast(orgId, notif.id, notif.name, notif, orgData)}
                 />
               ))}
             </div>
@@ -717,7 +723,7 @@ function OrganizationNotifyCard({
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={(e) => { e.stopPropagation(); onForceRun(notif.id, notif.name); }}
+                          onClick={(e) => { e.stopPropagation(); onForceRun(notif.id, notif.name, notif); }}
                           className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-white rounded"
                           title="Force Run"
                         >
@@ -771,6 +777,399 @@ function OrganizationNotifyCard({
 
 // Configuration for the proxy service
 const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
+
+/**
+ * Generate complete email HTML for a broadcast
+ * This function fetches real data and generates the fully-rendered email HTML
+ * @param {object} notification - The notification configuration
+ * @param {object} orgData - The organization data
+ * @returns {Promise<{ html: string, recordCount: number, dateRange: object } | null>}
+ */
+async function generateBroadcastEmailHtml(notification, orgData) {
+  const source = notification?.source;
+  const endpoint = source?.endpoint;
+  const customTemplate = notification?.customTemplate || {};
+  const theme = customTemplate.theme || {};
+
+  // Calculate date range based on notification type
+  const dateRange = calculateDateRange(notification?.type || 'daily', notification?.lag || 0);
+
+  // Default context values
+  const context = {
+    organizationName: orgData?.name || 'Organization',
+    organizationId: orgData?.id || '',
+    notificationName: notification?.name || 'Notification',
+    notificationId: notification?.id || '',
+    dateRangeStart: dateRange.startStr,
+    dateRangeEnd: dateRange.endStr,
+    dateRangeStartTime: dateRange.startTimeStr,
+    dateRangeEndTime: dateRange.endTimeStr,
+    recordCount: '0',
+    dataTable: '',
+    moreRecordsMessage: '',
+    statisticsHtml: '',
+    downloadButton: customTemplate.includeCSV !== false
+      ? `<div style="margin: 20px 0;"><a href="#" style="display: inline-block; background-color: ${theme.primaryColor || '#004E7C'}; color: white; padding: 12px 24px; text-decoration: none; border-radius: ${theme.borderRadius || '4px'}; font-weight: bold;">Download Full CSV Report</a></div>`
+      : '',
+    downloadUrl: '',
+    primaryColor: theme.primaryColor || '#004E7C',
+    secondaryColor: theme.secondaryColor || '#f2f2f2',
+    accentColor: theme.accentColor || '#0077B6',
+    textColor: theme.textColor || '#333333',
+    mutedTextColor: theme.mutedTextColor || '#666666',
+    backgroundColor: theme.backgroundColor || '#ffffff',
+    borderColor: theme.borderColor || '#dddddd',
+    fontFamily: theme.fontFamily || 'Arial, sans-serif',
+    emailIntro: notification?.emailIntro || '<p style="margin: 0 0 15px 0; color: #444;">Here is your notification summary with the latest data.</p>',
+    emailZeroStateMessage: notification?.emailZeroStateMessage || 'No new records found for this period.',
+    logoHtml: '',
+    logoUrl: ''
+  };
+
+  // Generate logo HTML if configured
+  const branding = customTemplate.branding || {};
+  if (branding.logoUrl) {
+    const alignment = branding.logoAlignment || 'left';
+    const width = branding.logoWidth || '150';
+    const textAlign = alignment === 'center' ? 'center' : alignment === 'right' ? 'right' : 'left';
+    context.logoHtml = `<div style="text-align: ${textAlign}; margin-bottom: 15px;">
+      <img src="${branding.logoUrl}" alt="Logo" style="max-width: ${width}px; height: auto; display: inline-block;" />
+    </div>`;
+    context.logoUrl = branding.logoUrl;
+  }
+
+  // If no endpoint configured, return with default template
+  if (!endpoint) {
+    return {
+      html: generateFinalHtml(notification, context, theme),
+      recordCount: 0,
+      dateRange
+    };
+  }
+
+  try {
+    const baseUrl = endpoint.replace(/\/$/, '');
+    const dateField = source?.dateField;
+    const username = source?.username;
+    const password = source?.password;
+    const displayFields = source?.displayFields || [];
+
+    // Build the where clause
+    let whereClause = '1=1';
+
+    // Add date filter if dateField is configured
+    if (dateField) {
+      const startTimestamp = dateRange.start.getTime();
+      const endTimestamp = dateRange.end.getTime();
+      whereClause = `${dateField} >= ${startTimestamp} AND ${dateField} <= ${endTimestamp}`;
+    }
+
+    // Add definition query if configured
+    if (source?.definitionQuery) {
+      whereClause = whereClause === '1=1'
+        ? source.definitionQuery
+        : `(${whereClause}) AND (${source.definitionQuery})`;
+    }
+
+    // Get the fields to query
+    const outFields = displayFields.length > 0
+      ? displayFields.map(f => typeof f === 'string' ? f : f.field).join(',')
+      : '*';
+
+    // Fetch record count
+    const countRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serviceUrl: baseUrl,
+        where: whereClause,
+        returnCountOnly: true,
+        ...(username && password ? { username, password } : {})
+      })
+    });
+
+    let recordCount = 0;
+    if (countRes.ok) {
+      const countData = await countRes.json();
+      recordCount = countData.count ?? 0;
+    }
+
+    context.recordCount = String(recordCount);
+
+    // Fetch sample records for data table
+    const dataRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serviceUrl: baseUrl,
+        where: whereClause,
+        outFields,
+        resultRecordCount: 10,
+        orderByFields: dateField ? `${dateField} DESC` : undefined,
+        ...(username && password ? { username, password } : {})
+      })
+    });
+
+    let records = [];
+    if (dataRes.ok) {
+      const dataResult = await dataRes.json();
+      const features = dataResult.features || [];
+      records = features.map(f => f.attributes);
+    }
+
+    // Generate data table HTML
+    context.dataTable = generateDataTableHtml(records, displayFields, theme);
+
+    // Generate more records message
+    context.moreRecordsMessage = recordCount > 10
+      ? `<p style="font-style: italic; color: ${theme.mutedTextColor || '#666'}; margin-top: 15px; font-size: 13px;">Showing first 10 of ${recordCount} records. Download the CSV to see all data.</p>`
+      : '';
+
+    // Fetch statistics if configured
+    const statistics = customTemplate.statistics || [];
+    if (statistics.length > 0) {
+      const statValues = await fetchStatistics(baseUrl, whereClause, statistics, username, password);
+      Object.assign(context, statValues);
+      context.statisticsHtml = generateStatisticsHtmlForBroadcast(statistics, statValues, theme);
+    }
+
+    return {
+      html: generateFinalHtml(notification, context, theme),
+      recordCount,
+      dateRange
+    };
+
+  } catch (err) {
+    console.error('Error generating broadcast email:', err);
+    // Return with default content on error
+    return {
+      html: generateFinalHtml(notification, context, theme),
+      recordCount: 0,
+      dateRange
+    };
+  }
+}
+
+/**
+ * Fetch statistics from ArcGIS service
+ */
+async function fetchStatistics(baseUrl, whereClause, statistics, username, password) {
+  const statValues = {};
+
+  // Separate server-side and client-side statistics
+  const serverStats = statistics.filter(s => ['count', 'sum', 'min', 'max', 'avg', 'stddev', 'var'].includes(s.operation));
+  const clientStats = statistics.filter(s => ['mean', 'median', 'distinct'].includes(s.operation));
+
+  // Fetch server-calculated statistics
+  if (serverStats.length > 0) {
+    const outStatistics = serverStats.map(stat => ({
+      statisticType: stat.operation === 'mean' ? 'avg' : stat.operation,
+      onStatisticField: stat.field,
+      outStatisticFieldName: `stat_${stat.id}`
+    }));
+
+    try {
+      const statsRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceUrl: baseUrl,
+          where: whereClause,
+          outStatistics: JSON.stringify(outStatistics),
+          ...(username && password ? { username, password } : {})
+        })
+      });
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        if (statsData.features && statsData.features.length > 0) {
+          const statsAttrs = statsData.features[0].attributes;
+          serverStats.forEach(stat => {
+            const rawValue = statsAttrs[`stat_${stat.id}`];
+            statValues[`stat_${stat.id}`] = formatStatValue(rawValue, stat.format);
+            statValues[`stat_${stat.id}_value`] = rawValue;
+            statValues[`stat_${stat.id}_label`] = stat.label || stat.id;
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch server statistics:', err);
+    }
+  }
+
+  // Calculate client-side statistics
+  if (clientStats.length > 0) {
+    const fieldsNeeded = [...new Set(clientStats.map(s => s.field))];
+
+    try {
+      const allRecordsRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceUrl: baseUrl,
+          where: whereClause,
+          outFields: fieldsNeeded.join(','),
+          returnGeometry: false,
+          ...(username && password ? { username, password } : {})
+        })
+      });
+
+      if (allRecordsRes.ok) {
+        const allData = await allRecordsRes.json();
+        const allRecords = (allData.features || []).map(f => f.attributes);
+
+        clientStats.forEach(stat => {
+          const values = allRecords
+            .map(r => r[stat.field])
+            .filter(v => v !== null && v !== undefined);
+
+          let result;
+          if (stat.operation === 'median') {
+            const sorted = [...values].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            result = sorted.length % 2 !== 0
+              ? sorted[mid]
+              : (sorted[mid - 1] + sorted[mid]) / 2;
+          } else if (stat.operation === 'distinct') {
+            result = new Set(values).size;
+          } else if (stat.operation === 'mean') {
+            result = values.length > 0
+              ? values.reduce((a, b) => a + b, 0) / values.length
+              : 0;
+          }
+
+          statValues[`stat_${stat.id}`] = formatStatValue(result, stat.format);
+          statValues[`stat_${stat.id}_value`] = result;
+          statValues[`stat_${stat.id}_label`] = stat.label || stat.id;
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to calculate client statistics:', err);
+    }
+  }
+
+  return statValues;
+}
+
+/**
+ * Generate data table HTML from records
+ */
+function generateDataTableHtml(records, displayFields, theme) {
+  if (!records || records.length === 0) {
+    return '<p style="color: #666; font-style: italic;">No records found for this period.</p>';
+  }
+
+  const fields = displayFields.length > 0
+    ? displayFields.slice(0, 5)
+    : Object.keys(records[0]).slice(0, 3).map(f => ({ field: f, label: f }));
+
+  const secondaryColor = theme?.secondaryColor || '#f2f2f2';
+  const borderColor = theme?.borderColor || '#dddddd';
+
+  const headerCells = fields.map(f => {
+    const label = typeof f === 'string' ? f : (f.label || f.field);
+    return `<th style="text-align: left; padding: 10px 8px; background-color: ${secondaryColor}; border-bottom: 2px solid ${borderColor};">${label}</th>`;
+  }).join('');
+
+  const bodyRows = records.slice(0, 10).map(record => {
+    const cells = fields.map(f => {
+      const fieldName = typeof f === 'string' ? f : f.field;
+      let value = record[fieldName];
+      if (value && typeof value === 'number' && value > 1000000000000) {
+        value = new Date(value).toLocaleDateString();
+      }
+      return `<td style="padding: 10px 8px; border-bottom: 1px solid ${borderColor};">${value ?? '-'}</td>`;
+    }).join('');
+    return `<tr>${cells}</tr>`;
+  }).join('');
+
+  return `<table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px;">
+    <thead><tr>${headerCells}</tr></thead>
+    <tbody>${bodyRows}</tbody>
+  </table>`;
+}
+
+/**
+ * Generate statistics HTML for broadcast emails
+ */
+function generateStatisticsHtmlForBroadcast(statistics, statValues, theme) {
+  if (!statistics || statistics.length === 0) return '';
+
+  const primaryColor = theme.primaryColor || '#004E7C';
+  const secondaryColor = theme.secondaryColor || '#f2f2f2';
+  const mutedTextColor = theme.mutedTextColor || '#666666';
+
+  const cards = statistics.map(stat => {
+    const value = statValues[`stat_${stat.id}`] || '-';
+    const label = stat.label || stat.id;
+
+    return `<td style="width: ${100 / statistics.length}%; padding: 10px; text-align: center; vertical-align: top;">
+      <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <p style="margin: 0; font-size: 11px; color: ${mutedTextColor}; text-transform: uppercase; letter-spacing: 0.5px;">${label}</p>
+        <p style="margin: 8px 0 0 0; font-size: 24px; font-weight: bold; color: ${primaryColor};">${value}</p>
+      </div>
+    </td>`;
+  }).join('');
+
+  return `<div style="padding: 15px 0; margin-bottom: 15px;">
+    <table style="width: 100%; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px;">
+      <tr>${cards}</tr>
+    </table>
+  </div>`;
+}
+
+/**
+ * Generate final HTML by replacing placeholders in template
+ */
+function generateFinalHtml(notification, context, theme) {
+  const customTemplate = notification?.customTemplate || {};
+  const hasCustomTemplate = customTemplate?.html;
+
+  if (hasCustomTemplate) {
+    let html = customTemplate.html;
+
+    // Replace all placeholders from context
+    Object.entries(context).forEach(([key, value]) => {
+      const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+      html = html.replace(regex, value || '');
+    });
+
+    return html;
+  }
+
+  // Default template
+  const accentColor = theme.primaryColor || '#004E7C';
+  return `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <div style="background-color: ${accentColor}; color: white; padding: 20px; text-align: center;">
+      <h1 style="margin: 0; font-size: 24px;">${context.organizationName}</h1>
+      <h2 style="margin: 5px 0 0 0; font-weight: normal; font-size: 16px;">${context.notificationName}</h2>
+    </div>
+
+    <div style="padding: 20px;">
+      ${context.logoHtml}
+
+      <p style="color: #666; margin: 0 0 15px 0;">
+        <strong>Period:</strong> ${context.dateRangeStart} to ${context.dateRangeEnd}<br>
+        <strong>Records:</strong> ${context.recordCount}
+      </p>
+
+      ${context.emailIntro}
+
+      ${context.statisticsHtml}
+
+      ${context.downloadButton}
+
+      ${context.dataTable}
+
+      ${context.moreRecordsMessage}
+    </div>
+
+    <div style="padding: 15px; background-color: #f5f5f5; text-align: center; font-size: 12px; color: #888;">
+      You are receiving this because you subscribed to notifications.<br>
+      <a href="#" style="color: #666;">Manage Preferences</a>
+    </div>
+  </div>`;
+}
 
 /**
  * Calculate date range based on notification type
