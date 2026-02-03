@@ -901,14 +901,15 @@ const MarkupTool = forwardRef(function MarkupTool({
           <button
             onClick={exportToShapefile}
             disabled={markups.length === 0 || isExporting}
-            className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-slate-200"
             title="Export markups to Shapefile"
           >
             {isExporting ? (
-              <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <FileArchive className="w-4 h-4 text-slate-500" />
+              <Download className="w-3.5 h-3.5" />
             )}
+            <span>SHP</span>
           </button>
           <button onClick={onToggle} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
             <X className="w-4 h-4 text-slate-500" />
