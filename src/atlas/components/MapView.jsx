@@ -1095,8 +1095,31 @@ const MapView = forwardRef(function MapView(props, ref) {
       // For point features, zoom to a reasonable level (not too close)
       // Use zoom level 15 max to keep more context visible
       const targetZoom = Math.min(viewRef.current.zoom + 2, 15);
+
+      // Convert JSON geometry to proper Point object if needed
+      // ArcGIS goTo() requires proper Geometry objects, not raw JSON
+      let pointGeometry = geometry;
+      if (!(geometry instanceof Point) && geometry.type !== 'point') {
+        const defaultSR = viewRef.current?.spatialReference || { wkid: 4326 };
+        const geomSR = geometry.spatialReference || defaultSR;
+
+        if (geometry.x !== undefined && geometry.y !== undefined) {
+          pointGeometry = new Point({
+            x: geometry.x,
+            y: geometry.y,
+            spatialReference: geomSR
+          });
+        } else if (geometry.longitude !== undefined && geometry.latitude !== undefined) {
+          pointGeometry = new Point({
+            x: geometry.longitude,
+            y: geometry.latitude,
+            spatialReference: geomSR
+          });
+        }
+      }
+
       viewRef.current.goTo(
-        { target: geometry, zoom: targetZoom },
+        { target: pointGeometry, zoom: targetZoom },
         { duration: 500 }
       );
     }
