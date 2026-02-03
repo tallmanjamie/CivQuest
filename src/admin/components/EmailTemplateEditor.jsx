@@ -564,6 +564,17 @@ export default function EmailTemplateEditor({
       if (!metadataRes.ok) throw new Error('Failed to fetch service metadata');
 
       const metadata = await metadataRes.json();
+      console.log('[EmailTemplateEditor] Metadata received:', {
+        fieldsCount: metadata.fields?.length,
+        hasError: !!metadata.error,
+        error: metadata.error
+      });
+
+      // Check for error in metadata response
+      if (metadata.error) {
+        throw new Error(metadata.error.message || metadata.error.details || 'Failed to fetch service metadata');
+      }
+
       const fields = (metadata.fields || []).map(f => f.name);
       setServiceFields(fields);
 
@@ -584,7 +595,16 @@ export default function EmailTemplateEditor({
 
       if (countRes.ok) {
         const countData = await countRes.json();
-        setLiveDataRecordCount(countData.count || 0);
+        console.log('[EmailTemplateEditor] Count response:', countData);
+
+        // Check for error in response
+        if (countData.error) {
+          console.warn('[EmailTemplateEditor] Count query error:', countData.error);
+        } else {
+          // Handle different response formats - count or features array length
+          const count = countData.count ?? countData.features?.length ?? 0;
+          setLiveDataRecordCount(count);
+        }
       }
 
       // Then, get sample data (first 10 records)
@@ -604,6 +624,19 @@ export default function EmailTemplateEditor({
       if (!dataRes.ok) throw new Error('Failed to fetch sample data');
 
       const data = await dataRes.json();
+      console.log('[EmailTemplateEditor] Data response:', {
+        hasError: !!data.error,
+        error: data.error,
+        hasFeatures: !!data.features,
+        featuresLength: data.features?.length,
+        rawKeys: Object.keys(data)
+      });
+
+      // Check for error in response
+      if (data.error) {
+        throw new Error(data.error.message || data.error.details || 'Query returned an error');
+      }
+
       const records = (data.features || []).map(f => f.attributes || {});
       setSampleServiceData(records);
 

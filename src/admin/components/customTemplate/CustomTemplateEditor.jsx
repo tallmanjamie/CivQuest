@@ -224,7 +224,9 @@ const VISUAL_ELEMENTS = [
     category: 'data',
     defaultContent: {
       type: 'datatable',
-      placeholder: '{{dataTable}}'
+      placeholder: '{{dataTable}}',
+      selectedFields: [], // Empty = use notification's display fields, otherwise array of field names
+      recordLimit: 10 // Number of records to show in the table
     }
   },
   {
@@ -825,10 +827,20 @@ export default function CustomTemplateEditor({
       console.log('[CustomTemplateEditor] Metadata received:', {
         fieldsCount: metadata.fields?.length,
         fields: metadata.fields?.map(f => f.name),
+        hasError: !!metadata.error,
+        error: metadata.error,
         rawMetadata: metadata
       });
 
+      // Check for error in metadata response
+      if (metadata.error) {
+        throw new Error(metadata.error.message || metadata.error.details || 'Failed to fetch service metadata');
+      }
+
       const fields = (metadata.fields || []).map(f => f.name);
+      if (fields.length === 0) {
+        console.warn('[CustomTemplateEditor] No fields found in metadata - service may be empty or require authentication');
+      }
       console.log('[CustomTemplateEditor] Extracted field names:', fields);
       setLiveDataFields(fields);
 
@@ -849,7 +861,16 @@ export default function CustomTemplateEditor({
 
       if (countRes.ok) {
         const countData = await countRes.json();
-        setLiveRecordCount(countData.count || 0);
+        console.log('[CustomTemplateEditor] Count response:', countData);
+
+        // Check for error in response
+        if (countData.error) {
+          console.warn('[CustomTemplateEditor] Count query error:', countData.error);
+        } else {
+          // Handle different response formats - count or features array length
+          const count = countData.count ?? countData.features?.length ?? 0;
+          setLiveRecordCount(count);
+        }
       }
 
       // Get sample records (first 10)
@@ -869,6 +890,19 @@ export default function CustomTemplateEditor({
       if (!dataRes.ok) throw new Error('Failed to fetch sample data');
 
       const data = await dataRes.json();
+      console.log('[CustomTemplateEditor] Data response:', {
+        hasError: !!data.error,
+        error: data.error,
+        hasFeatures: !!data.features,
+        featuresLength: data.features?.length,
+        rawKeys: Object.keys(data)
+      });
+
+      // Check for error in response
+      if (data.error) {
+        throw new Error(data.error.message || data.error.details || 'Query returned an error');
+      }
+
       const records = (data.features || []).map(f => f.attributes || {});
       console.log('[CustomTemplateEditor] Sample records fetched:', {
         recordCount: records.length,
@@ -1386,9 +1420,33 @@ export default function CustomTemplateEditor({
 
     // If we have live data, build a real data table
     if (useLiveData && liveDataRecords.length > 0 && liveDataFields.length > 0) {
-      const displayFields = notification.source?.displayFields?.length > 0
-        ? notification.source.displayFields
-        : liveDataFields.slice(0, 3);
+      // Find datatable element to get customization options
+      const datatableElement = (template.visualElements || []).find(el => el.type === 'datatable');
+      const recordLimit = datatableElement?.recordLimit || 10;
+      const selectedTableFields = datatableElement?.selectedFields || [];
+
+      // Determine which fields to show
+      let displayFields;
+      if (selectedTableFields.length > 0) {
+        // Use selected fields from the datatable element
+        displayFields = selectedTableFields.map(fieldName => {
+          // Try to find matching field in notification.source.displayFields for label
+          const notifField = (notification.source?.displayFields || []).find(f =>
+            (typeof f === 'string' ? f : f.field) === fieldName
+          );
+          if (notifField && typeof notifField !== 'string') {
+            return notifField;
+          }
+          return { field: fieldName, label: fieldName };
+        });
+      } else if (notification.source?.displayFields?.length > 0) {
+        // Fall back to notification's display fields
+        displayFields = notification.source.displayFields;
+      } else {
+        // Fall back to first 3 fields from live data
+        displayFields = liveDataFields.slice(0, 3).map(f => ({ field: f, label: f }));
+      }
+
       const fieldNames = displayFields.map(f => typeof f === 'string' ? f : f.field);
       const fieldLabels = displayFields.map(f => typeof f === 'string' ? f : (f.label || f.field));
 
@@ -1399,15 +1457,15 @@ export default function CustomTemplateEditor({
           </tr>
         </thead>
         <tbody>
-          ${liveDataRecords.slice(0, 10).map(row => `<tr>${fieldNames.map(f => `<td style="padding: 10px 8px; border-bottom: 1px solid #eee;">${row[f] ?? ''}</td>`).join('')}</tr>`).join('')}
+          ${liveDataRecords.slice(0, recordLimit).map(row => `<tr>${fieldNames.map(f => `<td style="padding: 10px 8px; border-bottom: 1px solid #eee;">${row[f] ?? ''}</td>`).join('')}</tr>`).join('')}
         </tbody>
       </table>`;
 
       baseContext.dataTable = tableHtml;
       baseContext.recordCount = liveRecordCount !== null ? String(liveRecordCount) : String(liveDataRecords.length);
 
-      if (liveRecordCount > 10) {
-        baseContext.moreRecordsMessage = `<p style="font-style: italic; color: #666; margin-top: 15px; font-size: 13px;">Showing first 10 of ${liveRecordCount.toLocaleString()} records. Download the CSV to see all data.</p>`;
+      if (liveRecordCount > recordLimit) {
+        baseContext.moreRecordsMessage = `<p style="font-style: italic; color: #666; margin-top: 15px; font-size: 13px;">Showing first ${recordLimit} of ${liveRecordCount.toLocaleString()} records. Download the CSV to see all data.</p>`;
       } else {
         baseContext.moreRecordsMessage = '';
       }
@@ -3533,11 +3591,77 @@ export default function CustomTemplateEditor({
                         </div>
                       )}
 
+                      {/* Data Table Editor */}
+                      {elementType === 'datatable' && (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Records to Display</label>
+                            <select
+                              value={element.recordLimit || '10'}
+                              onChange={(e) => updateElement(selectedElementIndex, { recordLimit: parseInt(e.target.value) })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              <option value="5">5 records</option>
+                              <option value="10">10 records</option>
+                              <option value="15">15 records</option>
+                              <option value="20">20 records</option>
+                              <option value="25">25 records</option>
+                              <option value="50">50 records</option>
+                            </select>
+                            <p className="text-[9px] text-slate-400 mt-1">Maximum records shown in the email table</p>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Visible Fields</label>
+                            {availableFields.length === 0 ? (
+                              <p className="text-[9px] text-slate-500 p-2 bg-slate-50 rounded">
+                                No fields available. Connect to your data source to see available fields.
+                              </p>
+                            ) : (
+                              <div className="space-y-1 max-h-48 overflow-y-auto border border-slate-200 rounded p-2 bg-slate-50">
+                                {availableFields.map(f => {
+                                  const fieldName = typeof f === 'string' ? f : f.field;
+                                  const fieldLabel = typeof f === 'string' ? f : (f.label || f.field);
+                                  const isSelected = (element.selectedFields || []).includes(fieldName);
+                                  return (
+                                    <label key={fieldName} className="flex items-center gap-2 p-1.5 bg-white rounded hover:bg-slate-100 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={(e) => {
+                                          const currentSelected = element.selectedFields || [];
+                                          const newSelected = e.target.checked
+                                            ? [...currentSelected, fieldName]
+                                            : currentSelected.filter(name => name !== fieldName);
+                                          updateElement(selectedElementIndex, { selectedFields: newSelected });
+                                        }}
+                                        className="rounded text-blue-500"
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-xs text-slate-700">{fieldLabel}</span>
+                                        {fieldLabel !== fieldName && (
+                                          <span className="text-[9px] text-slate-400 ml-1">({fieldName})</span>
+                                        )}
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-2 bg-blue-50 border border-blue-100 rounded">
+                            <p className="text-[9px] text-blue-700">
+                              {(element.selectedFields || []).length === 0
+                                ? 'No fields selected - all notification display fields will be shown'
+                                : `${(element.selectedFields || []).length} field(s) selected for the table`}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Non-editable elements info */}
-                      {['datatable', 'download-button', 'more-records'].includes(elementType) && (
+                      {['download-button', 'more-records'].includes(elementType) && (
                         <div className="p-3 bg-slate-50 rounded-lg">
                           <p className="text-[10px] text-slate-600">
-                            {elementType === 'datatable' && 'Data table is auto-generated from your data source fields.'}
                             {elementType === 'download-button' && 'Download button appears when CSV attachment is enabled.'}
                             {elementType === 'more-records' && 'This message appears automatically when there are more records than displayed.'}
                           </p>
