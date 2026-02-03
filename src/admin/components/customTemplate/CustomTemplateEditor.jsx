@@ -687,6 +687,10 @@ export default function CustomTemplateEditor({
   const [serverStatistics, setServerStatistics] = useState({});
   const [isLoadingStats, setIsLoadingStats] = useState(false);
 
+  // Server-side graph data state (keyed by graph element ID)
+  const [serverGraphData, setServerGraphData] = useState({});
+  const [isLoadingGraphData, setIsLoadingGraphData] = useState({});
+
   // Drag and drop state
   const [draggedElement, setDraggedElement] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -1055,6 +1059,91 @@ export default function CustomTemplateEditor({
     }
   }, [useLiveData, template.statistics, fetchServerStatistics]);
 
+  // Fetch server-side aggregated data for a graph element
+  const fetchGraphDataForElement = useCallback(async (element) => {
+    const endpoint = notification.source?.endpoint;
+    if (!endpoint || !element.labelField) {
+      return;
+    }
+
+    const elementId = element.id;
+    setIsLoadingGraphData(prev => ({ ...prev, [elementId]: true }));
+
+    try {
+      const username = notification.source?.username;
+      const password = notification.source?.password;
+      const baseUrl = endpoint.replace(/\/$/, '');
+
+      // Map operation to ArcGIS statisticType
+      const operation = element.operation || 'count';
+      const arcgisOperation = {
+        'sum': 'sum',
+        'mean': 'avg',
+        'count': 'count'
+      }[operation] || 'count';
+
+      // For count operation without a data field, count the label field itself
+      const dataField = element.dataField || element.labelField;
+
+      const outStatistics = [{
+        statisticType: arcgisOperation,
+        onStatisticField: dataField,
+        outStatisticFieldName: 'aggregated_value'
+      }];
+
+      const graphRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceUrl: baseUrl,
+          where: '1=1',
+          outStatistics: JSON.stringify(outStatistics),
+          groupByFieldsForStatistics: element.labelField,
+          f: 'json',
+          ...(username && password ? { username, password } : {})
+        })
+      });
+
+      if (!graphRes.ok) {
+        throw new Error('Failed to fetch graph data');
+      }
+
+      const graphResponse = await graphRes.json();
+      const features = graphResponse.features || [];
+
+      // Transform to graph data format
+      const maxItems = parseInt(element.maxItems) || 10;
+      const graphData = features
+        .map(f => ({
+          label: String(f.attributes[element.labelField] || 'Unknown'),
+          value: Math.round((f.attributes.aggregated_value || 0) * 100) / 100
+        }))
+        .filter(d => d.label && d.label !== 'Unknown' && d.label !== 'null' && d.label !== '')
+        .sort((a, b) => b.value - a.value)
+        .slice(0, maxItems);
+
+      console.log('[CustomTemplateEditor] Graph data fetched for', elementId, ':', graphData);
+      setServerGraphData(prev => ({ ...prev, [elementId]: graphData }));
+
+    } catch (err) {
+      console.error('[CustomTemplateEditor] Graph data fetch error:', err);
+      setServerGraphData(prev => ({ ...prev, [elementId]: null }));
+    } finally {
+      setIsLoadingGraphData(prev => ({ ...prev, [elementId]: false }));
+    }
+  }, [notification.source]);
+
+  // Fetch graph data for all graph elements when live data is enabled
+  useEffect(() => {
+    if (useLiveData && notification.source?.endpoint) {
+      const graphElements = (template.visualElements || []).filter(el => el.type === 'graph' && el.labelField);
+      graphElements.forEach(element => {
+        // Only fetch if we don't already have data for this element or if config changed
+        fetchGraphDataForElement(element);
+      });
+    }
+  }, [useLiveData, notification.source?.endpoint, template.visualElements, fetchGraphDataForElement]);
+
   // Helper function to calculate a statistic from records
   const calculateStatistic = useCallback((records, field, operation) => {
     if (!records || records.length === 0) return null;
@@ -1232,11 +1321,19 @@ export default function CustomTemplateEditor({
         const key = `statisticsHtml_${el.id}_${valueSize}_${valueAlignment}_${containerWidth}_${containerAlignment}`;
         baseContext[key] = generateSelectedStatisticsHtml(statsToShow, contextWithLiveStats, theme, { valueSize, valueAlignment, containerWidth, containerAlignment });
       } else if (el.type === 'graph') {
-        // Generate graph HTML using live data if available
-        const records = useLiveData && liveDataRecords.length > 0 ? liveDataRecords : null;
-        const graphData = records && el.labelField
-          ? aggregateGraphData(records, el.labelField, el.dataField, el.operation || 'count', el.maxItems || 6)
-          : generateSampleGraphData(el.graphType || 'bar', 5); // Use sample data for preview
+        // Generate graph HTML using server-side aggregated data if available
+        // Prefer serverGraphData (from ArcGIS groupByFieldsForStatistics) over client-side aggregation
+        let graphData;
+        if (useLiveData && serverGraphData[el.id] && serverGraphData[el.id].length > 0) {
+          // Use server-side aggregated data (accurate for all records)
+          graphData = serverGraphData[el.id];
+        } else if (useLiveData && liveDataRecords.length > 0 && el.labelField) {
+          // Fallback to client-side aggregation (limited to sample records)
+          graphData = aggregateGraphData(liveDataRecords, el.labelField, el.dataField, el.operation || 'count', el.maxItems || 10);
+        } else {
+          // Use sample data for preview when no live data
+          graphData = generateSampleGraphData(el.graphType || 'bar', 5);
+        }
 
         const graphOptions = {
           title: el.title || '',
@@ -1252,7 +1349,7 @@ export default function CustomTemplateEditor({
     });
 
     return baseContext;
-  }, [notification, template, locality, useLiveData, liveDataRecords, liveDataFields, liveRecordCount, liveStatistics]);
+  }, [notification, template, locality, useLiveData, liveDataRecords, liveDataFields, liveRecordCount, liveStatistics, serverGraphData]);
 
   // Process template HTML with context
   const processedHtml = useMemo(() => {
@@ -1772,11 +1869,20 @@ export default function CustomTemplateEditor({
         )}
 
         {element.type === 'graph' && (() => {
-          // Generate graph preview
-          const records = useLiveData && liveDataRecords.length > 0 ? liveDataRecords : null;
-          const graphData = records && element.labelField
-            ? aggregateGraphData(records, element.labelField, element.dataField, element.operation || 'count', element.maxItems || 6)
-            : generateSampleGraphData(element.graphType || 'bar', 5);
+          // Generate graph preview using server-side aggregated data if available
+          let graphData;
+          const isLoading = isLoadingGraphData[element.id];
+
+          if (useLiveData && serverGraphData[element.id] && serverGraphData[element.id].length > 0) {
+            // Use server-side aggregated data (accurate for all records)
+            graphData = serverGraphData[element.id];
+          } else if (useLiveData && liveDataRecords.length > 0 && element.labelField) {
+            // Fallback to client-side aggregation (limited to sample records)
+            graphData = aggregateGraphData(liveDataRecords, element.labelField, element.dataField, element.operation || 'count', element.maxItems || 10);
+          } else {
+            // Use sample data for preview when no live data
+            graphData = generateSampleGraphData(element.graphType || 'bar', 5);
+          }
 
           const graphOptions = {
             title: element.title || '',
@@ -1794,6 +1900,11 @@ export default function CustomTemplateEditor({
               {!element.labelField && (
                 <div style={{ marginBottom: '10px', padding: '8px', backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '11px', color: '#92400e' }}>
                   Select a label field to see real data. Showing sample data.
+                </div>
+              )}
+              {isLoading && (
+                <div style={{ marginBottom: '10px', padding: '8px', backgroundColor: '#dbeafe', borderRadius: '4px', fontSize: '11px', color: '#1e40af' }}>
+                  Loading graph data from server...
                 </div>
               )}
               <div dangerouslySetInnerHTML={{ __html: graphHtml }} />
