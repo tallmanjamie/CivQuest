@@ -113,23 +113,6 @@ export default function AuthScreen({
         </p>
       </div>
 
-      {/* Info box about Esri account requirement */}
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-6">
-        <p className="text-sm text-slate-600 text-center">
-          An Esri account is required to access this application.
-          If you don't have one, you can{' '}
-          <a
-            href="https://www.arcgis.com/home/createaccount.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium hover:underline"
-            style={{ color: colors.text600 }}
-          >
-            create a free ArcGIS account
-          </a>.
-        </p>
-      </div>
-
       <div className="text-center text-sm text-slate-600">
         {isLogin ? (
           <>
