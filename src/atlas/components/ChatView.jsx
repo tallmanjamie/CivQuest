@@ -31,11 +31,14 @@ import {
   Info,
   BookOpen,
   X,
-  Image as ImageIcon
+  Image as ImageIcon,
+  FileSpreadsheet,
+  FileArchive
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
 import { exportFeatureToPDF } from '../utils/FeatureExportService';
+import { exportSearchResultsToShapefile } from '../utils/ShapefileExportService';
 import ChatMiniMap from './ChatMiniMap';
 
 // Centralized Gemini configuration - update model in one place
@@ -921,6 +924,27 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
   }, [searchResults, activeMap?.tableColumns]);
 
   /**
+   * Export search results to Shapefile
+   */
+  const exportShapefile = useCallback(async () => {
+    const features = searchResults?.features;
+    if (!features || features.length === 0) return;
+
+    try {
+      await exportSearchResultsToShapefile({
+        features,
+        filename: 'search-results',
+        onProgress: (status) => {
+          console.log('[ChatView] Shapefile export:', status);
+        }
+      });
+    } catch (err) {
+      console.error('[ChatView] Shapefile export error:', err);
+      addMessage('error', `Export failed: ${err.message}`);
+    }
+  }, [searchResults?.features, addMessage]);
+
+  /**
    * Export single feature to PDF
    * Uses FeatureExportService for consistent multi-page PDF generation
    */
@@ -1092,6 +1116,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
                 setMode('table');
               }}
               onExportCSV={exportCSV}
+              onExportShapefile={exportShapefile}
               onExportPDF={exportPDF}
               onRowClick={(feature) => {
                 // Zoom to the clicked feature on the map
@@ -1341,6 +1366,7 @@ function MessageBubble({
   onViewMap,
   onViewTable,
   onExportCSV,
+  onExportShapefile,
   onExportPDF,
   onRowClick,
   tableColumns,
@@ -1642,8 +1668,18 @@ function MessageBubble({
                   onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
                   onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
                 >
-                  <Download className="w-4 h-4" />
+                  <FileSpreadsheet className="w-4 h-4" />
                   Export CSV
+                </button>
+                <button
+                  onClick={onExportShapefile}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                  style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
+                >
+                  <FileArchive className="w-4 h-4" />
+                  Export Shapefile
                 </button>
               </div>
 

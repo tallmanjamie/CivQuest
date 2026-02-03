@@ -14,7 +14,10 @@ import {
   Plus,
   Edit3,
   Check,
-  Lock
+  Lock,
+  Download,
+  FileArchive,
+  Loader2
 } from 'lucide-react';
 
 /**
@@ -31,6 +34,7 @@ import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
+import { exportMarkupsToShapefile } from '../utils/ShapefileExportService';
 
 const COLORS = [
   { name: 'Green', value: '#22c55e', dark: '#15803d' },
@@ -198,6 +202,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   const [expandedSettings, setExpandedSettings] = useState(null);
   const [markups, setMarkups] = useState([]);
   const [editingMarkup, setEditingMarkup] = useState(null); // The graphic currently being edited
+  const [isExporting, setIsExporting] = useState(false);
   
   const [settings, setSettings] = useState({
     pointType: 'circle',
@@ -646,6 +651,33 @@ const MarkupTool = forwardRef(function MarkupTool({
     setMarkups(prev => [...prev]);
   };
 
+  // Export markups to shapefile
+  const exportToShapefile = useCallback(async () => {
+    if (markups.length === 0) {
+      alert('No markups to export. Add some markups first.');
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      const result = await exportMarkupsToShapefile({
+        markups,
+        filename: 'markups',
+        onProgress: (status) => {
+          console.log('[MarkupTool] Shapefile export:', status);
+        }
+      });
+
+      console.log('[MarkupTool] Export complete:', result);
+    } catch (err) {
+      console.error('[MarkupTool] Shapefile export error:', err);
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [markups]);
+
   // Start editing a markup - enables geometry editing and opens settings panel
   const startEdit = (graphic) => {
     if (!sketchVMRef.current || !graphic) return;
@@ -865,9 +897,23 @@ const MarkupTool = forwardRef(function MarkupTool({
           </div>
           <span className="text-sm font-bold text-slate-800">Map Markup</span>
         </div>
-        <button onClick={onToggle} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-          <X className="w-4 h-4 text-slate-500" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={exportToShapefile}
+            disabled={markups.length === 0 || isExporting}
+            className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Export markups to Shapefile"
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
+            ) : (
+              <FileArchive className="w-4 h-4 text-slate-500" />
+            )}
+          </button>
+          <button onClick={onToggle} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+            <X className="w-4 h-4 text-slate-500" />
+          </button>
+        </div>
       </div>
 
       {/* Toolbar - COMPACTED - Hidden when editing */}

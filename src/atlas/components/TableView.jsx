@@ -50,10 +50,14 @@ import {
   Eye,
   MapPin,
   BarChart3,
-  HelpCircle
+  HelpCircle,
+  ChevronDown,
+  FileSpreadsheet,
+  FileArchive
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
+import { exportSearchResultsToShapefile } from '../utils/ShapefileExportService';
 
 // Configuration
 const DEFAULT_PAGE_SIZE = 100;
@@ -90,6 +94,8 @@ const TableView = forwardRef(function TableView(props, ref) {
   const [rowCount, setRowCount] = useState(0);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
@@ -420,7 +426,33 @@ const TableView = forwardRef(function TableView(props, ref) {
       fileName: `atlas-export-${new Date().toISOString().split('T')[0]}.csv`,
       columnKeys: visibleColumns
     });
+    setShowExportMenu(false);
   }, [visibleColumns]);
+
+  /**
+   * Export to Shapefile
+   */
+  const exportShapefile = useCallback(async () => {
+    if (!searchResults?.features?.length) return;
+
+    setIsExporting(true);
+    setShowExportMenu(false);
+
+    try {
+      await exportSearchResultsToShapefile({
+        features: searchResults.features,
+        filename: 'atlas-export',
+        onProgress: (status) => {
+          console.log('[TableView] Shapefile export:', status);
+        }
+      });
+    } catch (err) {
+      console.error('[TableView] Shapefile export error:', err);
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [searchResults?.features]);
 
   /**
    * Toggle column visibility
@@ -582,14 +614,47 @@ const TableView = forwardRef(function TableView(props, ref) {
             <Columns className="w-4 h-4" />
           </button>
 
-          <button
-            className="table-tool-btn"
-            onClick={exportCSV}
-            disabled={!hasResults}
-            title="Export to CSV"
-          >
-            <Download className="w-4 h-4" />
-          </button>
+          <div className="relative">
+            <button
+              className="table-tool-btn"
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              disabled={!hasResults || isExporting}
+              title="Export data"
+            >
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  <ChevronDown className="w-3 h-3 ml-0.5" />
+                </>
+              )}
+            </button>
+            {showExportMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowExportMenu(false)}
+                />
+                <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    onClick={exportCSV}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                    Export to CSV
+                  </button>
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    onClick={exportShapefile}
+                  >
+                    <FileArchive className="w-4 h-4 text-blue-600" />
+                    Export to Shapefile
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
           <button
             className="table-tool-btn"
