@@ -10,7 +10,7 @@
 // - Added Export Templates tab for selecting which export templates are available for this map
 // - Added Feature Export Template selection (one per map)
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   X,
   Save,
@@ -40,7 +40,9 @@ import {
   LayoutList,
   FileOutput,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import {
   canHavePublicMaps,
@@ -49,6 +51,9 @@ import {
   LICENSE_TYPES
 } from '../../shared/services/licenses';
 import FeatureExportSettings from './FeatureExportSettings';
+
+// Configuration for the Proxy Service (for fetching feature service fields)
+const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
 
 // Page size display helper for export templates
 const PAGE_SIZES = {
@@ -166,6 +171,86 @@ export default function MapEditor({
   const [showLicenseWarning, setShowLicenseWarning] = useState(
     !canBePublic && data?.access === 'public'
   );
+
+  // Feature service fields state
+  const [availableFields, setAvailableFields] = useState([]);
+  const [fieldsLoading, setFieldsLoading] = useState(false);
+  const [fieldsError, setFieldsError] = useState(null);
+  const [lastFetchedEndpoint, setLastFetchedEndpoint] = useState('');
+
+  // Fetch fields from feature service endpoint
+  const fetchServiceFields = useCallback(async (endpointUrl) => {
+    if (!endpointUrl || !endpointUrl.trim()) {
+      setAvailableFields([]);
+      setFieldsError(null);
+      return;
+    }
+
+    // Don't refetch if we already have fields for this endpoint
+    if (endpointUrl === lastFetchedEndpoint && availableFields.length > 0) {
+      return;
+    }
+
+    setFieldsLoading(true);
+    setFieldsError(null);
+
+    try {
+      // First try direct fetch (works for public services)
+      const fetchUrl = endpointUrl.includes('?')
+        ? `${endpointUrl}&f=json`
+        : `${endpointUrl}?f=json`;
+
+      let json;
+      let response = await fetch(fetchUrl);
+
+      if (response.ok) {
+        json = await response.json();
+      } else {
+        // If direct fetch fails, try through proxy (for secured services)
+        const proxyResponse = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: endpointUrl })
+        });
+
+        if (!proxyResponse.ok) {
+          throw new Error(`Failed to fetch service info: ${proxyResponse.status}`);
+        }
+
+        json = await proxyResponse.json();
+      }
+
+      if (json.error) {
+        throw new Error(json.error.message || 'Error fetching service information');
+      }
+
+      if (json.fields && Array.isArray(json.fields)) {
+        // Sort fields alphabetically by name for easier selection
+        const sortedFields = [...json.fields].sort((a, b) =>
+          (a.name || '').localeCompare(b.name || '')
+        );
+        setAvailableFields(sortedFields);
+        setLastFetchedEndpoint(endpointUrl);
+        setFieldsError(null);
+      } else {
+        setAvailableFields([]);
+        setFieldsError('No fields found in service response');
+      }
+    } catch (err) {
+      console.error('Error fetching service fields:', err);
+      setFieldsError(err.message || 'Failed to fetch service fields');
+      setAvailableFields([]);
+    } finally {
+      setFieldsLoading(false);
+    }
+  }, [lastFetchedEndpoint, availableFields.length]);
+
+  // Fetch fields when endpoint changes or on initial load
+  useEffect(() => {
+    if (mapConfig.endpoint && mapConfig.endpoint !== lastFetchedEndpoint) {
+      fetchServiceFields(mapConfig.endpoint);
+    }
+  }, [mapConfig.endpoint, lastFetchedEndpoint, fetchServiceFields]);
 
   // Update field
   const updateField = (field, value) => {
@@ -820,19 +905,50 @@ export default function MapEditor({
                   <label className="text-sm font-medium text-slate-700">
                     Autocomplete Fields
                   </label>
-                  <button
-                    type="button"
-                    onClick={addAutocomplete}
-                    className="text-sm flex items-center gap-1 hover:underline"
-                    style={{ color: accentColor }}
-                  >
-                    <Plus className="w-4 h-4" /> Add Field
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {fieldsLoading && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Loading fields...
+                      </span>
+                    )}
+                    {!fieldsLoading && availableFields.length > 0 && (
+                      <span className="text-xs text-emerald-600 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> {availableFields.length} fields available
+                      </span>
+                    )}
+                    {!fieldsLoading && mapConfig.endpoint && availableFields.length === 0 && !fieldsError && (
+                      <button
+                        type="button"
+                        onClick={() => fetchServiceFields(mapConfig.endpoint)}
+                        className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Load fields
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={addAutocomplete}
+                      className="text-sm flex items-center gap-1 hover:underline"
+                      style={{ color: accentColor }}
+                    >
+                      <Plus className="w-4 h-4" /> Add Field
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs text-slate-500 mb-3">
                   Configure autocomplete suggestions that appear as users type in the search bar.
                   Use patterns to match specific input formats (e.g., parcel IDs, addresses).
+                  {availableFields.length > 0 && ' Select from available service fields or enter custom field names.'}
                 </p>
+                {fieldsError && (
+                  <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs text-amber-700">{fieldsError}</p>
+                      <p className="text-xs text-amber-600 mt-1">You can still type field names manually.</p>
+                    </div>
+                  </div>
+                )}
                 {(mapConfig.autocomplete || []).length === 0 ? (
                   <p className="text-sm text-slate-500 italic">No autocomplete fields configured</p>
                 ) : (
@@ -876,14 +992,40 @@ export default function MapEditor({
                         </div>
                         {/* Row 2: Field, Max Suggestions */}
                         <div className="flex items-center gap-2 mb-2">
-                          <input
-                            type="text"
-                            value={ac.field || ''}
-                            onChange={(e) => updateAutocomplete(idx, 'field', e.target.value)}
-                            placeholder="FIELD_NAME"
-                            title="Feature service field to query for suggestions"
-                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                          />
+                          {availableFields.length > 0 ? (
+                            <select
+                              value={ac.field || ''}
+                              onChange={(e) => {
+                                const selectedField = availableFields.find(f => f.name === e.target.value);
+                                updateAutocomplete(idx, 'field', e.target.value);
+                                // Auto-populate label with alias if available and label is empty
+                                if (selectedField && !ac.label) {
+                                  updateAutocomplete(idx, 'label', selectedField.alias || selectedField.name);
+                                }
+                              }}
+                              title="Feature service field to query for suggestions"
+                              className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono bg-white"
+                            >
+                              <option value="">-- Select Field --</option>
+                              {availableFields.map(field => (
+                                <option key={field.name} value={field.name}>
+                                  {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
+                                </option>
+                              ))}
+                              {ac.field && !availableFields.find(f => f.name === ac.field) && (
+                                <option value={ac.field}>{ac.field} (custom)</option>
+                              )}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={ac.field || ''}
+                              onChange={(e) => updateAutocomplete(idx, 'field', e.target.value)}
+                              placeholder="FIELD_NAME"
+                              title="Feature service field to query for suggestions"
+                              className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                            />
+                          )}
                           <div className="flex items-center gap-1">
                             <span className="text-xs text-slate-500">Max:</span>
                             <input
@@ -933,18 +1075,49 @@ export default function MapEditor({
                   <label className="text-sm font-medium text-slate-700">
                     Search Fields
                   </label>
-                  <button
-                    type="button"
-                    onClick={addSearchField}
-                    className="text-sm flex items-center gap-1 hover:underline"
-                    style={{ color: accentColor }}
-                  >
-                    <Plus className="w-4 h-4" /> Add Field
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {fieldsLoading && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Loading fields...
+                      </span>
+                    )}
+                    {!fieldsLoading && availableFields.length > 0 && (
+                      <span className="text-xs text-emerald-600 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> {availableFields.length} fields available
+                      </span>
+                    )}
+                    {!fieldsLoading && mapConfig.endpoint && availableFields.length === 0 && !fieldsError && (
+                      <button
+                        type="button"
+                        onClick={() => fetchServiceFields(mapConfig.endpoint)}
+                        className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Load fields
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={addSearchField}
+                      className="text-sm flex items-center gap-1 hover:underline"
+                      style={{ color: accentColor }}
+                    >
+                      <Plus className="w-4 h-4" /> Add Field
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs text-slate-500 mb-3">
                   Configure fields available for advanced search.
+                  {availableFields.length > 0 && ' Select from available service fields or enter custom field names.'}
                 </p>
+                {fieldsError && (
+                  <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs text-amber-700">{fieldsError}</p>
+                      <p className="text-xs text-amber-600 mt-1">You can still type field names manually.</p>
+                    </div>
+                  </div>
+                )}
                 {(mapConfig.searchFields || []).length === 0 ? (
                   <p className="text-sm text-slate-500 italic">No search fields configured</p>
                 ) : (
@@ -958,13 +1131,38 @@ export default function MapEditor({
                     {mapConfig.searchFields.map((sf, idx) => (
                       <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg">
                         <div className="col-span-4">
-                          <input
-                            type="text"
-                            value={sf.field}
-                            onChange={(e) => updateSearchField(idx, 'field', e.target.value)}
-                            placeholder="FIELD"
-                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                          />
+                          {availableFields.length > 0 ? (
+                            <select
+                              value={sf.field}
+                              onChange={(e) => {
+                                const selectedField = availableFields.find(f => f.name === e.target.value);
+                                updateSearchField(idx, 'field', e.target.value);
+                                // Auto-populate label with alias if available and label is empty
+                                if (selectedField && !sf.label) {
+                                  updateSearchField(idx, 'label', selectedField.alias || selectedField.name);
+                                }
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono bg-white"
+                            >
+                              <option value="">-- Select Field --</option>
+                              {availableFields.map(field => (
+                                <option key={field.name} value={field.name}>
+                                  {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
+                                </option>
+                              ))}
+                              {sf.field && !availableFields.find(f => f.name === sf.field) && (
+                                <option value={sf.field}>{sf.field} (custom)</option>
+                              )}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={sf.field}
+                              onChange={(e) => updateSearchField(idx, 'field', e.target.value)}
+                              placeholder="FIELD"
+                              className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                            />
+                          )}
                         </div>
                         <div className="col-span-4">
                           <input
@@ -1012,19 +1210,51 @@ export default function MapEditor({
                 <label className="text-sm font-medium text-slate-700">
                   Table Columns
                 </label>
-                <button
-                  type="button"
-                  onClick={addTableColumn}
-                  className="text-sm flex items-center gap-1 hover:underline"
-                  style={{ color: accentColor }}
-                >
-                  <Plus className="w-4 h-4" /> Add Column
-                </button>
+                <div className="flex items-center gap-2">
+                  {fieldsLoading && (
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Loading fields...
+                    </span>
+                  )}
+                  {!fieldsLoading && availableFields.length > 0 && (
+                    <span className="text-xs text-emerald-600 flex items-center gap-1">
+                      <Check className="w-3 h-3" /> {availableFields.length} fields available
+                    </span>
+                  )}
+                  {!fieldsLoading && mapConfig.endpoint && availableFields.length === 0 && !fieldsError && (
+                    <button
+                      type="button"
+                      onClick={() => fetchServiceFields(mapConfig.endpoint)}
+                      className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Load fields
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={addTableColumn}
+                    className="text-sm flex items-center gap-1 hover:underline"
+                    style={{ color: accentColor }}
+                  >
+                    <Plus className="w-4 h-4" /> Add Column
+                  </button>
+                </div>
               </div>
-              
+
               <p className="text-xs text-slate-500 mb-3">
                 Configure columns displayed in the table view. Enable "Chat Results" to include the column in chat response displays.
+                {availableFields.length > 0 && ' Select from available service fields or enter custom field names.'}
               </p>
+
+              {fieldsError && (
+                <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs text-amber-700">{fieldsError}</p>
+                    <p className="text-xs text-amber-600 mt-1">You can still type field names manually.</p>
+                  </div>
+                </div>
+              )}
 
               {(mapConfig.tableColumns || []).length === 0 ? (
                 <p className="text-sm text-slate-500 italic">No table columns configured</p>
@@ -1066,13 +1296,38 @@ export default function MapEditor({
                       </div>
                       <div className="flex-1 grid grid-cols-12 gap-2 items-center">
                         <div className="col-span-3">
-                          <input
-                            type="text"
-                            value={col.field}
-                            onChange={(e) => updateTableColumn(idx, 'field', e.target.value)}
-                            placeholder="FIELD"
-                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                          />
+                          {availableFields.length > 0 ? (
+                            <select
+                              value={col.field}
+                              onChange={(e) => {
+                                const selectedField = availableFields.find(f => f.name === e.target.value);
+                                updateTableColumn(idx, 'field', e.target.value);
+                                // Auto-populate header with alias if available and header is empty
+                                if (selectedField && !col.headerName) {
+                                  updateTableColumn(idx, 'headerName', selectedField.alias || selectedField.name);
+                                }
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono bg-white"
+                            >
+                              <option value="">-- Select Field --</option>
+                              {availableFields.map(field => (
+                                <option key={field.name} value={field.name}>
+                                  {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
+                                </option>
+                              ))}
+                              {col.field && !availableFields.find(f => f.name === col.field) && (
+                                <option value={col.field}>{col.field} (custom)</option>
+                              )}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={col.field}
+                              onChange={(e) => updateTableColumn(idx, 'field', e.target.value)}
+                              placeholder="FIELD"
+                              className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                            />
+                          )}
                         </div>
                         <div className="col-span-3">
                           <input
