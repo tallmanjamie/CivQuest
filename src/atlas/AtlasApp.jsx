@@ -113,6 +113,10 @@ const MODES = {
  *
  * UPDATED: Now includes autocomplete suggestions based on activeMap.autocomplete configuration
  * Each autocomplete field can have: type, field, label, icon, pattern, description, maxSuggestions
+ *
+ * UPDATED: Added geocoding autocomplete support. When a geocoding service is configured
+ * (activeMap.geocoder.enabled), the search toolbar will also fetch address suggestions
+ * from the geocoder's suggest endpoint, combining them with any configured autocomplete fields.
  */
 function SearchToolbar({
   config,
@@ -153,6 +157,11 @@ function SearchToolbar({
 
   // Get autocomplete configuration from active map
   const autocompleteConfig = activeMap?.autocomplete || [];
+
+  // Get geocoder configuration from active map or global config
+  const geocoderConfig = activeMap?.geocoder || config?.data?.geocoder;
+  const isGeocoderEnabled = geocoderConfig?.enabled === true;
+  const geocoderUrl = geocoderConfig?.url || 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer';
 
   /**
    * Check which autocomplete patterns match the current input
@@ -218,8 +227,46 @@ function SearchToolbar({
   }, [activeMap?.endpoint, config?.data?.autocompleteMaxResults]);
 
   /**
+   * Fetch geocoding suggestions from the geocoder's suggest endpoint
+   * ArcGIS geocoding services support a suggest endpoint for autocomplete
+   */
+  const fetchGeocodingSuggestions = useCallback(async (input) => {
+    if (!isGeocoderEnabled || !input || input.length < 3) return [];
+
+    try {
+      const params = new URLSearchParams({
+        f: 'json',
+        text: input,
+        maxSuggestions: '5'
+      });
+
+      const response = await fetch(`${geocoderUrl}/suggest?${params}`);
+      const data = await response.json();
+
+      if (data.suggestions && data.suggestions.length > 0) {
+        return data.suggestions.map(suggestion => ({
+          value: suggestion.text,
+          type: 'address',
+          label: 'Address',
+          icon: '📍',
+          description: 'Geocoded address',
+          isGeocodingSuggestion: true,
+          magicKey: suggestion.magicKey // Used for more accurate geocoding when selected
+        }));
+      }
+    } catch (err) {
+      console.error('[SearchToolbar] Error fetching geocoding suggestions:', err);
+    }
+
+    return [];
+  }, [isGeocoderEnabled, geocoderUrl]);
+
+  /**
    * Handle input change with debounced suggestion fetching
    * NOTE: Autocomplete is disabled when helpModeEnabled is true
+   *
+   * UPDATED: Now also fetches geocoding suggestions when geocoder is enabled,
+   * combining them with any autocomplete field suggestions.
    */
   const handleInputChange = useCallback((e) => {
     const value = e.target.value;
@@ -248,19 +295,30 @@ function SearchToolbar({
     // Find matching autocomplete config
     const matchingAc = getMatchingAutocomplete(value);
 
-    if (matchingAc) {
+    // Determine if we should fetch any suggestions
+    const shouldFetchFieldSuggestions = !!matchingAc;
+    const shouldFetchGeocodingSuggestions = isGeocoderEnabled && value.length >= 3;
+
+    if (shouldFetchFieldSuggestions || shouldFetchGeocodingSuggestions) {
       // Show loading state
       setIsLoadingSuggestions(true);
       setShowSuggestions(true);
 
       // Debounce the fetch
       debounceRef.current = setTimeout(async () => {
-        const results = await fetchSuggestions(value, matchingAc);
-        setSuggestions(results);
+        // Fetch both types of suggestions in parallel
+        const [fieldResults, geocodingResults] = await Promise.all([
+          shouldFetchFieldSuggestions ? fetchSuggestions(value, matchingAc) : Promise.resolve([]),
+          shouldFetchGeocodingSuggestions ? fetchGeocodingSuggestions(value) : Promise.resolve([])
+        ]);
+
+        // Combine results: field suggestions first, then geocoding suggestions
+        const combinedResults = [...fieldResults, ...geocodingResults];
+        setSuggestions(combinedResults);
         setIsLoadingSuggestions(false);
       }, 300);
-    } else if (autocompleteConfig.length > 0) {
-      // No pattern match, but show all available autocomplete types as options
+    } else if (autocompleteConfig.length > 0 || isGeocoderEnabled) {
+      // No pattern match, but show available autocomplete types as hints
       const typeHints = autocompleteConfig.map(ac => ({
         value: null,
         type: ac.type,
@@ -269,6 +327,19 @@ function SearchToolbar({
         description: ac.description,
         isTypeHint: true
       }));
+
+      // Add geocoding hint if enabled
+      if (isGeocoderEnabled) {
+        typeHints.push({
+          value: null,
+          type: 'address',
+          label: 'Address',
+          icon: '📍',
+          description: 'Type an address to search',
+          isTypeHint: true
+        });
+      }
+
       setSuggestions(typeHints);
       setShowSuggestions(true);
       setIsLoadingSuggestions(false);
@@ -276,7 +347,7 @@ function SearchToolbar({
       setSuggestions([]);
       setShowSuggestions(false);
     }
-  }, [getMatchingAutocomplete, fetchSuggestions, autocompleteConfig, helpModeEnabled]);
+  }, [getMatchingAutocomplete, fetchSuggestions, fetchGeocodingSuggestions, autocompleteConfig, helpModeEnabled, isGeocoderEnabled]);
 
   /**
    * Handle suggestion selection
