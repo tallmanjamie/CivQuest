@@ -1336,7 +1336,8 @@ export default function CustomTemplateEditor({
       const graphData = features
         .map(f => {
           const labelValue = getFieldValueCaseInsensitive(f.attributes, element.labelField);
-          const aggValue = f.attributes.aggregated_value ?? f.attributes.AGGREGATED_VALUE ?? 0;
+          // Use case-insensitive lookup for aggregated_value since ArcGIS servers may return field names in different cases
+          const aggValue = getFieldValueCaseInsensitive(f.attributes, 'aggregated_value') ?? 0;
           return {
             label: String(labelValue ?? 'Unknown'),
             value: Math.round((aggValue || 0) * 100) / 100
