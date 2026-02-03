@@ -138,7 +138,8 @@ function SearchToolbar({
   onShowHelp,
   onHideHelp,
   position = 'top',
-  helpModeEnabled = false
+  helpModeEnabled = false,
+  searchBarSize = 'medium'
 }) {
   const [inputValue, setInputValue] = useState('');
   const [showMenu, setShowMenu] = useState(false);
@@ -155,6 +156,47 @@ function SearchToolbar({
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
   const isBottom = position === 'bottom';
+
+  // Size configurations for desktop (mobile uses default/small)
+  // These use responsive classes: base is mobile, md: is desktop
+  const sizeConfig = {
+    small: {
+      modeIcon: 'w-4 h-4',
+      modeButton: 'px-2.5 py-1.5',
+      modeText: 'text-sm',
+      menuIcon: 'w-5 h-5',
+      menuButton: 'p-2',
+      searchIcon: 'w-4 h-4',
+      input: 'pl-9 pr-4 py-2 text-sm',
+      submitIcon: 'w-5 h-5',
+      submitButton: 'p-2'
+    },
+    medium: {
+      modeIcon: 'w-4 h-4 md:w-5 md:h-5',
+      modeButton: 'px-2.5 py-1.5 md:px-3 md:py-2',
+      modeText: 'text-sm md:text-base',
+      menuIcon: 'w-5 h-5 md:w-6 md:h-6',
+      menuButton: 'p-2 md:p-2.5',
+      searchIcon: 'w-4 h-4 md:w-5 md:h-5',
+      input: 'pl-9 pr-4 py-2 text-sm md:pl-11 md:pr-5 md:py-2.5 md:text-base',
+      submitIcon: 'w-5 h-5 md:w-6 md:h-6',
+      submitButton: 'p-2 md:p-2.5'
+    },
+    large: {
+      modeIcon: 'w-4 h-4 md:w-6 md:h-6',
+      modeButton: 'px-2.5 py-1.5 md:px-4 md:py-2.5',
+      modeText: 'text-sm md:text-lg',
+      menuIcon: 'w-5 h-5 md:w-7 md:h-7',
+      menuButton: 'p-2 md:p-3',
+      searchIcon: 'w-4 h-4 md:w-6 md:h-6',
+      input: 'pl-9 pr-4 py-2 text-sm md:pl-12 md:pr-6 md:py-3 md:text-lg',
+      submitIcon: 'w-5 h-5 md:w-7 md:h-7',
+      submitButton: 'p-2 md:p-3'
+    }
+  };
+
+  // Get current size configuration (fallback to medium if invalid)
+  const sizes = sizeConfig[searchBarSize] || sizeConfig.medium;
 
   // Get autocomplete configuration from active map
   const autocompleteConfig = activeMap?.autocomplete || [];
@@ -466,7 +508,7 @@ function SearchToolbar({
               <button
                 key={m.id}
                 onClick={() => onModeChange(m.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-all ${
+                className={`flex items-center gap-1.5 ${sizes.modeButton} rounded-md ${sizes.modeText} font-medium transition-all ${
                   isActive
                     ? 'bg-white shadow-sm'
                     : 'text-slate-500 hover:text-slate-700'
@@ -474,7 +516,7 @@ function SearchToolbar({
                 style={isActive ? { color: colors.text700 } : {}}
                 title={m.label}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className={sizes.modeIcon} />
                 {isActive && <span>{m.label}</span>}
               </button>
             );
@@ -493,10 +535,10 @@ function SearchToolbar({
               setShowMenu(!showMenu);
             }
           }}
-          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg flex-shrink-0"
+          className={`${sizes.menuButton} text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg flex-shrink-0`}
           title="More options"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className={sizes.menuIcon} />
         </button>
 
         {/* Menu Dropdown */}
@@ -636,7 +678,7 @@ function SearchToolbar({
 
         {/* Search Input with Autocomplete */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${sizes.searchIcon} text-slate-400`} />
           <input
             ref={inputRef}
             type="text"
@@ -649,7 +691,7 @@ function SearchToolbar({
               }
             }}
             placeholder={helpModeEnabled ? "Ask for help." : (activeMap?.searchPlaceholder || config?.ui?.searchPlaceholder || "Search properties...")}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:bg-white transition"
+            className={`w-full ${sizes.input} bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:bg-white transition`}
             style={{
               '--tw-ring-color': colors.bg500,
               borderColor: inputValue ? colors.border300 : undefined
@@ -731,7 +773,7 @@ function SearchToolbar({
         <button
           onClick={handleSubmit}
           disabled={!inputValue.trim() || isSearching}
-          className={`p-2 rounded-lg transition-colors ${
+          className={`${sizes.submitButton} rounded-lg transition-colors ${
             inputValue.trim()
               ? 'text-white hover:opacity-90'
               : 'bg-slate-100 text-slate-400'
@@ -740,11 +782,11 @@ function SearchToolbar({
           title={helpModeEnabled ? "Ask for help" : "Search"}
         >
           {isSearching ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <Loader2 className={`${sizes.submitIcon} animate-spin`} />
           ) : helpModeEnabled ? (
-            <HelpCircle className="w-5 h-5" />
+            <HelpCircle className={sizes.submitIcon} />
           ) : (
-            <Send className="w-5 h-5" />
+            <Send className={sizes.submitIcon} />
           )}
         </button>
       </div>
@@ -1536,6 +1578,7 @@ export default function AtlasApp() {
       onHideHelp={() => setShowHelpPanel(false)}
       position={searchBarPosition}
       helpModeEnabled={helpModeEnabled}
+      searchBarSize={firebaseUserData?.preferences?.searchBarSize || 'medium'}
     />
   );
   

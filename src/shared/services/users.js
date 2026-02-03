@@ -229,6 +229,23 @@ export async function updateUserProfile(uid, profileData) {
   }
 }
 
+/**
+ * Update user preferences (searchBarSize, etc.)
+ */
+export async function updateUserPreferences(uid, preferences) {
+  const docRef = doc(db, PATHS.user(uid));
+  const updates = {
+    updatedAt: serverTimestamp()
+  };
+
+  // Update each preference field using dot notation
+  for (const [key, value] of Object.entries(preferences)) {
+    updates[`preferences.${key}`] = value;
+  }
+
+  await updateDoc(docRef, updates);
+}
+
 export default {
   getUser,
   createUser,
@@ -241,5 +258,6 @@ export default {
   unsuspendUser,
   linkArcGISAccount,
   unlinkArcGISAccount,
-  updateUserProfile
+  updateUserProfile,
+  updateUserPreferences
 };

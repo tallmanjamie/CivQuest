@@ -11,10 +11,11 @@ import {
   Loader2,
   Check,
   Unlink,
-  AlertTriangle
+  AlertTriangle,
+  Monitor
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
-import { updateUserProfile, unlinkArcGISAccount } from '@shared/services/users';
+import { updateUserProfile, unlinkArcGISAccount, updateUserPreferences } from '@shared/services/users';
 import {
   initiateArcGISLogin,
   getOAuthRedirectUri
@@ -31,13 +32,27 @@ export default function AccountSettings({ isOpen, onClose }) {
   const [showUnlinkConfirm, setShowUnlinkConfirm] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
 
+  // Display preferences
+  const [searchBarSize, setSearchBarSize] = useState('medium');
+  const [savingPreferences, setSavingPreferences] = useState(false);
+  const [savedPreferences, setSavedPreferences] = useState(false);
+
   // Initialize form with user data
   useEffect(() => {
     if (userData) {
       setFirstName(userData.firstName || '');
       setLastName(userData.lastName || '');
+      setSearchBarSize(userData.preferences?.searchBarSize || 'medium');
     }
   }, [userData]);
+
+  // Reset saved preferences state after showing
+  useEffect(() => {
+    if (savedPreferences) {
+      const timer = setTimeout(() => setSavedPreferences(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [savedPreferences]);
 
   // Reset saved state after showing
   useEffect(() => {
@@ -97,6 +112,30 @@ export default function AccountSettings({ isOpen, onClose }) {
     sessionStorage.setItem('arcgis_oauth_action', 'link');
     initiateArcGISLogin(redirectUri, 'signin', esriClientId);
   };
+
+  const handleSavePreferences = async () => {
+    if (!user) return;
+
+    setSavingPreferences(true);
+    try {
+      await updateUserPreferences(user.uid, {
+        searchBarSize
+      });
+      setSavedPreferences(true);
+    } catch (error) {
+      console.error('[AccountSettings] Save preferences error:', error);
+      alert('Failed to save preferences. Please try again.');
+    } finally {
+      setSavingPreferences(false);
+    }
+  };
+
+  // Search bar size options
+  const searchBarSizeOptions = [
+    { id: 'small', label: 'Small' },
+    { id: 'medium', label: 'Medium' },
+    { id: 'large', label: 'Large' }
+  ];
 
   if (!isOpen) return null;
 
@@ -179,6 +218,56 @@ export default function AccountSettings({ isOpen, onClose }) {
                   <Check className="w-4 h-4" />
                 ) : null}
                 {saved ? 'Saved!' : 'Save Profile'}
+              </button>
+            </div>
+          </div>
+
+          {/* Display Settings Section */}
+          <div className="space-y-4 border-t border-slate-200 pt-6">
+            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+              <Monitor className="w-4 h-4" />
+              Display Settings
+            </h3>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Search Bar Size
+              </label>
+              <p className="text-xs text-slate-500 mb-3">
+                Adjust the size of the search bar icons and text on desktop. This setting does not affect the mobile view.
+              </p>
+              <div className="flex gap-2">
+                {searchBarSizeOptions.map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setSearchBarSize(option.id)}
+                    className={`flex-1 px-4 py-2 border rounded-lg text-sm font-medium transition ${
+                      searchBarSize === option.id
+                        ? 'border-transparent text-white'
+                        : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                    }`}
+                    style={searchBarSize === option.id ? { backgroundColor: colors.bg600 } : {}}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleSavePreferences}
+                disabled={savingPreferences}
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium text-sm transition disabled:opacity-50"
+                style={{ backgroundColor: colors.bg600 }}
+              >
+                {savingPreferences ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : savedPreferences ? (
+                  <Check className="w-4 h-4" />
+                ) : null}
+                {savedPreferences ? 'Saved!' : 'Save Preferences'}
               </button>
             </div>
           </div>
