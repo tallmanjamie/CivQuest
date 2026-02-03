@@ -495,9 +495,14 @@ function AdminLogin({ loginMode = 'org_admin' }) {
   // Show loading state while processing OAuth callback
   if (arcgisLoading) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-[#0079C1] mx-auto mb-4" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-sky-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center border border-slate-100">
+          <img
+            src="https://geoplan.nyc3.digitaloceanspaces.com/CivQuest/CVG_Logo_Medium.jpg"
+            alt="CivQuest"
+            className="w-16 h-16 rounded-xl shadow-lg mx-auto mb-6 object-contain"
+          />
+          <Loader2 className="w-10 h-10 animate-spin text-[#0079C1] mx-auto mb-4" />
           <h2 className="text-lg font-semibold text-slate-800">Signing in with ArcGIS...</h2>
           <p className="text-slate-500 mt-2">Please wait while we verify your account.</p>
         </div>
@@ -573,42 +578,46 @@ function AdminLogin({ loginMode = 'org_admin' }) {
 
   // Org Admin Login - ESRI/ArcGIS only
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
-        <div className="flex items-center justify-center gap-3 mb-6">
-          <Shield className="w-8 h-8 text-[#004E7C]" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-sky-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md border border-slate-100">
+        {/* CivQuest Logo */}
+        <div className="flex flex-col items-center mb-8">
+          <img
+            src="https://geoplan.nyc3.digitaloceanspaces.com/CivQuest/CVG_Logo_Medium.jpg"
+            alt="CivQuest"
+            className="w-20 h-20 rounded-xl shadow-lg mb-4 object-contain"
+          />
           <h1 className="text-2xl font-bold text-slate-800">Admin Portal</h1>
+          <p className="text-sm text-slate-500 mt-1">Sign in to manage your organization</p>
         </div>
 
         {/* ArcGIS Sign In Button */}
-        <div className="mb-4">
+        <div className="mb-6">
           <button
             type="button"
             onClick={handleArcGISLogin}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#0079C1] text-white rounded-lg font-medium hover:bg-[#006699] transition-colors disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-[#0079C1] text-white rounded-xl font-medium hover:bg-[#006699] transition-all hover:shadow-lg disabled:opacity-50"
           >
             <Globe className="w-5 h-5" />
             Sign in with ArcGIS
           </button>
-          <p className="text-xs text-slate-500 text-center mt-2">
-            Use your ArcGIS Online account
+          <p className="text-xs text-slate-500 text-center mt-3">
+            Use your ArcGIS Online account to access the admin portal
           </p>
         </div>
 
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
             {error}
           </div>
         )}
 
-        <div className="mt-6 pt-6 border-t border-slate-200 text-center">
-          <a
-            href="/super-admin"
-            className="text-sm text-slate-500 hover:text-[#004E7C] transition-colors"
-          >
-            Super Admin Login
-          </a>
+        {/* Footer */}
+        <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+          <p className="text-xs text-slate-400">
+            Powered by CivQuest Atlas
+          </p>
         </div>
       </div>
     </div>
