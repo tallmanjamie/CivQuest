@@ -49,7 +49,7 @@ import { PATHS } from '../../shared/services/paths';
 import { getGeminiUrl, GEMINI_CREATIVE_CONFIG, GEMINI_STRUCTURED_CONFIG } from '../../config/geminiConfig';
 
 // Configuration for the Proxy Service
-const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
+const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
 
 /**
  * NotificationWizard Component
@@ -206,7 +206,7 @@ export default function NotificationWizard({
       // We already have a valid token, just fetch user info
       setStatusMessage('Fetching user profile...');
       const userInfoUrl = `${baseUrl}/sharing/rest/community/self`;
-      const userRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/json`, {
+      const userRes = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: userInfoUrl, token: oauthToken })
@@ -254,7 +254,7 @@ export default function NotificationWizard({
         : storedPortalUrl.replace(/\/+$/, '');
 
       // Generate token through proxy
-      const response = await fetch(`${PROXY_BASE_URL}/api/arcgis/token`, {
+      const response = await fetch(`${PROXY_BASE_URL}/arcgis/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -279,7 +279,7 @@ export default function NotificationWizard({
       // Get user info
       setStatusMessage('Fetching user profile...');
       const userInfoUrl = `${baseUrl}/sharing/rest/community/self`;
-      const userRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/json`, {
+      const userRes = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: userInfoUrl, token: data.token })
@@ -370,7 +370,7 @@ export default function NotificationWizard({
       const baseUrl = getPortalBaseUrl();
 
       // Generate token through proxy to avoid CORS
-      const response = await fetch(`${PROXY_BASE_URL}/api/arcgis/token`, {
+      const response = await fetch(`${PROXY_BASE_URL}/arcgis/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -395,7 +395,7 @@ export default function NotificationWizard({
       // Get user info
       setStatusMessage('Fetching user profile...');
       const userInfoUrl = `${baseUrl}/sharing/rest/community/self`;
-      const userRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/json`, {
+      const userRes = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: userInfoUrl, token: data.token })
@@ -483,7 +483,7 @@ export default function NotificationWizard({
 
       const searchUrl = `${baseUrl}/sharing/rest/search?${searchParams.toString()}`;
       
-      const searchRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/json`, {
+      const searchRes = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: searchUrl, token: useToken })
@@ -548,7 +548,7 @@ export default function NotificationWizard({
 
       const searchUrl = `${baseUrl}/sharing/rest/search?${searchParams.toString()}`;
       
-      const searchRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/json`, {
+      const searchRes = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: searchUrl, token: authToken })
@@ -631,7 +631,7 @@ export default function NotificationWizard({
   const fetchLayerMetadata = async (layerUrl, token) => {
     // Step 1: Try anonymous access first (no token)
     try {
-      const anonRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/metadata`, {
+      const anonRes = await fetch(`${PROXY_BASE_URL}/arcgis/metadata`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serviceUrl: layerUrl })
@@ -672,7 +672,7 @@ export default function NotificationWizard({
     // Step 2: Anonymous failed with auth error - retry with token
     if (token) {
       try {
-        const authRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/metadata`, {
+        const authRes = await fetch(`${PROXY_BASE_URL}/arcgis/metadata`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ serviceUrl: layerUrl, token })
@@ -703,7 +703,7 @@ export default function NotificationWizard({
   const queryLayerData = async (layerUrl, queryParams, token) => {
     // Step 1: Try anonymous access first (no token)
     try {
-      const anonRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/query`, {
+      const anonRes = await fetch(`${PROXY_BASE_URL}/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -739,7 +739,7 @@ export default function NotificationWizard({
     // Step 2: Retry with token
     if (token) {
       try {
-        const authRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/query`, {
+        const authRes = await fetch(`${PROXY_BASE_URL}/arcgis/query`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -781,7 +781,7 @@ export default function NotificationWizard({
         // Get web map data (operational layers) - this needs the token for portal access
         const webMapDataUrl = `${baseUrl}/sharing/rest/content/items/${webMap.id}/data`;
         
-        const dataRes = await fetch(`${PROXY_BASE_URL}/api/arcgis/json`, {
+        const dataRes = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: webMapDataUrl, token: authToken })

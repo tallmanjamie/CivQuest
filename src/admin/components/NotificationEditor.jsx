@@ -141,7 +141,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
   const [editingField, setEditingField] = useState(null);
 
   // Configuration for the proxy service
-  const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
+  const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
 
   // Fetch email templates from Firestore on mount
   useEffect(() => {
@@ -342,7 +342,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
         ...(username && password ? { username, password } : {})
       };
 
-      const res = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/metadata`, {
+      const res = await fetch(`${ARCGIS_PROXY_URL}/arcgis/metadata`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)
@@ -566,7 +566,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       const baseUrl = endpoint.replace(/\/$/, '');
 
       // Use query endpoint for the query
-      const res = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+      const res = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

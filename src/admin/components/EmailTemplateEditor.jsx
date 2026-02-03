@@ -402,7 +402,7 @@ const VISUAL_ELEMENTS = [
 ];
 
 // Configuration for the proxy service
-const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
+const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
 
 /**
  * EmailTemplateEditor Component
@@ -552,7 +552,7 @@ export default function EmailTemplateEditor({
 
     try {
       // First, get metadata
-      const metadataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/metadata`, {
+      const metadataRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/metadata`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -570,7 +570,7 @@ export default function EmailTemplateEditor({
       // Get total record count
       const baseUrl = url.replace(/\/$/, '');
 
-      const countRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+      const countRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -588,7 +588,7 @@ export default function EmailTemplateEditor({
       }
 
       // Then, get sample data (first 10 records)
-      const dataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+      const dataRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
