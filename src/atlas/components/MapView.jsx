@@ -1186,6 +1186,7 @@ const MapView = forwardRef(function MapView(props, ref) {
   /**
    * Zoom to a specific coordinate without adding to search results
    * Used for geocoder location selection
+   * Displays a pushpin marker at the location
    */
   const zoomToCoordinate = useCallback((lat, lng, zoomLevel = 17) => {
     if (!viewRef.current) return;
@@ -1201,6 +1202,33 @@ const MapView = forwardRef(function MapView(props, ref) {
     if (highlightLayerRef.current) highlightLayerRef.current.removeAll();
     if (pushpinLayerRef.current) pushpinLayerRef.current.removeAll();
 
+    // Add a pushpin marker at the geocoded location
+    if (pushpinLayerRef.current) {
+      const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
+      const hex500 = palette[500];
+      const hexToRgb = (hex) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? [
+          parseInt(result[1], 16),
+          parseInt(result[2], 16),
+          parseInt(result[3], 16)
+        ] : [14, 165, 233];
+      };
+      const [r, g, b] = hexToRgb(hex500);
+
+      const pushpinSymbol = new SimpleMarkerSymbol({
+        style: 'circle',
+        color: [r, g, b],
+        size: 16,
+        outline: { color: [255, 255, 255], width: 2 }
+      });
+
+      pushpinLayerRef.current.add(new Graphic({
+        geometry: point,
+        symbol: pushpinSymbol
+      }));
+    }
+
     // Close any open panels
     setShowSearchResults(false);
     setShowFeaturePanel(false);
@@ -1209,7 +1237,7 @@ const MapView = forwardRef(function MapView(props, ref) {
       { target: point, zoom: zoomLevel },
       { duration: 500 }
     );
-  }, []);
+  }, [themeColor]);
 
   /**
    * Display GPS marker at the given coordinates
