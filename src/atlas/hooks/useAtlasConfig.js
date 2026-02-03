@@ -4,7 +4,7 @@
 //
 // UPDATED: Added draft preview support for admin preview functionality
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../shared/services/firebase';
 import { PATHS } from '../../shared/services/paths';
@@ -327,23 +327,57 @@ export function getMapConfig(config, mapIndex = 0) {
 /**
  * Get the current active map configuration
  * Checks localStorage for user preference, falls back to first map
+ *
+ * IMPORTANT: When the maps array order changes (e.g., when user signs in and
+ * private maps are prioritized), the hook automatically resets to the first map.
+ * This ensures private maps are selected by default when the user is authenticated.
  */
 export function useActiveMap(config) {
   const [activeMapIndex, setActiveMapIndex] = useState(() => {
     const saved = localStorage.getItem(`atlas_active_map_${config?.id}`);
     return saved ? parseInt(saved, 10) : 0;
   });
-  
-  const activeMap = config?.data?.maps?.[activeMapIndex] || config?.data?.maps?.[0] || null;
-  
+
+  // Track the first map's itemId to detect when the array order changes
+  const firstMapItemId = config?.data?.maps?.[0]?.webMap?.itemId;
+  const prevFirstMapItemIdRef = useRef(firstMapItemId);
+
+  // When the first map in the array changes (e.g., private map becomes first after sign-in),
+  // reset to index 0 to ensure the newly prioritized map is selected
+  useEffect(() => {
+    const prevFirstMapItemId = prevFirstMapItemIdRef.current;
+
+    // Only reset if:
+    // 1. There are maps in the array
+    // 2. The first map's itemId has changed (indicating reordering)
+    // 3. We had a previous first map to compare against
+    if (firstMapItemId && prevFirstMapItemId && firstMapItemId !== prevFirstMapItemId) {
+      console.log('[useActiveMap] Map array order changed, resetting to first map');
+      console.log('[useActiveMap] Previous first map:', prevFirstMapItemId);
+      console.log('[useActiveMap] New first map:', firstMapItemId);
+      setActiveMapIndex(0);
+      if (config?.id) {
+        localStorage.setItem(`atlas_active_map_${config.id}`, '0');
+      }
+    }
+
+    // Update ref for next comparison
+    prevFirstMapItemIdRef.current = firstMapItemId;
+  }, [firstMapItemId, config?.id]);
+
+  // Ensure index is within bounds of the current maps array
+  const maps = config?.data?.maps || [];
+  const validIndex = activeMapIndex < maps.length ? activeMapIndex : 0;
+  const activeMap = maps[validIndex] || null;
+
   const setActiveMap = useCallback((index) => {
     setActiveMapIndex(index);
     if (config?.id) {
       localStorage.setItem(`atlas_active_map_${config.id}`, index.toString());
     }
   }, [config?.id]);
-  
-  return { activeMap, activeMapIndex, setActiveMap };
+
+  return { activeMap, activeMapIndex: validIndex, setActiveMap };
 }
 
 export default useAtlasConfig;
