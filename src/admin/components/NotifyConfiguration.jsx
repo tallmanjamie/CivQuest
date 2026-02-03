@@ -6,13 +6,14 @@
 // This ensures license limits apply even when super admin edits notifications
 
 import React, { useState, useEffect } from 'react';
-import { 
-  collection, 
-  doc, 
-  updateDoc, 
+import {
+  collection,
+  doc,
+  updateDoc,
   onSnapshot,
   deleteField,
-  serverTimestamp
+  serverTimestamp,
+  setDoc
 } from 'firebase/firestore';
 import { 
   Building2, 
@@ -216,7 +217,6 @@ export default function NotifyConfiguration({
             status: 'pending'
           }).catch(() => {
             // If doc doesn't exist, create it
-            const { setDoc } = require('firebase/firestore');
             return setDoc(forceRef, {
               orgId: targetOrgId,
               notificationId: notifId,
