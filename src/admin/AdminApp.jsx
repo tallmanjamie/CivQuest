@@ -587,7 +587,7 @@ function AdminLogin({ loginMode = 'org_admin' }) {
             alt="CivQuest"
             className="w-20 h-20 rounded-xl shadow-lg mb-4 object-contain"
           />
-          <h1 className="text-2xl font-bold text-slate-800">Admin Portal</h1>
+          <h1 className="text-2xl font-bold text-slate-800">CivQuest Admin Portal</h1>
           <p className="text-sm text-slate-500 mt-1">Sign in to manage your organization</p>
         </div>
 
@@ -616,7 +616,7 @@ function AdminLogin({ loginMode = 'org_admin' }) {
         {/* Footer */}
         <div className="mt-8 pt-6 border-t border-slate-100 text-center">
           <p className="text-xs text-slate-400">
-            Powered by CivQuest Atlas
+            Powered by <a href="https://www.civicvanguard.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 hover:underline">Civic Vanguard</a>
           </p>
         </div>
       </div>
