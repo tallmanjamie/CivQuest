@@ -594,16 +594,40 @@ function aggregateGraphData(records, labelField, dataField, operation, maxItems 
     return [];
   }
 
+  // Helper to get field value case-insensitively
+  const getFieldValue = (record, fieldName) => {
+    if (!record || !fieldName) return null;
+    // First try exact match
+    if (record[fieldName] !== undefined) return record[fieldName];
+    // Then try case-insensitive match
+    const lowerFieldName = fieldName.toLowerCase();
+    for (const key of Object.keys(record)) {
+      if (key.toLowerCase() === lowerFieldName) {
+        return record[key];
+      }
+    }
+    return null;
+  };
+
   // Group by label field
   const groups = {};
   records.forEach(record => {
-    const label = String(record[labelField] || 'Unknown');
+    const labelValue = getFieldValue(record, labelField);
+    const label = String(labelValue ?? 'Unknown');
+    // Skip invalid labels
+    if (label === 'Unknown' || label === 'null' || label === 'undefined' || label === '') {
+      return;
+    }
     if (!groups[label]) {
       groups[label] = [];
     }
-    const value = dataField ? parseFloat(record[dataField]) : 1;
+    const rawValue = dataField ? getFieldValue(record, dataField) : 1;
+    const value = parseFloat(rawValue);
     if (!isNaN(value)) {
       groups[label].push(value);
+    } else if (!dataField) {
+      // For count operations without dataField, always count the record
+      groups[label].push(1);
     }
   });
 
@@ -1059,10 +1083,26 @@ export default function CustomTemplateEditor({
     }
   }, [useLiveData, template.statistics, fetchServerStatistics]);
 
+  // Helper function to find a field value case-insensitively
+  const getFieldValueCaseInsensitive = (attributes, fieldName) => {
+    if (!attributes || !fieldName) return null;
+    // First try exact match
+    if (attributes[fieldName] !== undefined) return attributes[fieldName];
+    // Then try case-insensitive match
+    const lowerFieldName = fieldName.toLowerCase();
+    for (const key of Object.keys(attributes)) {
+      if (key.toLowerCase() === lowerFieldName) {
+        return attributes[key];
+      }
+    }
+    return null;
+  };
+
   // Fetch server-side aggregated data for a graph element
   const fetchGraphDataForElement = useCallback(async (element) => {
     const endpoint = notification.source?.endpoint;
     if (!endpoint || !element.labelField) {
+      console.log('[CustomTemplateEditor] Graph fetch skipped - no endpoint or labelField');
       return;
     }
 
@@ -1084,12 +1124,20 @@ export default function CustomTemplateEditor({
 
       // For count operation without a data field, count the label field itself
       const dataField = element.dataField || element.labelField;
+      const maxItems = parseInt(element.maxItems) || 10;
 
       const outStatistics = [{
         statisticType: arcgisOperation,
         onStatisticField: dataField,
         outStatisticFieldName: 'aggregated_value'
       }];
+
+      console.log('[CustomTemplateEditor] Fetching graph data with statistics:', {
+        labelField: element.labelField,
+        dataField,
+        operation: arcgisOperation,
+        outStatistics
+      });
 
       const graphRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
         method: 'POST',
@@ -1105,20 +1153,67 @@ export default function CustomTemplateEditor({
       });
 
       if (!graphRes.ok) {
-        throw new Error('Failed to fetch graph data');
+        throw new Error(`HTTP error: ${graphRes.status}`);
       }
 
       const graphResponse = await graphRes.json();
+      console.log('[CustomTemplateEditor] Graph response:', graphResponse);
+
+      // Check for ArcGIS error in response
+      if (graphResponse.error) {
+        console.warn('[CustomTemplateEditor] ArcGIS error in response:', graphResponse.error);
+        throw new Error(graphResponse.error.message || 'ArcGIS query error');
+      }
+
       const features = graphResponse.features || [];
 
-      // Transform to graph data format
-      const maxItems = parseInt(element.maxItems) || 10;
+      // If statistics query didn't return data, try fetching all records and aggregating client-side
+      if (features.length === 0) {
+        console.log('[CustomTemplateEditor] Statistics query returned no features, trying full data fetch');
+
+        // Fetch all records with just the label field
+        const allDataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serviceUrl: baseUrl,
+            where: '1=1',
+            outFields: element.dataField ? `${element.labelField},${element.dataField}` : element.labelField,
+            f: 'json',
+            ...(username && password ? { username, password } : {})
+          })
+        });
+
+        if (allDataRes.ok) {
+          const allData = await allDataRes.json();
+          if (!allData.error && allData.features && allData.features.length > 0) {
+            const records = allData.features.map(f => f.attributes || {});
+            console.log('[CustomTemplateEditor] Fetched', records.length, 'records for client-side aggregation');
+
+            // Aggregate client-side
+            const graphData = aggregateGraphData(records, element.labelField, element.dataField, operation, maxItems);
+            console.log('[CustomTemplateEditor] Client-side aggregated data:', graphData);
+            setServerGraphData(prev => ({ ...prev, [elementId]: graphData }));
+            return;
+          }
+        }
+
+        // If all fallbacks fail, set empty data
+        setServerGraphData(prev => ({ ...prev, [elementId]: [] }));
+        return;
+      }
+
+      // Transform to graph data format using case-insensitive field lookup
       const graphData = features
-        .map(f => ({
-          label: String(f.attributes[element.labelField] || 'Unknown'),
-          value: Math.round((f.attributes.aggregated_value || 0) * 100) / 100
-        }))
-        .filter(d => d.label && d.label !== 'Unknown' && d.label !== 'null' && d.label !== '')
+        .map(f => {
+          const labelValue = getFieldValueCaseInsensitive(f.attributes, element.labelField);
+          const aggValue = f.attributes.aggregated_value ?? f.attributes.AGGREGATED_VALUE ?? 0;
+          return {
+            label: String(labelValue ?? 'Unknown'),
+            value: Math.round((aggValue || 0) * 100) / 100
+          };
+        })
+        .filter(d => d.label && d.label !== 'Unknown' && d.label !== 'null' && d.label !== '' && d.label !== 'undefined')
         .sort((a, b) => b.value - a.value)
         .slice(0, maxItems);
 
@@ -1127,6 +1222,45 @@ export default function CustomTemplateEditor({
 
     } catch (err) {
       console.error('[CustomTemplateEditor] Graph data fetch error:', err);
+
+      // Try fallback: fetch all records and aggregate client-side
+      try {
+        const username = notification.source?.username;
+        const password = notification.source?.password;
+        const baseUrl = endpoint.replace(/\/$/, '');
+        const maxItems = parseInt(element.maxItems) || 10;
+        const operation = element.operation || 'count';
+
+        console.log('[CustomTemplateEditor] Trying fallback: fetch all records for client-side aggregation');
+
+        const allDataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serviceUrl: baseUrl,
+            where: '1=1',
+            outFields: element.dataField ? `${element.labelField},${element.dataField}` : element.labelField,
+            f: 'json',
+            ...(username && password ? { username, password } : {})
+          })
+        });
+
+        if (allDataRes.ok) {
+          const allData = await allDataRes.json();
+          if (!allData.error && allData.features && allData.features.length > 0) {
+            const records = allData.features.map(f => f.attributes || {});
+            console.log('[CustomTemplateEditor] Fallback fetched', records.length, 'records');
+
+            const graphData = aggregateGraphData(records, element.labelField, element.dataField, operation, maxItems);
+            console.log('[CustomTemplateEditor] Fallback aggregated data:', graphData);
+            setServerGraphData(prev => ({ ...prev, [elementId]: graphData }));
+            return;
+          }
+        }
+      } catch (fallbackErr) {
+        console.error('[CustomTemplateEditor] Fallback also failed:', fallbackErr);
+      }
+
       setServerGraphData(prev => ({ ...prev, [elementId]: null }));
     } finally {
       setIsLoadingGraphData(prev => ({ ...prev, [elementId]: false }));
