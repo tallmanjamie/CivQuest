@@ -55,19 +55,20 @@ function getGeometryCenter(geometry) {
 
 /**
  * ChatMiniMap - A lightweight map component for displaying search results
- * Features: basemap, zoom controls, feature display
+ * Features: basemap, zoom controls, feature display, zoom to specific feature
  */
-export default function ChatMiniMap({
+const ChatMiniMap = React.forwardRef(function ChatMiniMap({
   features,
   themeColor = 'sky',
   height = 250,
   basemapId = 'streets-navigation-vector'
-}) {
+}, ref) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
   const mapRef = useRef(null);
   const graphicsLayerRef = useRef(null);
   const pushpinLayerRef = useRef(null);
+  const highlightLayerRef = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -102,6 +103,13 @@ export default function ChatMiniMap({
         });
         pushpinLayerRef.current = pushpinLayer;
         map.add(pushpinLayer);
+
+        // Create highlight layer (on top of pushpins for selected feature)
+        const highlightLayer = new GraphicsLayer({
+          id: 'chat-mini-map-highlight'
+        });
+        highlightLayerRef.current = highlightLayer;
+        map.add(highlightLayer);
 
         // Create map view
         const view = new EsriMapView({
@@ -144,6 +152,7 @@ export default function ChatMiniMap({
       mapRef.current = null;
       graphicsLayerRef.current = null;
       pushpinLayerRef.current = null;
+      highlightLayerRef.current = null;
     };
   }, [basemapId]);
 
@@ -293,6 +302,88 @@ export default function ChatMiniMap({
     }
   }, []);
 
+  /**
+   * Zoom to a specific feature and highlight it
+   */
+  const zoomToFeature = useCallback((feature) => {
+    if (!viewRef.current || !feature?.geometry) return;
+
+    const geom = feature.geometry;
+    const spatialRef = geom.spatialReference || { wkid: 4326 };
+
+    // Create ArcGIS geometry from feature
+    let geometry;
+    if (geom.rings) {
+      geometry = new Polygon({
+        rings: geom.rings,
+        spatialReference: spatialRef
+      });
+    } else if (geom.paths) {
+      geometry = new Polyline({
+        paths: geom.paths,
+        spatialReference: spatialRef
+      });
+    } else if (geom.x !== undefined) {
+      geometry = new Point({
+        x: geom.x,
+        y: geom.y,
+        spatialReference: spatialRef
+      });
+    }
+
+    if (!geometry) return;
+
+    // Clear previous highlight
+    if (highlightLayerRef.current) {
+      highlightLayerRef.current.removeAll();
+    }
+
+    // Get theme color for highlight symbol (use a contrasting color - orange/red)
+    const highlightColor = [255, 100, 0]; // Orange highlight
+
+    // Create highlight symbol based on geometry type
+    let highlightSymbol;
+    if (geom.rings) {
+      highlightSymbol = new SimpleFillSymbol({
+        color: [highlightColor[0], highlightColor[1], highlightColor[2], 0.4],
+        outline: new SimpleLineSymbol({
+          color: highlightColor,
+          width: 3
+        })
+      });
+    } else if (geom.paths) {
+      highlightSymbol = new SimpleLineSymbol({
+        color: highlightColor,
+        width: 4
+      });
+    } else {
+      highlightSymbol = new SimpleMarkerSymbol({
+        color: highlightColor,
+        size: 16,
+        outline: { color: [255, 255, 255], width: 3 }
+      });
+    }
+
+    // Add highlight graphic
+    const highlightGraphic = new Graphic({
+      geometry,
+      symbol: highlightSymbol
+    });
+    highlightLayerRef.current?.addMany([highlightGraphic]);
+
+    // Zoom to feature with appropriate zoom level
+    const zoomOptions = geom.x !== undefined
+      ? { target: geometry, zoom: 18 } // Point: zoom to level 18
+      : { target: geometry }; // Polygon/line: fit to extent
+
+    viewRef.current.goTo(zoomOptions, { duration: 300 });
+  }, []);
+
+  // Expose methods via ref
+  React.useImperativeHandle(ref, () => ({
+    zoomToFeature
+  }), [zoomToFeature]);
+
   // Handle height as number or percentage string
   const containerStyle = typeof height === 'number'
     ? { height }
@@ -341,4 +432,6 @@ export default function ChatMiniMap({
       )}
     </div>
   );
-}
+});
+
+export default ChatMiniMap;

@@ -1174,7 +1174,7 @@ function ResultsTable({ features, tableColumns, searchFields, colors, onRowClick
               key={idx}
               className="hover:bg-slate-50 cursor-pointer transition-colors"
               onClick={() => handleRowClick(feature)}
-              title="Click to view on map"
+              title="Click to zoom on map"
             >
               {columns.map(col => (
                 <td key={col.field} className="px-2 py-1.5 text-slate-700 truncate max-w-[150px]">
@@ -1186,7 +1186,7 @@ function ResultsTable({ features, tableColumns, searchFields, colors, onRowClick
         </tbody>
       </table>
       <p className="text-xs text-slate-400 mt-2 text-center">
-        Showing {features.length} results - click a row to view on map
+        Showing {features.length} results - click a row to zoom on map
       </p>
     </div>
   );
@@ -1311,6 +1311,20 @@ function MessageBubble({
 }) {
   // Mobile tab state for results with map
   const [activeTab, setActiveTab] = useState('details');
+  // Ref for the inset mini map to enable zoom-to-feature
+  const miniMapRef = useRef(null);
+
+  // Handle row click - zoom to feature on inset map (not main map)
+  const handleRowClickOnInsetMap = useCallback((feature) => {
+    if (feature && miniMapRef.current?.zoomToFeature) {
+      // Zoom to feature on the inset map
+      miniMapRef.current.zoomToFeature(feature);
+      // On mobile, switch to map tab to show the zoomed feature
+      if (isMobile) {
+        setActiveTab('map');
+      }
+    }
+  }, [isMobile]);
 
   if (message.type === 'user') {
     return (
@@ -1529,9 +1543,10 @@ function MessageBubble({
                     </button>
                   </div>
                   {activeTab === 'details' ? (
-                    <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} onRowClick={onRowClick} />
+                    <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} onRowClick={handleRowClickOnInsetMap} />
                   ) : (
                     <ChatMiniMap
+                      ref={miniMapRef}
                       features={message.features}
                       themeColor={themeColor}
                       height={200}
@@ -1542,15 +1557,15 @@ function MessageBubble({
                 /* Desktop: Side by side layout - map matches results height */
                 <div className={`${showMap ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}`}>
                   <div>
-                    <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} onRowClick={onRowClick} />
+                    <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} onRowClick={handleRowClickOnInsetMap} />
                   </div>
                   {showMap && (
                     <div className="min-h-[200px]">
                       <ChatMiniMap
+                        ref={miniMapRef}
                         features={message.features}
                         themeColor={themeColor}
                         height="100%"
-                        onViewInMap={null}
                       />
                     </div>
                   )}
