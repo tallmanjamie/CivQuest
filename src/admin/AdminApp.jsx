@@ -253,16 +253,16 @@ function AdminProvider({ children, role, orgId, orgData, isNewAccount, clearNewA
 const useAdmin = () => useContext(AdminContext);
 
 // --- MAIN APP WRAPPER ---
-export default function AdminAppWrapper() {
+export default function AdminAppWrapper({ loginMode = 'org_admin' }) {
   return (
     <UIProvider>
-      <AdminApp />
+      <AdminApp loginMode={loginMode} />
     </UIProvider>
   );
 }
 
 // --- MAIN ADMIN APP ---
-function AdminApp() {
+function AdminApp({ loginMode = 'org_admin' }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [adminRole, setAdminRole] = useState(null);
@@ -337,7 +337,7 @@ function AdminApp() {
   }
 
   if (!user) {
-    return <AdminLogin />;
+    return <AdminLogin loginMode={loginMode} />;
   }
 
   if (accessError) {
@@ -379,15 +379,18 @@ function AdminApp() {
 }
 
 // --- ADMIN LOGIN ---
-function AdminLogin() {
+// loginMode: 'org_admin' = ESRI only, 'super_admin' = email/password only
+function AdminLogin({ loginMode = 'org_admin' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [arcgisLoading, setArcgisLoading] = useState(false);
 
-  // Handle ArcGIS OAuth callback on mount
+  // Handle ArcGIS OAuth callback on mount (only for org_admin mode)
   useEffect(() => {
+    if (loginMode !== 'org_admin') return;
+
     const handleOAuthCallback = async () => {
       const { code, state, error: oauthError, errorDescription } = parseOAuthCallback();
 
@@ -468,7 +471,7 @@ function AdminLogin() {
     };
 
     handleOAuthCallback();
-  }, []);
+  }, [loginMode]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -502,6 +505,73 @@ function AdminLogin() {
     );
   }
 
+  // Super Admin Login - Email/Password only
+  if (loginMode === 'super_admin') {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <Shield className="w-8 h-8 text-[#004E7C]" />
+            <h1 className="text-2xl font-bold text-slate-800">Super Admin</h1>
+          </div>
+
+          <p className="text-sm text-slate-500 text-center mb-6">
+            Sign in with your administrator credentials
+          </p>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+              Sign In
+            </button>
+          </form>
+
+          <div className="mt-6 pt-6 border-t border-slate-200 text-center">
+            <a
+              href="/admin"
+              className="text-sm text-slate-500 hover:text-[#004E7C] transition-colors"
+            >
+              Organization Admin Login
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Org Admin Login - ESRI/ArcGIS only
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
@@ -511,7 +581,7 @@ function AdminLogin() {
         </div>
 
         {/* ArcGIS Sign In Button */}
-        <div className="mb-6">
+        <div className="mb-4">
           <button
             type="button"
             onClick={handleArcGISLogin}
@@ -526,54 +596,20 @@ function AdminLogin() {
           </p>
         </div>
 
-        {/* Divider */}
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-slate-200"></div>
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            {error}
           </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-white text-slate-500">or continue with email</span>
-          </div>
-        </div>
+        )}
 
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
-              required
-            />
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center justify-center gap-2"
+        <div className="mt-6 pt-6 border-t border-slate-200 text-center">
+          <a
+            href="/super-admin"
+            className="text-sm text-slate-500 hover:text-[#004E7C] transition-colors"
           >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-            Sign In
-          </button>
-        </form>
+            Super Admin Login
+          </a>
+        </div>
       </div>
     </div>
   );
