@@ -3910,17 +3910,26 @@ export default function CustomTemplateEditor({
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <label className="block text-[10px] font-medium text-slate-600 mb-1">Max Categories</label>
-                              <select
+                              <input
+                                type="number"
+                                min="1"
                                 value={element.maxItems || '6'}
-                                onChange={(e) => updateElement(selectedElementIndex, { maxItems: e.target.value })}
+                                onChange={(e) => {
+                                  const value = parseInt(e.target.value, 10);
+                                  if (value >= 1) {
+                                    updateElement(selectedElementIndex, { maxItems: String(value) });
+                                  } else if (e.target.value === '') {
+                                    updateElement(selectedElementIndex, { maxItems: '1' });
+                                  }
+                                }}
+                                onBlur={(e) => {
+                                  const value = parseInt(e.target.value, 10);
+                                  if (!value || value < 1) {
+                                    updateElement(selectedElementIndex, { maxItems: '1' });
+                                  }
+                                }}
                                 className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
-                              >
-                                <option value="4">4</option>
-                                <option value="5">5</option>
-                                <option value="6">6</option>
-                                <option value="8">8</option>
-                                <option value="10">10</option>
-                              </select>
+                              />
                             </div>
                             <div>
                               <label className="block text-[10px] font-medium text-slate-600 mb-1">Height</label>
