@@ -23,7 +23,7 @@ import {
 import { getESRISettings } from '@shared/services/systemConfig';
 
 export default function AccountSettings({ isOpen, onClose }) {
-  const { user, userData, colors } = useAtlas();
+  const { user, userData, colors, config } = useAtlas();
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -46,7 +46,7 @@ export default function AccountSettings({ isOpen, onClose }) {
       setSearchBarSize(userData.preferences?.searchBarSize || 'medium');
       setSearchPlaceholder(userData.preferences?.searchPlaceholder || '');
     }
-  }, [userData]);
+  }, [userData, config?.ui?.defaultSearchBarSize]);
 
   // Reset saved preferences state after showing
   useEffect(() => {
@@ -238,6 +238,11 @@ export default function AccountSettings({ isOpen, onClose }) {
               </label>
               <p className="text-xs text-slate-500 mb-3">
                 Adjust the size of the search bar icons and text on desktop. This setting does not affect the mobile view.
+                {config?.ui?.defaultSearchBarSize && (
+                  <span className="block mt-1">
+                    Organization default: <span className="font-medium capitalize">{config.ui.defaultSearchBarSize}</span>
+                  </span>
+                )}
               </p>
               <div className="flex gap-2">
                 {searchBarSizeOptions.map(option => (

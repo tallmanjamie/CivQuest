@@ -133,6 +133,7 @@ export default function AtlasSettingsEditor({
       defaultMode: 'chat',
       searchBarPosition: 'top',
       searchPlaceholder: '',
+      defaultSearchBarSize: 'medium',  // Default search bar size for org users
       // Map tools position and layout
       mapToolsPosition: 'upper-left',
       mapToolsLayout: 'stacked',
@@ -799,6 +800,36 @@ export default function AtlasSettingsEditor({
                   placeholder="Leave empty for default: Search properties..."
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
                 />
+              </div>
+
+              {/* Default Search Bar Size */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Default Search Bar Size
+                </label>
+                <p className="text-xs text-slate-500 mb-2">
+                  Set the default search bar size for all users. Users can override this in their account settings.
+                </p>
+                <div className="flex gap-2">
+                  {[
+                    { id: 'small', label: 'Small' },
+                    { id: 'medium', label: 'Medium' },
+                    { id: 'large', label: 'Large' }
+                  ].map(size => (
+                    <button
+                      key={size.id}
+                      type="button"
+                      onClick={() => updateUI('defaultSearchBarSize', size.id)}
+                      className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                        (config.ui.defaultSearchBarSize || 'medium') === size.id
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <span className="text-sm font-medium">{size.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
