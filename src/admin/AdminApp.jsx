@@ -656,7 +656,21 @@ function AccessDenied({ error, onSignOut }) {
 }
 
 // --- SIDEBAR NAVIGATION ---
-function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onToggleCollapse, atlasThemeColor }) {
+function Sidebar({
+  role,
+  activeSection,
+  activeTab,
+  onNavigate,
+  collapsed,
+  onToggleCollapse,
+  atlasThemeColor,
+  // Super admin org view props
+  isSuperAdmin = false,
+  organizations = [],
+  viewingOrgId = null,
+  onViewOrg = null,
+  onExitOrgView = null
+}) {
   const [expandedSections, setExpandedSections] = useState({ notify: true, atlas: true, system: role === 'super_admin' });
 
   const toggleSection = (section) => {
@@ -697,7 +711,7 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
     { id: 'licensing', label: 'Licensing', icon: Shield },
     { id: 'globalhelp', label: 'Global Help', icon: BookOpen },
     { id: 'globaltemplates', label: 'Global Templates', icon: Printer },
-    { id: 'orgadmins', label: 'Org Admins', icon: UserPlus },
+    { id: 'orgadmins', label: 'Admins', icon: UserPlus },
     { id: 'ai', label: 'AI', icon: Sparkles },
     { id: 'esri', label: 'ESRI', icon: Globe },
   ];
@@ -731,7 +745,7 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
             <span className="font-bold text-slate-800">Admin</span>
           </div>
         )}
-        <button 
+        <button
           onClick={onToggleCollapse}
           className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -739,6 +753,43 @@ function Sidebar({ role, activeSection, activeTab, onNavigate, collapsed, onTogg
           {collapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
         </button>
       </div>
+
+      {/* Super Admin View Switcher */}
+      {isSuperAdmin && !collapsed && (
+        <div className="p-3 border-b border-slate-200">
+          <label className="block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wide">
+            View As
+          </label>
+          <select
+            value={viewingOrgId || 'super_admin'}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === 'super_admin') {
+                onExitOrgView?.();
+              } else {
+                onViewOrg?.(value);
+              }
+            }}
+            className="w-full px-2.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C] bg-white"
+          >
+            <option value="super_admin">Super Admin (All Orgs)</option>
+            <optgroup label="Organization Admin View">
+              {organizations.map(org => (
+                <option key={org.id} value={org.id}>{org.name}</option>
+              ))}
+            </optgroup>
+          </select>
+          {viewingOrgId && (
+            <button
+              onClick={onExitOrgView}
+              className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium text-[#004E7C] bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+              Exit Org View
+            </button>
+          )}
+        </div>
+      )}
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {/* Dashboard Section (Org Admin only) */}
@@ -994,17 +1045,161 @@ function SuperAdminDashboard({ user }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { addToast, confirm } = useUI();
 
+  // Organization view mode state
+  const [organizations, setOrganizations] = useState([]);
+  const [viewingOrgId, setViewingOrgId] = useState(null);
+  const [viewingOrgData, setViewingOrgData] = useState(null);
+  const [showWizard, setShowWizard] = useState(false);
+
+  // Fetch organizations for the view switcher
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, PATHS.organizations), (snapshot) => {
+      const orgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOrganizations(orgs.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // When viewing org changes, fetch its data
+  useEffect(() => {
+    if (!viewingOrgId) {
+      setViewingOrgData(null);
+      return;
+    }
+    const unsubscribe = onSnapshot(
+      doc(db, PATHS.organizations, viewingOrgId),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setViewingOrgData({ id: docSnap.id, ...docSnap.data() });
+        }
+      }
+    );
+    return () => unsubscribe();
+  }, [viewingOrgId]);
+
   const handleNavigate = (section, tab) => {
     setActiveSection(section);
     setActiveTab(tab);
   };
 
-  const renderContent = () => {
+  const handleViewOrg = (orgId) => {
+    setViewingOrgId(orgId);
+    // Reset to org admin default view
+    setActiveSection('dashboard');
+    setActiveTab('home');
+  };
+
+  const handleExitOrgView = () => {
+    setViewingOrgId(null);
+    setViewingOrgData(null);
+    // Reset to super admin default view
+    setActiveSection('notify');
+    setActiveTab('subscribers');
+  };
+
+  // Get Atlas theme color for org view
+  const atlasThemeColor = viewingOrgData?.atlasConfig?.ui?.themeColor || null;
+  const orgAccentColor = atlasThemeColor
+    ? getThemeColors(atlasThemeColor).bg700
+    : '#1E5631';
+
+  // Render content for org view mode (when super admin is viewing a specific org)
+  const renderOrgViewContent = () => {
+    if (!viewingOrgData) {
+      return (
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+        </div>
+      );
+    }
+
+    if (activeSection === 'dashboard') {
+      return (
+        <OrgAdminDashboardHome
+          orgId={viewingOrgId}
+          orgData={viewingOrgData}
+          accentColor={orgAccentColor}
+          onNavigate={handleNavigate}
+        />
+      );
+    }
+
     if (activeSection === 'notify') {
       switch (activeTab) {
         case 'subscribers':
           return (
-            <UserManagementPanel 
+            <UserManagementPanel
+              db={db}
+              auth={null}
+              role="org_admin"
+              orgId={viewingOrgId}
+              orgData={viewingOrgData}
+              addToast={addToast}
+              confirm={confirm}
+              accentColor={orgAccentColor}
+            />
+          );
+        case 'notifications':
+          return (
+            <ConfigurationPanel
+              db={db}
+              role="org_admin"
+              orgId={viewingOrgId}
+              orgData={viewingOrgData}
+              addToast={addToast}
+              confirm={confirm}
+              accentColor={orgAccentColor}
+              NotificationEditModal={NotificationEditModal}
+              onOpenWizard={() => setShowWizard(true)}
+            />
+          );
+        case 'archive':
+          return (
+            <Archive
+              db={db}
+              role="org_admin"
+              orgId={viewingOrgId}
+              orgData={viewingOrgData}
+              addToast={addToast}
+              accentColor={orgAccentColor}
+            />
+          );
+        default:
+          return null;
+      }
+    }
+
+    if (activeSection === 'atlas') {
+      return (
+        <AtlasAdminSection
+          db={db}
+          role="org_admin"
+          activeTab={activeTab}
+          orgId={viewingOrgId}
+          orgData={viewingOrgData}
+          addToast={addToast}
+          confirm={confirm}
+          accentColor={orgAccentColor}
+          adminEmail={user?.email}
+        />
+      );
+    }
+
+    return null;
+  };
+
+  const renderContent = () => {
+    // If viewing a specific org, render org-admin-like content
+    if (viewingOrgId) {
+      return renderOrgViewContent();
+    }
+
+    // Normal super-admin content
+    if (activeSection === 'notify') {
+      switch (activeTab) {
+        case 'subscribers':
+          return (
+            <UserManagementPanel
               db={db}
               auth={auth}
               role="admin"
@@ -1015,7 +1210,7 @@ function SuperAdminDashboard({ user }) {
           );
         case 'configuration':
           return (
-            <ConfigurationPanel 
+            <ConfigurationPanel
               db={db}
               role="admin"
               addToast={addToast}
@@ -1130,30 +1325,54 @@ function SuperAdminDashboard({ user }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <AdminHeader 
+      <AdminHeader
         user={user}
-        title="CivQuest Admin"
-        subtitle="System Administrator"
-        accentColor="#004E7C"
+        title={viewingOrgId && viewingOrgData ? viewingOrgData.name : "CivQuest Admin"}
+        subtitle={viewingOrgId ? "Viewing as Organization Admin" : "System Administrator"}
+        accentColor={viewingOrgId ? orgAccentColor : "#004E7C"}
+        atlasThemeColor={viewingOrgId ? atlasThemeColor : null}
+        logoUrl={viewingOrgData?.atlasConfig?.ui?.logoLeft}
         onSignOut={() => signOut(auth)}
       />
-      
+
       <div className="flex-1 flex">
-        <Sidebar 
-          role="super_admin"
+        <Sidebar
+          role={viewingOrgId ? "org_admin" : "super_admin"}
           activeSection={activeSection}
           activeTab={activeTab}
           onNavigate={handleNavigate}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          atlasThemeColor={viewingOrgId ? atlasThemeColor : null}
+          // Super admin org view props
+          isSuperAdmin={true}
+          organizations={organizations}
+          viewingOrgId={viewingOrgId}
+          onViewOrg={handleViewOrg}
+          onExitOrgView={handleExitOrgView}
         />
-        
+
         <main className="flex-1 p-8 overflow-auto">
           <div className="max-w-7xl mx-auto">
             {renderContent()}
           </div>
         </main>
       </div>
+
+      {/* Notification Wizard Modal for org view */}
+      {showWizard && viewingOrgId && viewingOrgData && (
+        <NotificationWizard
+          isOpen={showWizard}
+          onClose={() => setShowWizard(false)}
+          db={db}
+          orgId={viewingOrgId}
+          orgData={viewingOrgData}
+          addToast={addToast}
+          userEmail={user?.email}
+          onNotificationsCreated={() => setShowWizard(false)}
+          accentColor={orgAccentColor}
+        />
+      )}
     </div>
   );
 }
@@ -2505,10 +2724,10 @@ function RenameOrganizationModal({ org, onClose, onSave, existingIds = [] }) {
   );
 }
 
-// --- ORG ADMIN MANAGEMENT (for Super Admin) ---
+// --- ADMIN MANAGEMENT (for Super Admin) ---
 function OrgAdminManagement() {
   const { addToast, confirm } = useUI();
-  const [orgAdmins, setOrgAdmins] = useState([]);
+  const [admins, setAdmins] = useState([]);
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -2516,6 +2735,7 @@ function OrgAdminManagement() {
   const [reassigningAdmin, setReassigningAdmin] = useState(null);
   const [editingAdmin, setEditingAdmin] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all'); // 'all', 'super_admin', 'org_admin'
 
   useEffect(() => {
     const fetchOrgs = async () => {
@@ -2531,16 +2751,15 @@ function OrgAdminManagement() {
 
     const adminsRef = collection(db, PATHS.admins);
     const unsubscribe = onSnapshot(adminsRef, (snapshot) => {
-      const admins = snapshot.docs
+      const allAdmins = snapshot.docs
         .map(doc => ({
           id: doc.id,
           ...doc.data()
-        }))
-        .filter(admin => admin.role === 'org_admin');
-      setOrgAdmins(admins);
+        }));
+      setAdmins(allAdmins);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching org admins:", error);
+      console.error("Error fetching admins:", error);
       setLoading(false);
     });
 
@@ -2552,12 +2771,19 @@ function OrgAdminManagement() {
     return org ? org.name : orgId;
   };
 
-  const filteredAdmins = orgAdmins.filter(admin =>
-    admin.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    getOrgName(admin.organizationId)?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredAdmins = admins.filter(admin => {
+    // Apply role filter
+    if (roleFilter !== 'all' && admin.role !== roleFilter) return false;
+    // Apply search filter
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      admin.email?.toLowerCase().includes(searchLower) ||
+      getOrgName(admin.organizationId)?.toLowerCase().includes(searchLower) ||
+      admin.role?.toLowerCase().includes(searchLower)
+    );
+  });
 
-  const handleAddAdmin = async (email, organizationId) => {
+  const handleAddAdmin = async (email, role, organizationId) => {
     try {
       // Search for existing user by email
       const usersQuery = query(
@@ -2582,15 +2808,22 @@ function OrgAdminManagement() {
       }
 
       // Create admin document for existing user
-      await setDoc(doc(db, PATHS.admins, userId), {
+      const adminData = {
         email: email.toLowerCase(),
-        role: 'org_admin',
-        organizationId,
+        role,
         disabled: false,
         createdAt: serverTimestamp()
-      });
+      };
 
-      addToast(`${email} has been added as an organization admin.`, 'success');
+      // Only set organizationId for org_admin
+      if (role === 'org_admin') {
+        adminData.organizationId = organizationId;
+      }
+
+      await setDoc(doc(db, PATHS.admins, userId), adminData);
+
+      const roleLabel = role === 'super_admin' ? 'super admin' : 'organization admin';
+      addToast(`${email} has been added as a ${roleLabel}.`, 'success');
       setShowAddModal(false);
     } catch (err) {
       addToast(`Error adding admin: ${err.message}`, 'error');
@@ -2609,8 +2842,9 @@ function OrgAdminManagement() {
   };
 
   const handleDeleteAdmin = (admin) => {
+    const roleLabel = admin.role === 'super_admin' ? 'Super Admin' : 'Admin';
     confirm({
-      title: 'Delete Org Admin',
+      title: `Delete ${roleLabel}`,
       message: `Are you sure you want to delete ${admin.email}? This cannot be undone.`,
       destructive: true,
       confirmLabel: 'Delete',
@@ -2630,15 +2864,28 @@ function OrgAdminManagement() {
     setShowReassignModal(true);
   };
 
-  const handleReassignAdmin = async (newOrgId) => {
+  const handleReassignAdmin = async (newRole, newOrgId) => {
     if (!reassigningAdmin) return;
 
     try {
-      await updateDoc(doc(db, PATHS.admins, reassigningAdmin.id), {
-        organizationId: newOrgId
-      });
-      const newOrgName = getOrgName(newOrgId);
-      addToast(`${reassigningAdmin.email} has been reassigned to ${newOrgName}.`, 'success');
+      const updateData = { role: newRole };
+
+      if (newRole === 'org_admin') {
+        // Org admin requires an organization
+        updateData.organizationId = newOrgId;
+      } else {
+        // Super admin - remove organization association
+        updateData.organizationId = deleteField();
+      }
+
+      await updateDoc(doc(db, PATHS.admins, reassigningAdmin.id), updateData);
+
+      if (newRole === 'super_admin') {
+        addToast(`${reassigningAdmin.email} is now a Super Admin.`, 'success');
+      } else {
+        const newOrgName = getOrgName(newOrgId);
+        addToast(`${reassigningAdmin.email} has been reassigned to ${newOrgName}.`, 'success');
+      }
       setShowReassignModal(false);
       setReassigningAdmin(null);
     } catch (err) {
@@ -2650,26 +2897,37 @@ function OrgAdminManagement() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Organization Admins</h2>
-          <p className="text-slate-500 text-sm">Manage admin access for organizations.</p>
+          <h2 className="text-xl font-bold text-slate-800">Admins</h2>
+          <p className="text-slate-500 text-sm">Manage super admins and organization admins.</p>
         </div>
-        <button 
+        <button
           onClick={() => setShowAddModal(true)}
           className="flex items-center gap-2 px-4 py-2 bg-[#004E7C] text-white rounded-lg hover:bg-[#003B5C] font-medium"
         >
-          <UserPlus className="w-4 h-4" /> Add Org Admin
+          <UserPlus className="w-4 h-4" /> Add Admin
         </button>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-        <input
-          type="text"
-          placeholder="Search by email or organization..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
-        />
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search by email, organization, or role..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+          />
+        </div>
+        <select
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C] bg-white"
+        >
+          <option value="all">All Roles</option>
+          <option value="super_admin">Super Admins</option>
+          <option value="org_admin">Org Admins</option>
+        </select>
       </div>
 
       {loading ? (
@@ -2682,6 +2940,7 @@ function OrgAdminManagement() {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Email</th>
+                <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Role</th>
                 <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Organization</th>
                 <th className="text-left px-4 py-3 text-sm font-semibold text-slate-600">Status</th>
                 <th className="text-right px-4 py-3 text-sm font-semibold text-slate-600">Actions</th>
@@ -2691,11 +2950,36 @@ function OrgAdminManagement() {
               {filteredAdmins.map(admin => (
                 <tr key={admin.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3 text-sm text-slate-800">{admin.email}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{getOrgName(admin.organizationId)}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${
-                      admin.disabled 
-                        ? 'bg-red-100 text-red-700' 
+                      admin.role === 'super_admin'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-purple-100 text-purple-700'
+                    }`}>
+                      {admin.role === 'super_admin' ? (
+                        <>
+                          <Shield className="w-3 h-3" />
+                          Super Admin
+                        </>
+                      ) : (
+                        <>
+                          <Building2 className="w-3 h-3" />
+                          Org Admin
+                        </>
+                      )}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">
+                    {admin.role === 'super_admin' ? (
+                      <span className="text-slate-400 italic">All Organizations</span>
+                    ) : (
+                      getOrgName(admin.organizationId)
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${
+                      admin.disabled
+                        ? 'bg-red-100 text-red-700'
                         : 'bg-green-100 text-green-700'
                     }`}>
                       {admin.disabled ? <Ban className="w-3 h-3" /> : <Check className="w-3 h-3" />}
@@ -2707,7 +2991,7 @@ function OrgAdminManagement() {
                       <button
                         onClick={() => handleOpenReassign(admin)}
                         className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                        title="Reassign to another organization"
+                        title="Change role or organization"
                       >
                         <ArrowRightLeft className="w-4 h-4" />
                       </button>
@@ -2731,8 +3015,8 @@ function OrgAdminManagement() {
               ))}
               {filteredAdmins.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                    No org admins found.
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    No admins found.
                   </td>
                 </tr>
               )}
@@ -2752,9 +3036,10 @@ function OrgAdminManagement() {
 
       {/* Reassign Admin Modal */}
       {showReassignModal && reassigningAdmin && (
-        <ReassignOrgAdminModal
+        <ReassignAdminModal
           admin={reassigningAdmin}
           organizations={organizations}
+          currentRole={reassigningAdmin.role}
           currentOrgId={reassigningAdmin.organizationId}
           onClose={() => {
             setShowReassignModal(false);
@@ -2767,18 +3052,20 @@ function OrgAdminManagement() {
   );
 }
 
-// --- ADD ORG ADMIN MODAL ---
+// --- ADD ADMIN MODAL ---
 function AddOrgAdminModal({ organizations, onClose, onSave }) {
   const [email, setEmail] = useState('');
+  const [role, setRole] = useState('org_admin');
   const [organizationId, setOrganizationId] = useState('');
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email || !organizationId) return;
-    
+    if (!email) return;
+    if (role === 'org_admin' && !organizationId) return;
+
     setSaving(true);
-    await onSave(email, organizationId);
+    await onSave(email, role, organizationId);
     setSaving(false);
   };
 
@@ -2786,15 +3073,15 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-slate-800">Add Organization Admin</h3>
+          <h3 className="text-lg font-bold text-slate-800">Add Admin</h3>
           <button onClick={onClose}>
             <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <p className="text-sm text-slate-500 -mt-2 mb-2">
-            Add an existing CivQuest user as an organization admin.
+            Add an existing CivQuest user as an admin.
           </p>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
@@ -2807,22 +3094,49 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
               required
             />
           </div>
-          
+
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Organization</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
             <select
-              value={organizationId}
-              onChange={(e) => setOrganizationId(e.target.value)}
+              value={role}
+              onChange={(e) => {
+                setRole(e.target.value);
+                if (e.target.value === 'super_admin') {
+                  setOrganizationId('');
+                }
+              }}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
-              required
             >
-              <option value="">Select organization...</option>
-              {organizations.map(org => (
-                <option key={org.id} value={org.id}>{org.name}</option>
-              ))}
+              <option value="org_admin">Organization Admin</option>
+              <option value="super_admin">Super Admin</option>
             </select>
           </div>
-          
+
+          {role === 'org_admin' && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Organization</label>
+              <select
+                value={organizationId}
+                onChange={(e) => setOrganizationId(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+                required
+              >
+                <option value="">Select organization...</option>
+                {organizations.map(org => (
+                  <option key={org.id} value={org.id}>{org.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {role === 'super_admin' && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700">
+                Super Admins have access to all organizations and system settings.
+              </p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
@@ -2833,7 +3147,7 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
             </button>
             <button
               type="submit"
-              disabled={saving || !email || !organizationId}
+              disabled={saving || !email || (role === 'org_admin' && !organizationId)}
               className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center gap-2"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -2846,19 +3160,26 @@ function AddOrgAdminModal({ organizations, onClose, onSave }) {
   );
 }
 
-// --- REASSIGN ORG ADMIN MODAL ---
-function ReassignOrgAdminModal({ admin, organizations, currentOrgId, onClose, onSave }) {
-  const [newOrganizationId, setNewOrganizationId] = useState('');
+// --- REASSIGN ADMIN MODAL ---
+function ReassignAdminModal({ admin, organizations, currentRole, currentOrgId, onClose, onSave }) {
+  const [newRole, setNewRole] = useState(currentRole);
+  const [newOrganizationId, setNewOrganizationId] = useState(currentOrgId || '');
   const [saving, setSaving] = useState(false);
 
   const currentOrgName = organizations.find(o => o.id === currentOrgId)?.name || currentOrgId;
+  const currentRoleLabel = currentRole === 'super_admin' ? 'Super Admin' : 'Organization Admin';
+
+  // Check if any change has been made
+  const hasChanges = newRole !== currentRole ||
+    (newRole === 'org_admin' && newOrganizationId !== currentOrgId);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!newOrganizationId || newOrganizationId === currentOrgId) return;
+    if (!hasChanges) return;
+    if (newRole === 'org_admin' && !newOrganizationId) return;
 
     setSaving(true);
-    await onSave(newOrganizationId);
+    await onSave(newRole, newOrganizationId);
     setSaving(false);
   };
 
@@ -2866,7 +3187,7 @@ function ReassignOrgAdminModal({ admin, organizations, currentOrgId, onClose, on
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-slate-800">Reassign Organization Admin</h3>
+          <h3 className="text-lg font-bold text-slate-800">Edit Admin</h3>
           <button onClick={onClose}>
             <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
           </button>
@@ -2874,32 +3195,68 @@ function ReassignOrgAdminModal({ admin, organizations, currentOrgId, onClose, on
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <p className="text-sm text-slate-500 -mt-2 mb-2">
-            Reassign <span className="font-medium text-slate-700">{admin.email}</span> to a different organization.
+            Change role or organization for <span className="font-medium text-slate-700">{admin.email}</span>.
           </p>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Current Organization</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Current Role</label>
             <div className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-600">
-              {currentOrgName}
+              {currentRoleLabel}
+              {currentRole === 'org_admin' && currentOrgName && ` (${currentOrgName})`}
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">New Organization</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">New Role</label>
             <select
-              value={newOrganizationId}
-              onChange={(e) => setNewOrganizationId(e.target.value)}
+              value={newRole}
+              onChange={(e) => {
+                setNewRole(e.target.value);
+                if (e.target.value === 'super_admin') {
+                  setNewOrganizationId('');
+                } else if (!newOrganizationId && currentOrgId) {
+                  setNewOrganizationId(currentOrgId);
+                }
+              }}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
-              required
             >
-              <option value="">Select new organization...</option>
-              {organizations
-                .filter(org => org.id !== currentOrgId)
-                .map(org => (
-                  <option key={org.id} value={org.id}>{org.name}</option>
-                ))}
+              <option value="org_admin">Organization Admin</option>
+              <option value="super_admin">Super Admin</option>
             </select>
           </div>
+
+          {newRole === 'org_admin' && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Organization</label>
+              <select
+                value={newOrganizationId}
+                onChange={(e) => setNewOrganizationId(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#004E7C]"
+                required
+              >
+                <option value="">Select organization...</option>
+                {organizations.map(org => (
+                  <option key={org.id} value={org.id}>{org.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {newRole === 'super_admin' && currentRole !== 'super_admin' && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700">
+                Promoting to Super Admin will give access to all organizations and system settings.
+              </p>
+            </div>
+          )}
+
+          {newRole === 'org_admin' && currentRole === 'super_admin' && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-700">
+                Demoting to Organization Admin will restrict access to only the selected organization.
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-2">
             <button
@@ -2911,11 +3268,11 @@ function ReassignOrgAdminModal({ admin, organizations, currentOrgId, onClose, on
             </button>
             <button
               type="submit"
-              disabled={saving || !newOrganizationId || newOrganizationId === currentOrgId}
+              disabled={saving || !hasChanges || (newRole === 'org_admin' && !newOrganizationId)}
               className="px-4 py-2 bg-[#004E7C] text-white rounded-lg font-medium hover:bg-[#003B5C] disabled:opacity-50 flex items-center gap-2"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Reassign Admin
+              Save Changes
             </button>
           </div>
         </form>
