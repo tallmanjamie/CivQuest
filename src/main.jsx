@@ -8,7 +8,7 @@ import AdminApp from './admin/AdminApp';
 import AtlasApp from './atlas/AtlasApp';
 
 // Define Global Configuration for ArcGIS Proxy
-window.ARCGIS_PROXY_URL = 'https://notify.civ.quest';
+window.ARCGIS_PROXY_URL = 'https://api.civ.quest';
 
 // Get subdomain and path for routing
 const getRouteInfo = () => {

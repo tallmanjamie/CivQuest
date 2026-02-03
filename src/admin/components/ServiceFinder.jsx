@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 
 // Configuration for the Proxy Service
-const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
+const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
 
 export default function ServiceFinder({ isOpen, onClose, onSelect }) {
   const [mode, setMode] = useState('portal'); // Default to 'portal'
@@ -73,7 +73,7 @@ export default function ServiceFinder({ isOpen, onClose, onSelect }) {
   const fetchPortalResource = async (url, token) => {
     if (token) {
       // Authenticated: Use Proxy
-      const res = await fetch(`${PROXY_BASE_URL}/api/arcgis/json`, {
+      const res = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, token })
@@ -126,7 +126,7 @@ export default function ServiceFinder({ isOpen, onClose, onSelect }) {
 
       if (activeToken) {
         // Authenticated Request: Use Proxy
-        const res = await fetch(`${PROXY_BASE_URL}/api/arcgis/json`, {
+        const res = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -196,7 +196,7 @@ export default function ServiceFinder({ isOpen, onClose, onSelect }) {
         setLoading(true);
         try {
             // Step 1: Get Token via Proxy
-            const res = await fetch(`${PROXY_BASE_URL}/api/arcgis/token`, {
+            const res = await fetch(`${PROXY_BASE_URL}/arcgis/token`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -280,7 +280,7 @@ export default function ServiceFinder({ isOpen, onClose, onSelect }) {
       // Updated: Use Proxy Service for Token Generation
       // This routes the auth request through the proxy to handle Enterprise/Federated auth & CORS
       // It matches the exact same pattern used in handleConnectServer above.
-      const res = await fetch(`${PROXY_BASE_URL}/api/arcgis/token`, {
+      const res = await fetch(`${PROXY_BASE_URL}/arcgis/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

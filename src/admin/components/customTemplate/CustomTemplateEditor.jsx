@@ -340,7 +340,7 @@ const VISUAL_ELEMENTS = [
 ];
 
 // Configuration for the proxy service
-const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://notify.civ.quest';
+const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
 
 /**
  * Helper function to generate statistics HTML for a subset of statistics
@@ -802,10 +802,10 @@ export default function CustomTemplateEditor({
     try {
       const username = notification.source?.username;
       const password = notification.source?.password;
-      console.log('[CustomTemplateEditor] Fetching metadata from:', `${ARCGIS_PROXY_URL}/api/arcgis/metadata`);
+      console.log('[CustomTemplateEditor] Fetching metadata from:', `${ARCGIS_PROXY_URL}/arcgis/metadata`);
 
       // Fetch metadata
-      const metadataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/metadata`, {
+      const metadataRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/metadata`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -835,7 +835,7 @@ export default function CustomTemplateEditor({
       // Get total record count
       const baseUrl = endpoint.replace(/\/$/, '');
 
-      const countRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+      const countRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -853,7 +853,7 @@ export default function CustomTemplateEditor({
       }
 
       // Get sample records (first 10)
-      const dataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+      const dataRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -979,7 +979,7 @@ export default function CustomTemplateEditor({
           }));
 
           try {
-            const statsRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+            const statsRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1012,7 +1012,7 @@ export default function CustomTemplateEditor({
             const fieldsNeeded = [...new Set(clientCalculatedStats.map(s => s.field))];
 
             // Fetch all records for these specific fields
-            const allRecordsRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+            const allRecordsRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1139,7 +1139,7 @@ export default function CustomTemplateEditor({
         outStatistics
       });
 
-      const graphRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+      const graphRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1172,7 +1172,7 @@ export default function CustomTemplateEditor({
         console.log('[CustomTemplateEditor] Statistics query returned no features, trying full data fetch');
 
         // Fetch all records with just the label field
-        const allDataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+        const allDataRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1233,7 +1233,7 @@ export default function CustomTemplateEditor({
 
         console.log('[CustomTemplateEditor] Trying fallback: fetch all records for client-side aggregation');
 
-        const allDataRes = await fetch(`${ARCGIS_PROXY_URL}/api/arcgis/query`, {
+        const allDataRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

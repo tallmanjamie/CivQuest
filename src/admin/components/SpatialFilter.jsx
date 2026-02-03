@@ -560,7 +560,7 @@ export default function SpatialFilter({
           }
           
           try {
-            const response = await fetch(`${proxyUrl}/api/arcgis/token`, {
+            const response = await fetch(`${proxyUrl}/arcgis/token`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
