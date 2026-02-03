@@ -51,6 +51,7 @@ export function useWebmapAccessibility({
     }
 
     console.log('[useWebmapAccessibility] Checking public access for', allMaps.length, 'maps');
+    console.log('[useWebmapAccessibility] All maps from config:', allMaps.map(m => ({ name: m.name, itemId: m.webMap?.itemId })));
 
     // Check all maps for public access
     const accessResults = await checkMultipleWebmapsAccess(allMaps);
@@ -176,13 +177,17 @@ export function useWebmapAccessibility({
 
       console.log('[useWebmapAccessibility] Final state:', {
         accessible: accessible.length,
+        accessibleNames: accessible.map(m => m.name),
         public: publicMapObjects.length,
+        publicNames: publicMapObjects.map(m => m.name),
         private: privateMapObjects.length,
+        privateNames: privateMapObjects.map(m => m.name),
         loginRequired,
         userLoggedIn: !!firebaseUser,
         hasLinkedArcGIS,
         hasStoredToken
       });
+      console.log('[useWebmapAccessibility] MAP PICKER: Should show dropdown?', accessible.length > 1, '(need > 1 accessible maps)');
 
       setAccessibleMaps(accessible);
       setRequiresLogin(loginRequired);
