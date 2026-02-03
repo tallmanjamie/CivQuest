@@ -1801,8 +1801,8 @@ export default function AtlasSettingsEditor({
                   }`}
                 >
                   <span
-                    className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                      config.useGlobalHelp ? 'translate-x-7' : 'translate-x-1'
+                    className={`absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      config.useGlobalHelp ? 'translate-x-6' : 'translate-x-0'
                     }`}
                   />
                 </button>
@@ -1826,8 +1826,8 @@ export default function AtlasSettingsEditor({
                     }`}
                   >
                     <span
-                      className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                        config.supplementGlobalHelp ? 'translate-x-7' : 'translate-x-1'
+                      className={`absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                        config.supplementGlobalHelp ? 'translate-x-6' : 'translate-x-0'
                       }`}
                     />
                   </button>
