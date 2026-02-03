@@ -209,14 +209,22 @@ export function useExportArea(mapView, template, scale, visible, accentColor = '
   // Auto scale: recalculate scale based on current view
   // Custom scale: recenter the export area on the new view center
   useEffect(() => {
-    if (!mapView || !visible) return;
+    if (!mapView) return;
+
+    // In auto mode (scale === null), we need to watch extent even when not visible
+    // because the export area calculation depends on the current view extent
+    if (!visible && scale !== null) return;
 
     const handle = mapView.watch('extent', () => {
       updateGraphic();
     });
 
+    // Trigger an immediate update to ensure we use the current extent
+    // This is especially important for auto mode on first open
+    updateGraphic();
+
     return () => handle.remove();
-  }, [mapView, visible, updateGraphic]);
+  }, [mapView, visible, scale, updateGraphic]);
 
   // Cleanup on unmount
   useEffect(() => {
