@@ -418,6 +418,16 @@ function generateGraphHtml(graphType, data, theme, options = {}) {
     return '<div style="padding: 20px; text-align: center; color: #666; font-style: italic;">No data available for chart</div>';
   }
 
+  // Check if all values are zero - this indicates a data extraction issue
+  const maxValue = Math.max(...data.map(d => d.value));
+  if (maxValue === 0) {
+    console.warn('[Graph Debug] All graph values are 0 - possible field name mismatch in ArcGIS response:', {
+      dataPoints: data.length,
+      labels: data.map(d => d.label)
+    });
+    return '<div style="padding: 20px; text-align: center; color: #92400e; background-color: #fef3c7; border-radius: 4px; font-size: 12px;">Chart data loaded but all values are 0. Check console for field mapping details.</div>';
+  }
+
   const primaryColor = theme?.primaryColor || '#004E7C';
   const secondaryColor = theme?.secondaryColor || '#f2f2f2';
   const accentColor = theme?.accentColor || '#0077B6';
@@ -451,7 +461,7 @@ function generateGraphHtml(graphType, data, theme, options = {}) {
   const svgHeight = height;
   const padding = { top: 40, right: 20, bottom: 60, left: 50 };
 
-  const maxValue = Math.max(...data.map(d => d.value));
+  // maxValue already calculated above for the zero-check
   const chartWidth = svgWidth - padding.left - padding.right;
   const chartHeight = svgHeight - padding.top - padding.bottom;
 
@@ -1430,12 +1440,60 @@ export default function CustomTemplateEditor({
         return;
       }
 
+      // Helper to find the aggregated value with multiple fallback patterns
+      // ArcGIS servers may return different field names depending on configuration
+      const findAggregatedValue = (attributes) => {
+        if (!attributes) return 0;
+
+        // First try our specified field name (case-insensitive)
+        const directMatch = getFieldValueCaseInsensitive(attributes, 'aggregated_value');
+        if (directMatch !== null && directMatch !== undefined) return directMatch;
+
+        // Try common ArcGIS statistic field name patterns
+        const patterns = [
+          `count_${dataField}`,          // count_fieldname
+          `COUNT_${dataField}`,          // COUNT_fieldname
+          `sum_${dataField}`,            // sum_fieldname
+          `SUM_${dataField}`,            // SUM_fieldname
+          `avg_${dataField}`,            // avg_fieldname
+          `AVG_${dataField}`,            // AVG_fieldname
+          `${arcgisOperation}_${dataField}`, // operation_fieldname
+          dataField,                     // Sometimes just returns the field itself
+        ];
+
+        for (const pattern of patterns) {
+          const val = getFieldValueCaseInsensitive(attributes, pattern);
+          if (val !== null && val !== undefined) return val;
+        }
+
+        // Last resort: look for any field that contains numbers and isn't the label field
+        const labelFieldLower = element.labelField?.toLowerCase() || '';
+        for (const [key, val] of Object.entries(attributes)) {
+          if (key.toLowerCase() !== labelFieldLower && typeof val === 'number') {
+            return val;
+          }
+        }
+
+        return 0;
+      };
+
+      // Debug: Log first feature attributes to help diagnose field naming issues
+      if (features.length > 0) {
+        console.log('[CustomTemplateEditor] Graph response first feature attributes:', {
+          attributes: features[0].attributes,
+          attributeKeys: Object.keys(features[0].attributes || {}),
+          expectedAggFieldName: 'aggregated_value',
+          labelField: element.labelField,
+          dataField: dataField
+        });
+      }
+
       // Transform to graph data format using case-insensitive field lookup
       const graphData = features
         .map(f => {
           const labelValue = getFieldValueCaseInsensitive(f.attributes, element.labelField);
-          // Use case-insensitive lookup for aggregated_value since ArcGIS servers may return field names in different cases
-          const aggValue = getFieldValueCaseInsensitive(f.attributes, 'aggregated_value') ?? 0;
+          // Use multiple fallback patterns since ArcGIS servers may return different field names
+          const aggValue = findAggregatedValue(f.attributes);
           return {
             label: String(labelValue ?? 'Unknown'),
             value: Math.round((aggValue || 0) * 100) / 100
@@ -1445,7 +1503,14 @@ export default function CustomTemplateEditor({
         .sort((a, b) => b.value - a.value)
         .slice(0, maxItems);
 
-      console.log('[CustomTemplateEditor] Graph data fetched for', elementId, ':', graphData);
+      // Log detailed info about the graph data including values
+      console.log('[CustomTemplateEditor] Graph data fetched for', elementId, ':', {
+        dataPoints: graphData.length,
+        data: graphData,
+        hasNonZeroValues: graphData.some(d => d.value > 0),
+        maxValue: Math.max(...graphData.map(d => d.value), 0),
+        sumValues: graphData.reduce((sum, d) => sum + d.value, 0)
+      });
       setServerGraphData(prev => ({ ...prev, [elementId]: graphData }));
 
     } catch (err) {
