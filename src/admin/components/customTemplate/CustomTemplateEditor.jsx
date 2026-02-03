@@ -1489,6 +1489,37 @@ export default function CustomTemplateEditor({
         });
       }
 
+      // Check if the statistics query actually returned aggregated data
+      // A proper statistics response should have only 2 fields: labelField and aggregated_value
+      // If we have many more fields (e.g., 10+), the server returned raw features instead
+      const firstFeatureKeys = features.length > 0 ? Object.keys(features[0].attributes || {}) : [];
+      const hasAggregatedValue = features.length > 0 && (
+        getFieldValueCaseInsensitive(features[0].attributes, 'aggregated_value') !== null ||
+        getFieldValueCaseInsensitive(features[0].attributes, `count_${dataField}`) !== null ||
+        getFieldValueCaseInsensitive(features[0].attributes, `COUNT_${dataField}`) !== null ||
+        getFieldValueCaseInsensitive(features[0].attributes, `sum_${dataField}`) !== null ||
+        getFieldValueCaseInsensitive(features[0].attributes, `SUM_${dataField}`) !== null ||
+        getFieldValueCaseInsensitive(features[0].attributes, `avg_${dataField}`) !== null ||
+        getFieldValueCaseInsensitive(features[0].attributes, `AVG_${dataField}`) !== null ||
+        getFieldValueCaseInsensitive(features[0].attributes, `${arcgisOperation}_${dataField}`) !== null
+      );
+
+      // If the response has many fields (> 5) and no aggregated_value field,
+      // the statistics query didn't work - fall back to client-side aggregation
+      if (firstFeatureKeys.length > 5 && !hasAggregatedValue) {
+        console.log('[CustomTemplateEditor] Statistics query returned raw features instead of aggregated data, using client-side aggregation', {
+          fieldsCount: firstFeatureKeys.length,
+          hasAggregatedValue
+        });
+
+        // Use the features we already have for client-side aggregation
+        const records = features.map(f => f.attributes || {});
+        const graphData = aggregateGraphData(records, element.labelField, element.dataField, operation, maxItems);
+        console.log('[CustomTemplateEditor] Client-side aggregated data from stats response:', graphData);
+        setServerGraphData(prev => ({ ...prev, [elementId]: graphData }));
+        return;
+      }
+
       // Transform to graph data format using case-insensitive field lookup
       // First, collect all data points and aggregate duplicates (same label after trimming)
       const labelGroups = {};
@@ -1502,7 +1533,9 @@ export default function CustomTemplateEditor({
         }
         // Use multiple fallback patterns since ArcGIS servers may return different field names
         const aggValue = findAggregatedValue(f.attributes);
-        const value = Math.round((aggValue || 0) * 100) / 100;
+        // Ensure we have a valid number, defaulting to 0 for non-numeric values
+        const numericValue = typeof aggValue === 'number' && !isNaN(aggValue) ? aggValue : parseFloat(aggValue);
+        const value = !isNaN(numericValue) ? Math.round(numericValue * 100) / 100 : 0;
 
         // Aggregate values for duplicate labels
         if (labelGroups[rawLabel]) {
