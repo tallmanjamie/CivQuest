@@ -400,6 +400,70 @@ function generateSelectedStatisticsHtml(statistics, sampleContext, theme, option
  * @param {Object} theme - Theme colors
  * @param {Object} options - Graph options (title, width, height, showLegend, showValues)
  */
+/**
+ * Helper function to wrap text into multiple lines for SVG
+ * @param {string} text - The text to wrap
+ * @param {number} maxChars - Maximum characters per line
+ * @returns {string[]} Array of text lines
+ */
+function wrapText(text, maxChars = 12) {
+  if (!text || text.length <= maxChars) {
+    return [text];
+  }
+
+  const words = text.split(/\s+/);
+  const lines = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    if (currentLine.length === 0) {
+      currentLine = word;
+    } else if ((currentLine + ' ' + word).length <= maxChars) {
+      currentLine += ' ' + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  // If we have no lines (single long word), break the word
+  if (lines.length === 0) {
+    lines.push(text.substring(0, maxChars));
+    if (text.length > maxChars) {
+      lines.push(text.substring(maxChars));
+    }
+  }
+
+  return lines;
+}
+
+/**
+ * Generate wrapped text SVG element with tspan elements
+ * @param {string} text - Text to display
+ * @param {number} x - X position
+ * @param {number} y - Starting Y position
+ * @param {number} maxChars - Max characters per line
+ * @param {string} fill - Text color
+ * @param {number} rotation - Rotation angle (optional)
+ * @param {number} lineHeight - Line height in pixels (default 11)
+ * @returns {string} SVG text element with tspan children
+ */
+function generateWrappedText(text, x, y, maxChars, fill, rotation = 0, lineHeight = 11) {
+  const lines = wrapText(text, maxChars);
+  const transform = rotation !== 0 ? ` transform="rotate(${rotation} ${x} ${y})"` : '';
+
+  const tspans = lines.map((line, i) => {
+    const dy = i === 0 ? 0 : lineHeight;
+    return `<tspan x="${x}" ${i === 0 ? `y="${y}"` : `dy="${dy}"`}>${line}</tspan>`;
+  }).join('');
+
+  return `<text text-anchor="middle" font-size="9" fill="${fill}"${transform}>${tspans}</text>`;
+}
+
 function generateGraphHtml(graphType, data, theme, options = {}) {
   console.log('[Graph Debug] generateGraphHtml called:', {
     graphType,
@@ -459,7 +523,7 @@ function generateGraphHtml(graphType, data, theme, options = {}) {
 
   const svgWidth = 400;
   const svgHeight = height;
-  const padding = { top: 40, right: 20, bottom: 60, left: 50 };
+  const padding = { top: 40, right: 20, bottom: 80, left: 50 };
 
   // maxValue already calculated above for the zero-check
   const chartWidth = svgWidth - padding.left - padding.right;
@@ -482,7 +546,7 @@ function generateGraphHtml(graphType, data, theme, options = {}) {
       if (showValues && d.value > 0) {
         bar += `<text x="${x + barWidth/2}" y="${y - 5}" text-anchor="middle" font-size="10" fill="${textColor}">${d.value.toLocaleString()}</text>`;
       }
-      bar += `<text x="${x + barWidth/2}" y="${svgHeight - 20}" text-anchor="middle" font-size="9" fill="${mutedTextColor}" transform="rotate(-30 ${x + barWidth/2} ${svgHeight - 20})">${d.label.length > 12 ? d.label.substring(0, 12) + '...' : d.label}</text>`;
+      bar += generateWrappedText(d.label, x + barWidth/2, svgHeight - 35, 12, mutedTextColor, -30);
       return bar;
     }).join('');
 
@@ -518,7 +582,7 @@ function generateGraphHtml(graphType, data, theme, options = {}) {
       if (showValues) {
         result += `<text x="${p.x}" y="${p.y - 10}" text-anchor="middle" font-size="9" fill="${textColor}">${p.value.toLocaleString()}</text>`;
       }
-      result += `<text x="${p.x}" y="${svgHeight - 20}" text-anchor="middle" font-size="9" fill="${mutedTextColor}" transform="rotate(-30 ${p.x} ${svgHeight - 20})">${p.label.length > 10 ? p.label.substring(0, 10) + '...' : p.label}</text>`;
+      result += generateWrappedText(p.label, p.x, svgHeight - 35, 12, mutedTextColor, -30);
       return result;
     }).join('');
 
