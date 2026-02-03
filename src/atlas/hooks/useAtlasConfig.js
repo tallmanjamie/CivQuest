@@ -202,6 +202,14 @@ export function useAtlasConfig(providedOrgId = null) {
           
           // DEBUG: Log the raw config from Firestore
           console.log('[useAtlasConfig] Raw atlasConfig from Firestore:', atlasConfig);
+          console.log('[useAtlasConfig] Raw atlasConfig.data:', atlasConfig.data);
+          console.log('[useAtlasConfig] Raw atlasConfig.data?.maps:', atlasConfig.data?.maps);
+          console.log('[useAtlasConfig] Raw maps count:', atlasConfig.data?.maps?.length || 0);
+          if (atlasConfig.data?.maps) {
+            atlasConfig.data.maps.forEach((m, i) => {
+              console.log(`[useAtlasConfig] Map ${i}: name="${m.name}", itemId=${m.webMap?.itemId}, access=${m.access}`);
+            });
+          }
           console.log('[useAtlasConfig] atlasConfig.ui:', atlasConfig.ui);
           console.log('[useAtlasConfig] atlasConfig.ui?.themeColor:', atlasConfig.ui?.themeColor);
           

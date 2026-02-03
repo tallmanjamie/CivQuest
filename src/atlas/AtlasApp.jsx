@@ -1143,18 +1143,21 @@ export default function AtlasApp() {
   }, [enabledModes, handleModeChange]);
 
   // Debug logging for map picker feature
-  console.log('[AtlasApp] Map picker context debug:', {
-    configMaps: configMaps?.map(m => m.name),
-    configMapsLength: configMaps?.length,
-    accessibleMaps: accessibleMaps?.map(m => m.name),
-    accessibleMapsLength: accessibleMaps?.length,
-    publicMaps: publicMaps?.map(m => m.name),
-    privateMaps: privateMaps?.map(m => m.name),
-    activeMap: activeMap?.name,
-    activeMapIndex,
-    firebaseUser: !!firebaseUser,
-    hasCheckedAccess
+  console.log('[AtlasApp] ========== MAP PICKER DEBUG ==========');
+  console.log('[AtlasApp] Step 1 - Maps from Firestore config (configMaps):');
+  console.log('[AtlasApp]   Count:', configMaps?.length || 0);
+  configMaps?.forEach((m, i) => {
+    console.log(`[AtlasApp]   Map ${i}: "${m.name}" (itemId: ${m.webMap?.itemId}, access: ${m.access})`);
   });
+  console.log('[AtlasApp] Step 2 - After accessibility filtering:');
+  console.log('[AtlasApp]   Accessible maps:', accessibleMaps?.length || 0, accessibleMaps?.map(m => m.name));
+  console.log('[AtlasApp]   Public maps:', publicMaps?.length || 0, publicMaps?.map(m => m.name));
+  console.log('[AtlasApp]   Private maps:', privateMaps?.length || 0, privateMaps?.map(m => m.name));
+  console.log('[AtlasApp] Step 3 - User auth state:');
+  console.log('[AtlasApp]   firebaseUser:', !!firebaseUser);
+  console.log('[AtlasApp]   hasCheckedAccess:', hasCheckedAccess);
+  console.log('[AtlasApp] Step 4 - Active map:', activeMap?.name, 'at index', activeMapIndex);
+  console.log('[AtlasApp] ========================================');
 
   // Context value - includes theme colors for child components
   const contextValue = {

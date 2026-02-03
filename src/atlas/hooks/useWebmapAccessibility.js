@@ -62,16 +62,23 @@ export function useWebmapAccessibility({
 
     allMaps.forEach((map, index) => {
       const itemId = map.webMap?.itemId;
+      console.log(`[useWebmapAccessibility] Processing map ${index}: "${map.name}", itemId=${itemId}`);
+
       if (!itemId) {
         // Maps without itemId are treated as private/invalid
+        console.log(`[useWebmapAccessibility] Map "${map.name}" has no itemId - treating as private`);
         privateList.push({ map, index });
         return;
       }
 
       const result = accessResults.get(itemId);
+      console.log(`[useWebmapAccessibility] Map "${map.name}" access result:`, result);
+
       if (result?.isPublic) {
+        console.log(`[useWebmapAccessibility] Map "${map.name}" is PUBLIC`);
         publicList.push({ map, index, accessResult: result });
       } else {
+        console.log(`[useWebmapAccessibility] Map "${map.name}" is PRIVATE (error: ${result?.error || 'none'})`);
         privateList.push({ map, index, accessResult: result });
       }
     });
