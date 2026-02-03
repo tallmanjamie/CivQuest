@@ -1092,13 +1092,36 @@ const MapView = forwardRef(function MapView(props, ref) {
         );
       }
     } else {
-      // For point features, zoom to a reasonable level (not too close)
-      // Use zoom level 15 max to keep more context visible
-      const targetZoom = Math.min(viewRef.current.zoom + 2, 15);
-      viewRef.current.goTo(
-        { target: geometry, zoom: targetZoom },
-        { duration: 500 }
-      );
+      // For point features, reconstruct the Point geometry from JSON
+      // Raw JSON geometry objects don't work with goTo() - need proper ArcGIS Point
+      const geom = feature.geometry;
+      const defaultSR = viewRef.current?.spatialReference || { wkid: 4326 };
+      const geomSR = geom.spatialReference || defaultSR;
+
+      let pointGeometry;
+      if (geom.x !== undefined && geom.y !== undefined) {
+        pointGeometry = new Point({
+          x: geom.x,
+          y: geom.y,
+          spatialReference: geomSR
+        });
+      } else if (geom.longitude !== undefined && geom.latitude !== undefined) {
+        // Handle lat/lon format
+        pointGeometry = new Point({
+          x: geom.longitude,
+          y: geom.latitude,
+          spatialReference: geomSR
+        });
+      }
+
+      if (pointGeometry) {
+        // Use zoom level 15 max to keep more context visible
+        const targetZoom = Math.min(viewRef.current.zoom + 2, 15);
+        viewRef.current.goTo(
+          { target: pointGeometry, zoom: targetZoom },
+          { duration: 500 }
+        );
+      }
     }
   }, [highlightFeature]);
 
