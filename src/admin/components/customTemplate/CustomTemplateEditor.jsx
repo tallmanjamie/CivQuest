@@ -401,7 +401,20 @@ function generateSelectedStatisticsHtml(statistics, sampleContext, theme, option
  * @param {Object} options - Graph options (title, width, height, showLegend, showValues)
  */
 function generateGraphHtml(graphType, data, theme, options = {}) {
+  console.log('[Graph Debug] generateGraphHtml called:', {
+    graphType,
+    dataPoints: data?.length || 0,
+    data: data,
+    theme: {
+      primaryColor: theme?.primaryColor,
+      accentColor: theme?.accentColor,
+      textColor: theme?.textColor
+    },
+    options
+  });
+
   if (!data || data.length === 0) {
+    console.log('[Graph Debug] generateGraphHtml returning "no data" message');
     return '<div style="padding: 20px; text-align: center; color: #666; font-style: italic;">No data available for chart</div>';
   }
 
@@ -574,13 +587,22 @@ function generateGraphHtml(graphType, data, theme, options = {}) {
   // Title
   const titleHtml = title ? `<text x="${svgWidth/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="${textColor}">${title}</text>` : '';
 
-  return `<div style="width: ${width}%; ${containerMargin} padding: 15px;">
+  const html = `<div style="width: ${width}%; ${containerMargin} padding: 15px;">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth} ${svgHeight}" style="width: 100%; height: auto; max-width: ${svgWidth}px;">
       <rect width="100%" height="100%" fill="white"/>
       ${titleHtml}
       ${chartSvg}
     </svg>
   </div>`;
+
+  console.log('[Graph Debug] generateGraphHtml complete:', {
+    graphType,
+    htmlLength: html.length,
+    hasTitle: !!title,
+    dimensions: { width: `${width}%`, height: svgHeight }
+  });
+
+  return html;
 }
 
 /**
@@ -670,7 +692,20 @@ function formatFieldValue(value, fieldType, domain = null) {
  * @param {number} maxItems - Maximum number of items to show
  */
 function aggregateGraphData(records, labelField, dataField, operation, maxItems = 6) {
+  console.log('[Graph Debug] aggregateGraphData called:', {
+    recordCount: records?.length || 0,
+    labelField,
+    dataField,
+    operation,
+    maxItems
+  });
+
   if (!records || records.length === 0 || !labelField) {
+    console.log('[Graph Debug] aggregateGraphData early return - missing data:', {
+      hasRecords: !!records,
+      recordCount: records?.length || 0,
+      labelField
+    });
     return [];
   }
 
@@ -689,13 +724,25 @@ function aggregateGraphData(records, labelField, dataField, operation, maxItems 
     return null;
   };
 
+  // Log sample record to help debug field matching
+  if (records.length > 0) {
+    console.log('[Graph Debug] aggregateGraphData sample record fields:', {
+      availableFields: Object.keys(records[0]),
+      sampleRecord: records[0],
+      labelFieldValue: getFieldValue(records[0], labelField),
+      dataFieldValue: dataField ? getFieldValue(records[0], dataField) : 'N/A (using count)'
+    });
+  }
+
   // Group by label field
   const groups = {};
+  let skippedRecords = 0;
   records.forEach(record => {
     const labelValue = getFieldValue(record, labelField);
     const label = String(labelValue ?? 'Unknown');
     // Skip invalid labels
     if (label === 'Unknown' || label === 'null' || label === 'undefined' || label === '') {
+      skippedRecords++;
       return;
     }
     if (!groups[label]) {
@@ -709,6 +756,12 @@ function aggregateGraphData(records, labelField, dataField, operation, maxItems 
       // For count operations without dataField, always count the record
       groups[label].push(1);
     }
+  });
+
+  console.log('[Graph Debug] aggregateGraphData grouping complete:', {
+    uniqueGroups: Object.keys(groups).length,
+    groupLabels: Object.keys(groups),
+    skippedRecords
   });
 
   // Calculate aggregated values
@@ -731,7 +784,15 @@ function aggregateGraphData(records, labelField, dataField, operation, maxItems 
 
   // Sort by value descending and limit
   result.sort((a, b) => b.value - a.value);
-  return result.slice(0, maxItems);
+  const finalResult = result.slice(0, maxItems);
+
+  console.log('[Graph Debug] aggregateGraphData result:', {
+    totalGroups: result.length,
+    returnedGroups: finalResult.length,
+    data: finalResult
+  });
+
+  return finalResult;
 }
 
 /**
@@ -857,7 +918,44 @@ export default function CustomTemplateEditor({
   // Update a specific visual element
   const updateElement = useCallback((index, updates) => {
     const newElements = [...(template.visualElements || [])];
-    newElements[index] = { ...newElements[index], ...updates };
+    const currentElement = newElements[index];
+    newElements[index] = { ...currentElement, ...updates };
+
+    // Debug logging for graph configuration changes
+    if (currentElement?.type === 'graph') {
+      console.log('[Graph Debug] updateElement called for graph:', {
+        elementId: currentElement.id,
+        index,
+        updates,
+        previousConfig: {
+          graphType: currentElement.graphType,
+          labelField: currentElement.labelField,
+          dataField: currentElement.dataField,
+          operation: currentElement.operation,
+          title: currentElement.title,
+          maxItems: currentElement.maxItems,
+          width: currentElement.width,
+          height: currentElement.height,
+          alignment: currentElement.alignment,
+          showLegend: currentElement.showLegend,
+          showValues: currentElement.showValues
+        },
+        newConfig: {
+          graphType: newElements[index].graphType,
+          labelField: newElements[index].labelField,
+          dataField: newElements[index].dataField,
+          operation: newElements[index].operation,
+          title: newElements[index].title,
+          maxItems: newElements[index].maxItems,
+          width: newElements[index].width,
+          height: newElements[index].height,
+          alignment: newElements[index].alignment,
+          showLegend: newElements[index].showLegend,
+          showValues: newElements[index].showValues
+        }
+      });
+    }
+
     handleUpdate({ visualElements: newElements });
   }, [template.visualElements, handleUpdate]);
 
@@ -1658,16 +1756,39 @@ export default function CustomTemplateEditor({
         // Generate graph HTML using server-side aggregated data if available
         // Prefer serverGraphData (from ArcGIS groupByFieldsForStatistics) over client-side aggregation
         let graphData;
+        let dataSource;
         if (useLiveData && serverGraphData[el.id] && serverGraphData[el.id].length > 0) {
           // Use server-side aggregated data (accurate for all records)
           graphData = serverGraphData[el.id];
+          dataSource = 'server-side';
         } else if (useLiveData && liveDataRecords.length > 0 && el.labelField) {
           // Fallback to client-side aggregation (limited to sample records)
           graphData = aggregateGraphData(liveDataRecords, el.labelField, el.dataField, el.operation || 'count', el.maxItems || 10);
+          dataSource = 'client-side';
         } else {
           // Use sample data for preview when no live data
           graphData = generateSampleGraphData(el.graphType || 'bar', 5);
+          dataSource = 'sample';
         }
+
+        console.log('[Graph Debug] Processing graph element in sampleContext:', {
+          elementId: el.id,
+          dataSource,
+          useLiveData,
+          hasServerGraphData: !!serverGraphData[el.id],
+          serverGraphDataLength: serverGraphData[el.id]?.length || 0,
+          liveDataRecordsLength: liveDataRecords.length,
+          labelField: el.labelField,
+          graphConfig: {
+            graphType: el.graphType || 'bar',
+            labelField: el.labelField,
+            dataField: el.dataField,
+            operation: el.operation || 'count',
+            title: el.title,
+            maxItems: el.maxItems || 10
+          },
+          graphDataPoints: graphData?.length || 0
+        });
 
         const graphOptions = {
           title: el.title || '',
@@ -1738,6 +1859,16 @@ export default function CustomTemplateEditor({
       const [movedElement] = newElements.splice(sourceIndex, 1);
       const adjustedIndex = targetIndex > sourceIndex ? targetIndex - 1 : targetIndex;
       newElements.splice(adjustedIndex, 0, movedElement);
+
+      // Debug logging for moving graph elements
+      if (movedElement.type === 'graph') {
+        console.log('[Graph Debug] Graph element moved:', {
+          elementId: movedElement.id,
+          fromIndex: sourceIndex,
+          toIndex: adjustedIndex,
+          currentConfig: movedElement
+        });
+      }
     } else {
       // Adding new element from palette
       const newElement = {
@@ -1745,6 +1876,15 @@ export default function CustomTemplateEditor({
         ...element.defaultContent
       };
       newElements.splice(targetIndex, 0, newElement);
+
+      // Debug logging for adding new graph elements
+      if (newElement.type === 'graph') {
+        console.log('[Graph Debug] New graph element added via handleDrop:', {
+          elementId: newElement.id,
+          targetIndex,
+          defaultConfig: newElement
+        });
+      }
     }
 
     handleUpdate({ visualElements: newElements });
@@ -1765,6 +1905,17 @@ export default function CustomTemplateEditor({
         id: `${element.id}_${Date.now()}`,
         ...element.defaultContent
       };
+
+      // Debug logging for adding new graph elements
+      if (newElement.type === 'graph') {
+        console.log('[Graph Debug] New graph element added via handleDropOnCanvas:', {
+          elementId: newElement.id,
+          appendedToEnd: true,
+          currentElementCount: (template.visualElements || []).length,
+          defaultConfig: newElement
+        });
+      }
+
       handleUpdate({
         visualElements: [...(template.visualElements || []), newElement]
       });
