@@ -106,6 +106,7 @@ import {
   completeArcGISOAuth,
   generateDeterministicPassword
 } from '../shared/services/arcgis-auth';
+import { getESRISettings } from '../shared/services/systemConfig';
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -489,9 +490,18 @@ function AdminLogin({ loginMode = 'org_admin' }) {
     }
   };
 
-  const handleArcGISLogin = () => {
+  const handleArcGISLogin = async () => {
+    // Fetch admin-configured ESRI client ID
+    let esriClientId = null;
+    try {
+      const esriSettings = await getESRISettings();
+      esriClientId = esriSettings?.clientId || null;
+    } catch (err) {
+      console.warn('Could not fetch ESRI settings, using default client ID:', err);
+    }
+
     const redirectUri = getOAuthRedirectUri();
-    initiateArcGISLogin(redirectUri, 'signin');
+    initiateArcGISLogin(redirectUri, 'signin', esriClientId);
   };
 
   // Show loading state while processing OAuth callback

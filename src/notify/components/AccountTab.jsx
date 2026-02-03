@@ -8,6 +8,7 @@ import {
   initiateArcGISLogin,
   getOAuthRedirectUri
 } from '@shared/services/arcgis-auth';
+import { getESRISettings } from '@shared/services/systemConfig';
 import {
   updateUserProfile,
   unlinkArcGISAccount
@@ -86,6 +87,21 @@ export default function AccountTab({ user, userData }) {
     } finally {
       setUnlinking(false);
     }
+  };
+
+  // Handle linking ArcGIS account
+  const handleLinkArcGIS = async () => {
+    // Fetch admin-configured ESRI client ID
+    let esriClientId = null;
+    try {
+      const esriSettings = await getESRISettings();
+      esriClientId = esriSettings?.clientId || null;
+    } catch (err) {
+      console.warn('Could not fetch ESRI settings, using default client ID:', err);
+    }
+
+    const redirectUri = getOAuthRedirectUri();
+    initiateArcGISLogin(redirectUri, 'signin', esriClientId);
   };
 
   const hasLinkedArcGIS = userData?.linkedArcGISUsername;
@@ -234,10 +250,7 @@ export default function AccountTab({ user, userData }) {
                     </p>
                   </div>
                   <button
-                    onClick={() => {
-                      const redirectUri = getOAuthRedirectUri();
-                      initiateArcGISLogin(redirectUri, 'signin');
-                    }}
+                    onClick={handleLinkArcGIS}
                     className="px-4 py-2 bg-[#0079C1] text-white rounded-lg font-medium hover:bg-[#006699] transition-colors flex items-center gap-2"
                   >
                     <Globe className="w-4 h-4" />
