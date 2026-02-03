@@ -1114,7 +1114,7 @@ export default function MapExportTool({
             >
               {availableTemplates.map(t => (
                 <option key={t.id} value={t.id}>
-                  {t.name} ({getPageSizeLabel(t)})
+                  {t.name}
                 </option>
               ))}
             </select>
