@@ -49,7 +49,8 @@ import {
   completeArcGISOAuth,
   generateDeterministicPassword,
   getOAuthMode,
-  getOAuthRedirectUri
+  getOAuthRedirectUri,
+  initiateArcGISLogin
 } from '@shared/services/arcgis-auth';
 import {
   createUserWithEmailAndPassword,
@@ -698,7 +699,9 @@ export default function AtlasApp() {
     privateMaps,
     loading: accessCheckLoading,
     requiresLogin,
-    hasCheckedAccess
+    hasCheckedAccess,
+    allMapsPublic,
+    defaultMapIsPublic
   } = useWebmapAccessibility({
     allMaps: configMaps,
     firebaseUser,
@@ -1144,6 +1147,8 @@ export default function AtlasApp() {
     availableMaps: accessibleMaps,  // Maps the user can actually access
     publicMaps,                      // Maps available to everyone
     privateMaps,                     // Maps requiring authentication
+    allMapsPublic,                   // True if all configured maps are public (no private maps)
+    defaultMapIsPublic,              // True if the default/first map is public
 
     // Theme colors (for child components)
     themeColor,
@@ -1424,6 +1429,8 @@ export default function AtlasApp() {
             onSignOut={handleSignOut}
             onOpenSettings={() => setShowAccountSettings(true)}
             colors={colors}
+            allMapsPublic={allMapsPublic}
+            orgId={orgId}
           />
         )}
         
@@ -1489,7 +1496,7 @@ export default function AtlasApp() {
 /**
  * Mobile Menu Component
  */
-function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, user, userData, onSignOut, onOpenSettings, colors }) {
+function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, user, userData, onSignOut, onOpenSettings, colors, allMapsPublic, orgId }) {
   // Get display name - prefer firstName/lastName, then arcgisProfile.fullName, then email
   const getDisplayName = () => {
     if (userData?.firstName || userData?.lastName) {
@@ -1505,6 +1512,17 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, user, u
     if (userData?.lastName) return userData.lastName[0].toUpperCase();
     if (userData?.arcgisProfile?.fullName) return userData.arcgisProfile.fullName[0].toUpperCase();
     return user?.email?.[0]?.toUpperCase() || '?';
+  };
+
+  // Handle sign-in with Esri account
+  const handleSignIn = () => {
+    // Store the org ID in session storage so we can use it after OAuth callback
+    if (orgId) {
+      sessionStorage.setItem('atlas_signup_org', orgId);
+    }
+    const redirectUri = getOAuthRedirectUri();
+    initiateArcGISLogin(redirectUri, 'signin');
+    onClose();
   };
 
   return (
@@ -1588,7 +1606,16 @@ function MobileMenu({ config, mode, onModeChange, enabledModes, onClose, user, u
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-500 text-center">Not signed in</p>
+            // Only show sign-in button if not all maps are public
+            !allMapsPublic ? (
+              <button
+                onClick={handleSignIn}
+                className="w-full py-2.5 text-sm font-medium text-white rounded-lg flex items-center justify-center gap-2 bg-[#0079C1] hover:bg-[#006699] transition-colors"
+              >
+                <LogIn className="w-4 h-4" />
+                Sign In with Esri Account
+              </button>
+            ) : null
           )}
         </div>
       </div>

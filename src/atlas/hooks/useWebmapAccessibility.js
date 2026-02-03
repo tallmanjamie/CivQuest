@@ -188,6 +188,14 @@ export function useWebmapAccessibility({
     checkPrivateMapAccess
   ]);
 
+  // Determine if all maps are public (no private maps exist)
+  const allMapsPublic = hasCheckedAccess && privateMaps.length === 0 && publicMaps.length > 0;
+
+  // Determine if the default map (first map in config) is public
+  const defaultMapIsPublic = hasCheckedAccess && allMaps.length > 0 && publicMaps.some(
+    publicMap => publicMap.webMap?.itemId === allMaps[0]?.webMap?.itemId
+  );
+
   return {
     // The maps the user can access (public + accessible private)
     accessibleMaps,
@@ -201,6 +209,10 @@ export function useWebmapAccessibility({
     requiresLogin,
     // Whether we've completed the access check
     hasCheckedAccess,
+    // Whether all configured maps are public (no private maps)
+    allMapsPublic,
+    // Whether the default/first map is public
+    defaultMapIsPublic,
     // Helper to check if a specific map is public
     isMapPublic: useCallback((itemId) => {
       const result = publicAccessResultsRef.current.get(itemId);

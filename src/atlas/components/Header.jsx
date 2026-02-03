@@ -7,6 +7,7 @@
 // - Header now only contains branding and user menu
 // - Uses themeColors utility for proper dynamic theming
 // - Added account settings option in user menu
+// - Sign-in button shown conditionally based on map accessibility
 
 import React, { useState } from 'react';
 import {
@@ -16,11 +17,16 @@ import {
   ChevronDown,
   User,
   Settings,
-  Info
+  Info,
+  Globe
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
 import InfoPopup from './InfoPopup';
+import {
+  initiateArcGISLogin,
+  getOAuthRedirectUri
+} from '@shared/services/arcgis-auth';
 
 /**
  * Header Component
@@ -40,11 +46,23 @@ export default function Header({
     user,
     userData,
     signOut,
-    activeMap
+    activeMap,
+    orgId,
+    allMapsPublic
   } = useAtlas();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showInfoPopup, setShowInfoPopup] = useState(false);
+
+  // Handle sign-in with Esri account
+  const handleSignIn = () => {
+    // Store the org ID in session storage so we can use it after OAuth callback
+    if (orgId) {
+      sessionStorage.setItem('atlas_signup_org', orgId);
+    }
+    const redirectUri = getOAuthRedirectUri();
+    initiateArcGISLogin(redirectUri, 'signin');
+  };
 
   // Get theme colors from utility - this properly handles dynamic colors
   const themeColor = config?.ui?.themeColor || 'sky';
@@ -193,7 +211,17 @@ export default function Header({
                 )}
               </>
             ) : (
-              <span className="text-sm text-white/70">Not signed in</span>
+              // Only show sign-in button if not all maps are public
+              // If all maps are public, no sign-in is needed
+              !allMapsPublic && (
+                <button
+                  onClick={handleSignIn}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition"
+                >
+                  <Globe className="w-4 h-4" />
+                  <span className="text-sm font-medium">Sign In</span>
+                </button>
+              )
             )}
           </div>
         </div>
