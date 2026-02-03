@@ -682,7 +682,7 @@ function AtlasOverviewCard({ atlasConfig, liveConfig, hasDraft, accentColor, onE
           Edit Settings
         </button>
       </div>
-      <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+      <div className="p-4 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
         <div>
           <span className="text-slate-500">Title</span>
           <p className="font-medium text-slate-800">{ui.headerTitle || 'Not set'}</p>
@@ -694,6 +694,10 @@ function AtlasOverviewCard({ atlasConfig, liveConfig, hasDraft, accentColor, onE
         <div>
           <span className="text-slate-500">Default Mode</span>
           <p className="font-medium text-slate-800 capitalize">{ui.defaultMode || 'Chat'}</p>
+        </div>
+        <div>
+          <span className="text-slate-500">Search Bar Size</span>
+          <p className="font-medium text-slate-800 capitalize">{ui.defaultSearchBarSize || 'Medium'}</p>
         </div>
         <div>
           <span className="text-slate-500">Status</span>

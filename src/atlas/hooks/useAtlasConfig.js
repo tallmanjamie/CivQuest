@@ -28,6 +28,7 @@ const DEFAULT_CONFIG = {
     defaultMode: 'chat',
     searchBarPosition: 'top',
     searchPlaceholder: '',  // Empty = use default
+    defaultSearchBarSize: 'medium',  // Default search bar size for org users (small, medium, large)
     // Info button configuration - shows info popup when clicked
     info: {
       enabled: false,                  // Disabled by default

@@ -1578,7 +1578,7 @@ export default function AtlasApp() {
       onHideHelp={() => setShowHelpPanel(false)}
       position={searchBarPosition}
       helpModeEnabled={helpModeEnabled}
-      searchBarSize={firebaseUserData?.preferences?.searchBarSize || 'medium'}
+      searchBarSize={firebaseUserData?.preferences?.searchBarSize || config?.ui?.defaultSearchBarSize || 'medium'}
     />
   );
   
