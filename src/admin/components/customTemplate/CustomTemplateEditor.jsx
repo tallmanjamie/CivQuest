@@ -142,7 +142,10 @@ const VISUAL_ELEMENTS = [
       type: 'header',
       title: '{{organizationName}}',
       subtitle: '{{notificationName}}',
-      usePrimaryColor: true
+      usePrimaryColor: true,
+      titleSize: '24',
+      subtitleSize: '14',
+      alignment: 'left'
     }
   },
   {
@@ -152,7 +155,9 @@ const VISUAL_ELEMENTS = [
     category: 'structure',
     defaultContent: {
       type: 'logo',
-      placeholder: '{{logoHtml}}'
+      placeholder: '{{logoHtml}}',
+      size: '150',
+      alignment: 'left'
     }
   },
   {
@@ -162,7 +167,9 @@ const VISUAL_ELEMENTS = [
     category: 'content',
     defaultContent: {
       type: 'text',
-      content: '<p>Add your custom text here...</p>'
+      content: '<p>Add your custom text here...</p>',
+      textSize: '14',
+      alignment: 'left'
     }
   },
   {
@@ -246,7 +253,11 @@ const VISUAL_ELEMENTS = [
     icon: 'Columns',
     category: 'structure',
     defaultContent: {
-      type: 'divider'
+      type: 'divider',
+      width: '100',
+      alignment: 'center',
+      thickness: '1',
+      style: 'solid'
     }
   },
   {
@@ -301,7 +312,29 @@ const VISUAL_ELEMENTS = [
     category: 'structure',
     defaultContent: {
       type: 'footer',
-      text: 'You are receiving this because you subscribed to notifications.'
+      text: 'You are receiving this because you subscribed to notifications.',
+      textSize: '12',
+      alignment: 'left'
+    }
+  },
+  {
+    id: 'graph',
+    name: 'Graph',
+    icon: 'BarChart3',
+    category: 'content',
+    defaultContent: {
+      type: 'graph',
+      graphType: 'bar', // 'bar', 'line', or 'pie'
+      title: 'Chart Title',
+      dataField: '', // Field to aggregate
+      labelField: '', // Field for labels/categories
+      operation: 'count', // 'sum', 'count', 'mean'
+      width: '100', // percentage
+      height: '250', // pixels
+      alignment: 'center',
+      showLegend: true,
+      showValues: true,
+      maxItems: 6 // Max categories to show
     }
   }
 ];
@@ -356,6 +389,258 @@ function generateSelectedStatisticsHtml(statistics, sampleContext, theme, option
       <tr>${cards}</tr>
     </table>
   </div>`;
+}
+
+/**
+ * Helper function to generate graph HTML (SVG-based charts for email)
+ * @param {string} graphType - 'bar', 'line', or 'pie'
+ * @param {Array} data - Array of {label, value} objects
+ * @param {Object} theme - Theme colors
+ * @param {Object} options - Graph options (title, width, height, showLegend, showValues)
+ */
+function generateGraphHtml(graphType, data, theme, options = {}) {
+  if (!data || data.length === 0) {
+    return '<div style="padding: 20px; text-align: center; color: #666; font-style: italic;">No data available for chart</div>';
+  }
+
+  const primaryColor = theme?.primaryColor || '#004E7C';
+  const secondaryColor = theme?.secondaryColor || '#f2f2f2';
+  const accentColor = theme?.accentColor || '#0077B6';
+  const textColor = theme?.textColor || '#333333';
+  const mutedTextColor = theme?.mutedTextColor || '#666666';
+
+  const width = parseInt(options.width) || 100;
+  const height = parseInt(options.height) || 250;
+  const title = options.title || '';
+  const showLegend = options.showLegend !== false;
+  const showValues = options.showValues !== false;
+  const alignment = options.alignment || 'center';
+
+  // Generate a color palette based on theme
+  const colors = [
+    primaryColor,
+    accentColor,
+    '#4CAF50', // green
+    '#FF9800', // orange
+    '#9C27B0', // purple
+    '#00BCD4', // cyan
+    '#E91E63', // pink
+    '#795548', // brown
+  ];
+
+  const containerMargin = alignment === 'left' ? 'margin-right: auto;'
+    : alignment === 'right' ? 'margin-left: auto;'
+    : 'margin: 0 auto;';
+
+  const svgWidth = 400;
+  const svgHeight = height;
+  const padding = { top: 40, right: 20, bottom: 60, left: 50 };
+
+  const maxValue = Math.max(...data.map(d => d.value));
+  const chartWidth = svgWidth - padding.left - padding.right;
+  const chartHeight = svgHeight - padding.top - padding.bottom;
+
+  let chartSvg = '';
+
+  if (graphType === 'bar') {
+    // Bar Chart
+    const barWidth = chartWidth / data.length * 0.7;
+    const barGap = chartWidth / data.length * 0.3;
+
+    const bars = data.map((d, i) => {
+      const barHeight = maxValue > 0 ? (d.value / maxValue) * chartHeight : 0;
+      const x = padding.left + i * (barWidth + barGap) + barGap / 2;
+      const y = padding.top + chartHeight - barHeight;
+      const color = colors[i % colors.length];
+
+      let bar = `<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${color}" rx="2"/>`;
+      if (showValues && d.value > 0) {
+        bar += `<text x="${x + barWidth/2}" y="${y - 5}" text-anchor="middle" font-size="10" fill="${textColor}">${d.value.toLocaleString()}</text>`;
+      }
+      bar += `<text x="${x + barWidth/2}" y="${svgHeight - 20}" text-anchor="middle" font-size="9" fill="${mutedTextColor}" transform="rotate(-30 ${x + barWidth/2} ${svgHeight - 20})">${d.label.length > 12 ? d.label.substring(0, 12) + '...' : d.label}</text>`;
+      return bar;
+    }).join('');
+
+    // Y-axis
+    const yAxisLines = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+      const y = padding.top + chartHeight * (1 - ratio);
+      const val = Math.round(maxValue * ratio);
+      return `<line x1="${padding.left - 5}" y1="${y}" x2="${svgWidth - padding.right}" y2="${y}" stroke="#eee" stroke-width="1"/>
+              <text x="${padding.left - 8}" y="${y + 3}" text-anchor="end" font-size="9" fill="${mutedTextColor}">${val.toLocaleString()}</text>`;
+    }).join('');
+
+    chartSvg = `${yAxisLines}${bars}`;
+
+  } else if (graphType === 'line') {
+    // Line Chart
+    const pointGap = chartWidth / (data.length - 1 || 1);
+
+    const points = data.map((d, i) => {
+      const x = padding.left + i * pointGap;
+      const y = maxValue > 0 ? padding.top + chartHeight - (d.value / maxValue) * chartHeight : padding.top + chartHeight;
+      return { x, y, label: d.label, value: d.value };
+    });
+
+    // Draw area under line
+    const areaPath = `M${points[0].x},${padding.top + chartHeight} ${points.map(p => `L${p.x},${p.y}`).join(' ')} L${points[points.length-1].x},${padding.top + chartHeight} Z`;
+
+    // Draw line
+    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+
+    // Draw dots and labels
+    const dotsAndLabels = points.map((p, i) => {
+      let result = `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${primaryColor}" stroke="white" stroke-width="2"/>`;
+      if (showValues) {
+        result += `<text x="${p.x}" y="${p.y - 10}" text-anchor="middle" font-size="9" fill="${textColor}">${p.value.toLocaleString()}</text>`;
+      }
+      result += `<text x="${p.x}" y="${svgHeight - 20}" text-anchor="middle" font-size="9" fill="${mutedTextColor}" transform="rotate(-30 ${p.x} ${svgHeight - 20})">${p.label.length > 10 ? p.label.substring(0, 10) + '...' : p.label}</text>`;
+      return result;
+    }).join('');
+
+    // Y-axis
+    const yAxisLines = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+      const y = padding.top + chartHeight * (1 - ratio);
+      const val = Math.round(maxValue * ratio);
+      return `<line x1="${padding.left - 5}" y1="${y}" x2="${svgWidth - padding.right}" y2="${y}" stroke="#eee" stroke-width="1"/>
+              <text x="${padding.left - 8}" y="${y + 3}" text-anchor="end" font-size="9" fill="${mutedTextColor}">${val.toLocaleString()}</text>`;
+    }).join('');
+
+    chartSvg = `${yAxisLines}
+      <path d="${areaPath}" fill="${primaryColor}" fill-opacity="0.1"/>
+      <path d="${linePath}" fill="none" stroke="${primaryColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      ${dotsAndLabels}`;
+
+  } else if (graphType === 'pie') {
+    // Pie Chart
+    const total = data.reduce((sum, d) => sum + d.value, 0);
+    if (total === 0) {
+      return '<div style="padding: 20px; text-align: center; color: #666; font-style: italic;">No data for pie chart</div>';
+    }
+
+    const centerX = svgWidth / 2;
+    const centerY = (svgHeight - (showLegend ? 40 : 0)) / 2 + padding.top / 2;
+    const radius = Math.min(centerX - padding.left, centerY - padding.top) - 20;
+
+    let currentAngle = -Math.PI / 2; // Start at top
+    const slices = data.map((d, i) => {
+      const sliceAngle = (d.value / total) * Math.PI * 2;
+      const startAngle = currentAngle;
+      const endAngle = currentAngle + sliceAngle;
+      currentAngle = endAngle;
+
+      const x1 = centerX + radius * Math.cos(startAngle);
+      const y1 = centerY + radius * Math.sin(startAngle);
+      const x2 = centerX + radius * Math.cos(endAngle);
+      const y2 = centerY + radius * Math.sin(endAngle);
+
+      const largeArcFlag = sliceAngle > Math.PI ? 1 : 0;
+      const color = colors[i % colors.length];
+
+      // Calculate label position
+      const labelAngle = startAngle + sliceAngle / 2;
+      const labelRadius = radius * 0.7;
+      const labelX = centerX + labelRadius * Math.cos(labelAngle);
+      const labelY = centerY + labelRadius * Math.sin(labelAngle);
+      const percentage = Math.round((d.value / total) * 100);
+
+      let slice = `<path d="M${centerX},${centerY} L${x1},${y1} A${radius},${radius} 0 ${largeArcFlag},1 ${x2},${y2} Z" fill="${color}" stroke="white" stroke-width="2"/>`;
+      if (showValues && percentage >= 5) {
+        slice += `<text x="${labelX}" y="${labelY}" text-anchor="middle" dominant-baseline="middle" font-size="10" font-weight="bold" fill="white">${percentage}%</text>`;
+      }
+      return slice;
+    }).join('');
+
+    // Legend
+    let legend = '';
+    if (showLegend) {
+      const legendY = svgHeight - 30;
+      const legendItems = data.map((d, i) => {
+        const itemWidth = svgWidth / Math.min(data.length, 4);
+        const x = (i % 4) * itemWidth + 10;
+        const row = Math.floor(i / 4);
+        const y = legendY + row * 15;
+        const color = colors[i % colors.length];
+        return `<rect x="${x}" y="${y}" width="10" height="10" fill="${color}" rx="2"/>
+                <text x="${x + 14}" y="${y + 8}" font-size="9" fill="${mutedTextColor}">${d.label.length > 15 ? d.label.substring(0, 15) + '...' : d.label}</text>`;
+      }).join('');
+      legend = legendItems;
+    }
+
+    chartSvg = `${slices}${legend}`;
+  }
+
+  // Title
+  const titleHtml = title ? `<text x="${svgWidth/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="${textColor}">${title}</text>` : '';
+
+  return `<div style="width: ${width}%; ${containerMargin} padding: 15px;">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth} ${svgHeight}" style="width: 100%; height: auto; max-width: ${svgWidth}px;">
+      <rect width="100%" height="100%" fill="white"/>
+      ${titleHtml}
+      ${chartSvg}
+    </svg>
+  </div>`;
+}
+
+/**
+ * Helper function to aggregate data for graph
+ * @param {Array} records - Array of data records
+ * @param {string} labelField - Field to use for labels/categories
+ * @param {string} dataField - Field to aggregate values from
+ * @param {string} operation - 'sum', 'count', or 'mean'
+ * @param {number} maxItems - Maximum number of items to show
+ */
+function aggregateGraphData(records, labelField, dataField, operation, maxItems = 6) {
+  if (!records || records.length === 0 || !labelField) {
+    return [];
+  }
+
+  // Group by label field
+  const groups = {};
+  records.forEach(record => {
+    const label = String(record[labelField] || 'Unknown');
+    if (!groups[label]) {
+      groups[label] = [];
+    }
+    const value = dataField ? parseFloat(record[dataField]) : 1;
+    if (!isNaN(value)) {
+      groups[label].push(value);
+    }
+  });
+
+  // Calculate aggregated values
+  const result = Object.entries(groups).map(([label, values]) => {
+    let value;
+    switch (operation) {
+      case 'sum':
+        value = values.reduce((a, b) => a + b, 0);
+        break;
+      case 'mean':
+        value = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+        break;
+      case 'count':
+      default:
+        value = values.length;
+        break;
+    }
+    return { label, value: Math.round(value * 100) / 100 };
+  });
+
+  // Sort by value descending and limit
+  result.sort((a, b) => b.value - a.value);
+  return result.slice(0, maxItems);
+}
+
+/**
+ * Generate sample data for graph preview when no live data is available
+ * @param {string} graphType - 'bar', 'line', or 'pie'
+ * @param {number} count - Number of data points
+ */
+function generateSampleGraphData(graphType, count = 5) {
+  const labels = ['Category A', 'Category B', 'Category C', 'Category D', 'Category E', 'Category F'];
+  return labels.slice(0, count).map((label, i) => ({
+    label,
+    value: Math.round(50 + Math.random() * 100)
+  }));
 }
 
 /**
@@ -946,6 +1231,23 @@ export default function CustomTemplateEditor({
         const containerAlignment = el.statisticsContainerAlignment || 'center';
         const key = `statisticsHtml_${el.id}_${valueSize}_${valueAlignment}_${containerWidth}_${containerAlignment}`;
         baseContext[key] = generateSelectedStatisticsHtml(statsToShow, contextWithLiveStats, theme, { valueSize, valueAlignment, containerWidth, containerAlignment });
+      } else if (el.type === 'graph') {
+        // Generate graph HTML using live data if available
+        const records = useLiveData && liveDataRecords.length > 0 ? liveDataRecords : null;
+        const graphData = records && el.labelField
+          ? aggregateGraphData(records, el.labelField, el.dataField, el.operation || 'count', el.maxItems || 6)
+          : generateSampleGraphData(el.graphType || 'bar', 5); // Use sample data for preview
+
+        const graphOptions = {
+          title: el.title || '',
+          width: el.width || '100',
+          height: el.height || '250',
+          alignment: el.alignment || 'center',
+          showLegend: el.showLegend !== false,
+          showValues: el.showValues !== false
+        };
+
+        baseContext[`graph_${el.id}`] = generateGraphHtml(el.graphType || 'bar', graphData, theme, graphOptions);
       }
     });
 
@@ -1065,17 +1367,28 @@ export default function CustomTemplateEditor({
     elements.forEach(el => {
       switch (el.type) {
         case 'header':
+          const headerTitleSize = el.titleSize || '24';
+          const headerSubtitleSize = el.subtitleSize || '14';
+          const headerAlignment = el.alignment || 'left';
           html += `  <!-- Header -->
-  <div style="background-color: {{primaryColor}}; padding: 20px; color: white; border-radius: 8px 8px 0 0;">
-    <h1 style="margin: 0; font-size: 24px;">${el.title}</h1>
-    <p style="margin: 5px 0 0 0; opacity: 0.9;">${el.subtitle}</p>
+  <div style="background-color: {{primaryColor}}; padding: 20px; color: white; border-radius: 8px 8px 0 0; text-align: ${headerAlignment};">
+    <h1 style="margin: 0; font-size: ${headerTitleSize}px;">${el.title}</h1>
+    <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: ${headerSubtitleSize}px;">${el.subtitle}</p>
   </div>\n`;
           break;
         case 'logo':
-          html += `  <!-- Logo -->\n  {{logoHtml}}\n`;
+          const logoSize = el.size || '150';
+          const logoAlignment = el.alignment || 'left';
+          const logoAlignStyle = logoAlignment === 'center' ? 'margin: 0 auto;' : logoAlignment === 'right' ? 'margin-left: auto;' : '';
+          html += `  <!-- Logo -->
+  <div style="padding: 15px 25px; text-align: ${logoAlignment};">
+    <img src="{{logoUrl}}" alt="Logo" style="max-width: ${logoSize}px; height: auto; ${logoAlignStyle}" />
+  </div>\n`;
           break;
         case 'text':
-          html += `  <div style="padding: 15px 25px;">${el.content}</div>\n`;
+          const textSize = el.textSize || '14';
+          const textAlignment = el.alignment || 'left';
+          html += `  <div style="padding: 15px 25px; font-size: ${textSize}px; text-align: ${textAlignment};">${el.content}</div>\n`;
           break;
         case 'statistics':
           // Use element-specific placeholder with options
@@ -1101,7 +1414,14 @@ export default function CustomTemplateEditor({
           html += `  <div style="padding: 0 25px;">{{moreRecordsMessage}}</div>\n`;
           break;
         case 'divider':
-          html += `  <hr style="border: none; border-top: 1px solid {{borderColor}}; margin: 20px 25px;" />\n`;
+          const dividerWidth = el.width || '100';
+          const dividerAlignment = el.alignment || 'center';
+          const dividerThickness = el.thickness || '1';
+          const dividerStyle = el.style || 'solid';
+          const dividerMargin = dividerAlignment === 'left' ? 'margin-right: auto;' : dividerAlignment === 'right' ? 'margin-left: auto;' : 'margin: 0 auto;';
+          html += `  <div style="padding: 20px 25px;">
+    <hr style="border: none; border-top: ${dividerThickness}px ${dividerStyle} {{borderColor}}; width: ${dividerWidth}%; ${dividerMargin}" />
+  </div>\n`;
           break;
         case 'spacer':
           html += `  <div style="height: ${el.height || '20px'};"></div>\n`;
@@ -1144,11 +1464,18 @@ export default function CustomTemplateEditor({
   </div>\n`;
           break;
         case 'footer':
+          const footerTextSize = el.textSize || '12';
+          const footerAlignment = el.alignment || 'left';
           html += `  <!-- Footer -->
-  <div style="margin-top: 30px; padding: 20px 25px; border-top: 1px solid {{borderColor}}; font-size: 12px; color: {{mutedTextColor}};">
+  <div style="margin-top: 30px; padding: 20px 25px; border-top: 1px solid {{borderColor}}; font-size: ${footerTextSize}px; color: {{mutedTextColor}}; text-align: ${footerAlignment};">
     <p>${el.text}</p>
     <p><a href="#" style="color: {{accentColor}};">Manage Preferences</a></p>
   </div>\n`;
+          break;
+        case 'graph':
+          const graphId = el.id;
+          html += `  <!-- Graph -->
+  <div style="padding: 15px 25px;">{{graph_${graphId}}}</div>\n`;
           break;
       }
     });
@@ -1233,18 +1560,40 @@ export default function CustomTemplateEditor({
 
         {/* Rendered Element */}
         {element.type === 'header' && (
-          <div style={{ backgroundColor: template.theme?.primaryColor || '#004E7C', color: 'white', padding: '20px', textAlign: 'left' }}>
-            <h1 style={{ margin: 0, fontSize: '24px' }}>{processContent(element.title)}</h1>
-            <p style={{ margin: '5px 0 0 0', opacity: 0.9 }}>{processContent(element.subtitle)}</p>
+          <div style={{
+            backgroundColor: template.theme?.primaryColor || '#004E7C',
+            color: 'white',
+            padding: '20px',
+            textAlign: element.alignment || 'left'
+          }}>
+            <h1 style={{ margin: 0, fontSize: `${element.titleSize || '24'}px` }}>{processContent(element.title)}</h1>
+            <p style={{ margin: '5px 0 0 0', opacity: 0.9, fontSize: `${element.subtitleSize || '14'}px` }}>{processContent(element.subtitle)}</p>
           </div>
         )}
 
         {element.type === 'logo' && (
-          <div style={{ padding: '15px 25px' }} dangerouslySetInnerHTML={{ __html: processContent(element.placeholder) || '<span style="color:#999;font-style:italic;">Logo placeholder</span>' }} />
+          <div style={{ padding: '15px 25px', textAlign: element.alignment || 'left' }}>
+            {template.branding?.logoUrl ? (
+              <img
+                src={template.branding.logoUrl}
+                alt="Logo"
+                style={{ maxWidth: `${element.size || '150'}px`, height: 'auto' }}
+              />
+            ) : (
+              <span style={{ color: '#999', fontStyle: 'italic' }}>No logo configured</span>
+            )}
+          </div>
         )}
 
         {element.type === 'text' && (
-          <div style={{ padding: '15px 25px' }} dangerouslySetInnerHTML={{ __html: processContent(element.content) }} />
+          <div
+            style={{
+              padding: '15px 25px',
+              fontSize: `${element.textSize || '14'}px`,
+              textAlign: element.alignment || 'left'
+            }}
+            dangerouslySetInnerHTML={{ __html: processContent(element.content) }}
+          />
         )}
 
         {element.type === 'statistics' && (() => {
@@ -1305,9 +1654,26 @@ export default function CustomTemplateEditor({
           <div style={{ padding: '0 25px' }} dangerouslySetInnerHTML={{ __html: processContent(element.placeholder) }} />
         )}
 
-        {element.type === 'divider' && (
-          <hr style={{ border: 'none', borderTop: `1px solid ${template.theme?.borderColor || '#ddd'}`, margin: '20px 25px' }} />
-        )}
+        {element.type === 'divider' && (() => {
+          const dividerWidth = element.width || '100';
+          const dividerAlignment = element.alignment || 'center';
+          const dividerThickness = element.thickness || '1';
+          const dividerStyle = element.style || 'solid';
+          const marginStyle = dividerAlignment === 'left' ? { marginRight: 'auto' }
+            : dividerAlignment === 'right' ? { marginLeft: 'auto' }
+            : { margin: '0 auto' };
+
+          return (
+            <div style={{ padding: '20px 25px' }}>
+              <hr style={{
+                border: 'none',
+                borderTop: `${dividerThickness}px ${dividerStyle} ${template.theme?.borderColor || '#ddd'}`,
+                width: `${dividerWidth}%`,
+                ...marginStyle
+              }} />
+            </div>
+          );
+        })()}
 
         {element.type === 'spacer' && (
           <div style={{ height: element.height || '20px', backgroundColor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1392,11 +1758,48 @@ export default function CustomTemplateEditor({
         })()}
 
         {element.type === 'footer' && (
-          <div style={{ marginTop: '30px', padding: '20px 25px', borderTop: `1px solid ${template.theme?.borderColor || '#ddd'}`, fontSize: '12px', color: template.theme?.mutedTextColor || '#666' }}>
+          <div style={{
+            marginTop: '30px',
+            padding: '20px 25px',
+            borderTop: `1px solid ${template.theme?.borderColor || '#ddd'}`,
+            fontSize: `${element.textSize || '12'}px`,
+            color: template.theme?.mutedTextColor || '#666',
+            textAlign: element.alignment || 'left'
+          }}>
             <p>{element.text}</p>
             <p><a href="#" style={{ color: template.theme?.accentColor || '#0077B6' }}>Manage Preferences</a></p>
           </div>
         )}
+
+        {element.type === 'graph' && (() => {
+          // Generate graph preview
+          const records = useLiveData && liveDataRecords.length > 0 ? liveDataRecords : null;
+          const graphData = records && element.labelField
+            ? aggregateGraphData(records, element.labelField, element.dataField, element.operation || 'count', element.maxItems || 6)
+            : generateSampleGraphData(element.graphType || 'bar', 5);
+
+          const graphOptions = {
+            title: element.title || '',
+            width: element.width || '100',
+            height: element.height || '250',
+            alignment: element.alignment || 'center',
+            showLegend: element.showLegend !== false,
+            showValues: element.showValues !== false
+          };
+
+          const graphHtml = generateGraphHtml(element.graphType || 'bar', graphData, template.theme, graphOptions);
+
+          return (
+            <div style={{ padding: '15px 25px' }}>
+              {!element.labelField && (
+                <div style={{ marginBottom: '10px', padding: '8px', backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '11px', color: '#92400e' }}>
+                  Select a label field to see real data. Showing sample data.
+                </div>
+              )}
+              <div dangerouslySetInnerHTML={{ __html: graphHtml }} />
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -1933,21 +2336,106 @@ export default function CustomTemplateEditor({
                               placeholder="Header subtitle"
                             />
                           </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Title Size</label>
+                              <select
+                                value={element.titleSize || '24'}
+                                onChange={(e) => updateElement(selectedElementIndex, { titleSize: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                              >
+                                <option value="18">18px</option>
+                                <option value="20">20px</option>
+                                <option value="22">22px</option>
+                                <option value="24">24px</option>
+                                <option value="28">28px</option>
+                                <option value="32">32px</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Subtitle Size</label>
+                              <select
+                                value={element.subtitleSize || '14'}
+                                onChange={(e) => updateElement(selectedElementIndex, { subtitleSize: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                              >
+                                <option value="12">12px</option>
+                                <option value="14">14px</option>
+                                <option value="16">16px</option>
+                                <option value="18">18px</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.alignment || 'left') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </>
                       )}
 
                       {/* Text/Intro Editor */}
                       {elementType === 'text' && (
-                        <div>
-                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Content</label>
-                          <textarea
-                            value={element.content || ''}
-                            onChange={(e) => updateElement(selectedElementIndex, { content: e.target.value })}
-                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[120px] resize-y"
-                            placeholder="Enter text content (HTML supported)"
-                          />
-                          <p className="text-[9px] text-slate-400 mt-1">Supports HTML and placeholders like {'{{organizationName}}'}</p>
-                        </div>
+                        <>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Content</label>
+                            <textarea
+                              value={element.content || ''}
+                              onChange={(e) => updateElement(selectedElementIndex, { content: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[120px] resize-y"
+                              placeholder="Enter text content (HTML supported)"
+                            />
+                            <p className="text-[9px] text-slate-400 mt-1">Supports HTML and placeholders like {'{{organizationName}}'}</p>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Text Size</label>
+                            <select
+                              value={element.textSize || '14'}
+                              onChange={(e) => updateElement(selectedElementIndex, { textSize: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="12">12px (Small)</option>
+                              <option value="13">13px</option>
+                              <option value="14">14px (Default)</option>
+                              <option value="15">15px</option>
+                              <option value="16">16px (Large)</option>
+                              <option value="18">18px (XL)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.alignment || 'left') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
                       )}
 
                       {/* Record Count Editor */}
@@ -1980,15 +2468,50 @@ export default function CustomTemplateEditor({
 
                       {/* Footer Editor */}
                       {elementType === 'footer' && (
-                        <div>
-                          <label className="block text-[10px] font-medium text-slate-600 mb-1">Footer Text</label>
-                          <textarea
-                            value={element.text || ''}
-                            onChange={(e) => updateElement(selectedElementIndex, { text: e.target.value })}
-                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[80px] resize-y"
-                            placeholder="Footer text"
-                          />
-                        </div>
+                        <>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Footer Text</label>
+                            <textarea
+                              value={element.text || ''}
+                              onChange={(e) => updateElement(selectedElementIndex, { text: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[80px] resize-y"
+                              placeholder="Footer text"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Text Size</label>
+                            <select
+                              value={element.textSize || '12'}
+                              onChange={(e) => updateElement(selectedElementIndex, { textSize: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="10">10px (Small)</option>
+                              <option value="11">11px</option>
+                              <option value="12">12px (Default)</option>
+                              <option value="13">13px</option>
+                              <option value="14">14px (Large)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.alignment || 'left') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
                       )}
 
                       {/* Spacer Editor */}
@@ -2486,15 +3009,292 @@ export default function CustomTemplateEditor({
                         </div>
                       )}
 
+                      {/* Logo Editor */}
+                      {elementType === 'logo' && (
+                        <>
+                          <div className="p-2 bg-blue-50 border border-blue-100 rounded text-[9px] text-blue-700 mb-2">
+                            Logo URL is configured in the Logo section on the left panel. Here you can adjust size and alignment.
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Logo Size</label>
+                            <select
+                              value={element.size || '150'}
+                              onChange={(e) => updateElement(selectedElementIndex, { size: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="80">80px (Small)</option>
+                              <option value="100">100px</option>
+                              <option value="120">120px</option>
+                              <option value="150">150px (Default)</option>
+                              <option value="180">180px</option>
+                              <option value="200">200px (Large)</option>
+                              <option value="250">250px (XL)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.alignment || 'left') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Divider Editor */}
+                      {elementType === 'divider' && (
+                        <>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Width</label>
+                            <select
+                              value={element.width || '100'}
+                              onChange={(e) => updateElement(selectedElementIndex, { width: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="25">25%</option>
+                              <option value="50">50%</option>
+                              <option value="75">75%</option>
+                              <option value="100">100% (Full)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.alignment || 'center') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Thickness</label>
+                              <select
+                                value={element.thickness || '1'}
+                                onChange={(e) => updateElement(selectedElementIndex, { thickness: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                              >
+                                <option value="1">1px</option>
+                                <option value="2">2px</option>
+                                <option value="3">3px</option>
+                                <option value="4">4px</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Style</label>
+                              <select
+                                value={element.style || 'solid'}
+                                onChange={(e) => updateElement(selectedElementIndex, { style: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                              >
+                                <option value="solid">Solid</option>
+                                <option value="dashed">Dashed</option>
+                                <option value="dotted">Dotted</option>
+                              </select>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Graph Editor */}
+                      {elementType === 'graph' && (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Chart Title</label>
+                            <input
+                              type="text"
+                              value={element.title || ''}
+                              onChange={(e) => updateElement(selectedElementIndex, { title: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                              placeholder="Enter chart title"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Graph Type</label>
+                            <div className="flex gap-1">
+                              {['bar', 'line', 'pie'].map(type => (
+                                <button
+                                  key={type}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { graphType: type })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.graphType || 'bar') === type
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {type}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Label Field (Categories)</label>
+                            <select
+                              value={element.labelField || ''}
+                              onChange={(e) => updateElement(selectedElementIndex, { labelField: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="">Select field...</option>
+                              {availableFields.map(f => {
+                                const fieldName = typeof f === 'string' ? f : f.field;
+                                const fieldLabel = typeof f === 'string' ? f : (f.label || f.field);
+                                return (
+                                  <option key={fieldName} value={fieldName}>{fieldLabel}</option>
+                                );
+                              })}
+                            </select>
+                            <p className="text-[9px] text-slate-400 mt-1">Field to group data by (e.g., Status, Category)</p>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Data Field (Values)</label>
+                            <select
+                              value={element.dataField || ''}
+                              onChange={(e) => updateElement(selectedElementIndex, { dataField: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="">Select field (optional)...</option>
+                              {availableFields.map(f => {
+                                const fieldName = typeof f === 'string' ? f : f.field;
+                                const fieldLabel = typeof f === 'string' ? f : (f.label || f.field);
+                                return (
+                                  <option key={fieldName} value={fieldName}>{fieldLabel}</option>
+                                );
+                              })}
+                            </select>
+                            <p className="text-[9px] text-slate-400 mt-1">Field to aggregate (leave empty for count)</p>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Operation</label>
+                            <select
+                              value={element.operation || 'count'}
+                              onChange={(e) => updateElement(selectedElementIndex, { operation: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="count">Count (number of records)</option>
+                              <option value="sum">Sum (total value)</option>
+                              <option value="mean">Average (mean value)</option>
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Max Categories</label>
+                              <select
+                                value={element.maxItems || '6'}
+                                onChange={(e) => updateElement(selectedElementIndex, { maxItems: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                              >
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                                <option value="6">6</option>
+                                <option value="8">8</option>
+                                <option value="10">10</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-600 mb-1">Height</label>
+                              <select
+                                value={element.height || '250'}
+                                onChange={(e) => updateElement(selectedElementIndex, { height: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                              >
+                                <option value="180">Small (180px)</option>
+                                <option value="220">Medium (220px)</option>
+                                <option value="250">Default (250px)</option>
+                                <option value="300">Large (300px)</option>
+                                <option value="350">XL (350px)</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Width</label>
+                            <select
+                              value={element.width || '100'}
+                              onChange={(e) => updateElement(selectedElementIndex, { width: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded"
+                            >
+                              <option value="50">50%</option>
+                              <option value="70">70%</option>
+                              <option value="85">85%</option>
+                              <option value="100">100% (Full)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-medium text-slate-600 mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                              {['left', 'center', 'right'].map(align => (
+                                <button
+                                  key={align}
+                                  type="button"
+                                  onClick={() => updateElement(selectedElementIndex, { alignment: align })}
+                                  className={`flex-1 px-2 py-1.5 text-[10px] rounded border transition-colors capitalize ${
+                                    (element.alignment || 'center') === align
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {align}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <label className="flex items-center gap-2 text-[10px] text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={element.showLegend !== false}
+                                onChange={(e) => updateElement(selectedElementIndex, { showLegend: e.target.checked })}
+                                className="rounded"
+                              />
+                              Show Legend
+                            </label>
+                            <label className="flex items-center gap-2 text-[10px] text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={element.showValues !== false}
+                                onChange={(e) => updateElement(selectedElementIndex, { showValues: e.target.checked })}
+                                className="rounded"
+                              />
+                              Show Values
+                            </label>
+                          </div>
+                          <div className="p-2 bg-blue-50 border border-blue-100 rounded">
+                            <p className="text-[9px] text-blue-700">
+                              Graph colors automatically match your theme colors (primary, accent, etc.)
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Non-editable elements info */}
-                      {['logo', 'datatable', 'download-button', 'more-records', 'divider'].includes(elementType) && (
+                      {['datatable', 'download-button', 'more-records'].includes(elementType) && (
                         <div className="p-3 bg-slate-50 rounded-lg">
                           <p className="text-[10px] text-slate-600">
-                            {elementType === 'logo' && 'Logo is configured in the Logo section.'}
                             {elementType === 'datatable' && 'Data table is auto-generated from your data source fields.'}
                             {elementType === 'download-button' && 'Download button appears when CSV attachment is enabled.'}
                             {elementType === 'more-records' && 'This message appears automatically when there are more records than displayed.'}
-                            {elementType === 'divider' && 'This is a simple divider line. No configuration needed.'}
                           </p>
                         </div>
                       )}
