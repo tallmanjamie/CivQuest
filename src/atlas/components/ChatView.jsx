@@ -1621,13 +1621,13 @@ function MessageBubble({
                   )}
                 </>
               ) : (
-                /* Desktop: Side by side layout - map matches results height */
-                <div className={`${showMap ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}`}>
-                  <div>
+                /* Desktop: Side by side layout - table 3/4, map 1/4 */
+                <div className={`${showMap ? 'grid grid-cols-1 md:grid-cols-4 gap-4' : ''}`}>
+                  <div className={showMap ? 'md:col-span-3' : ''}>
                     <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} onRowClick={handleRowClickOnInsetMap} />
                   </div>
                   {showMap && (
-                    <div className="min-h-[200px]">
+                    <div className="min-h-[200px] md:col-span-1">
                       <ChatMiniMap
                         ref={miniMapRef}
                         features={message.features}
