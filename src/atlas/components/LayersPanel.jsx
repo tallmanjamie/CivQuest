@@ -111,13 +111,14 @@ export default function LayersPanel({
   } = useAtlas();
 
   // Debug logging for map picker
-  console.log('[LayersPanel] Map picker debug:', {
-    availableMaps,
-    availableMapsLength: availableMaps?.length,
-    activeMap: activeMap?.name,
-    activeMapIndex,
-    hasMultipleMaps: availableMaps && availableMaps.length > 1
+  console.log('[LayersPanel] ===== MAP PICKER DEBUG (from context) =====');
+  console.log('[LayersPanel] availableMaps count:', availableMaps?.length || 0);
+  availableMaps?.forEach((m, i) => {
+    console.log(`[LayersPanel]   Map ${i}: "${m.name}" (itemId: ${m.webMap?.itemId})`);
   });
+  console.log('[LayersPanel] activeMap:', activeMap?.name, 'at index', activeMapIndex);
+  console.log('[LayersPanel] hasMultipleMaps:', availableMaps && availableMaps.length > 1);
+  console.log('[LayersPanel] ===========================================');
 
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
