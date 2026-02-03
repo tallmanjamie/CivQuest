@@ -65,12 +65,28 @@ import {
  *   createdAt: string,
  *   updatedAt: string
  * }
+ *
+ * AI Settings structure:
+ * {
+ *   geminiModel: string,         // Primary Gemini model (e.g., 'gemini-2.5-flash')
+ *   geminiFallbackModel: string  // Fallback model if primary fails
+ * }
  */
+
+/**
+ * Default AI settings
+ */
+export const DEFAULT_AI_SETTINGS = {
+  geminiModel: 'gemini-2.5-flash',
+  geminiFallbackModel: 'gemini-2.0-flash-001'
+};
+
 export const DEFAULT_SYSTEM_CONFIG = {
   globalHelpDocumentation: [],
   integrations: [], // System-level integrations configuration
   globalExportTemplates: [], // Global map export templates for org admins to use
   globalFeatureExportTemplates: [], // Global feature export templates for org admins to use
+  aiSettings: DEFAULT_AI_SETTINGS, // AI configuration settings
   updatedAt: null,
   updatedBy: null
 };
@@ -211,6 +227,37 @@ export async function updateGlobalFeatureExportTemplates(templates, userId = nul
   await updateSystemConfig(updateData, userId);
 }
 
+/**
+ * Get AI settings
+ */
+export async function getAISettings() {
+  const config = await getSystemConfig();
+  return {
+    ...DEFAULT_AI_SETTINGS,
+    ...(config.aiSettings || {})
+  };
+}
+
+/**
+ * Subscribe to AI settings changes
+ */
+export function subscribeToAISettings(callback) {
+  return subscribeToSystemConfig((config) => {
+    callback({
+      ...DEFAULT_AI_SETTINGS,
+      ...(config.aiSettings || {})
+    });
+  });
+}
+
+/**
+ * Update AI settings
+ */
+export async function updateAISettings(aiSettings, userId = null) {
+  const updateData = { aiSettings };
+  await updateSystemConfig(updateData, userId);
+}
+
 export default {
   getSystemConfig,
   subscribeToSystemConfig,
@@ -224,5 +271,9 @@ export default {
   getGlobalFeatureExportTemplates,
   subscribeToGlobalFeatureExportTemplates,
   updateGlobalFeatureExportTemplates,
-  DEFAULT_SYSTEM_CONFIG
+  getAISettings,
+  subscribeToAISettings,
+  updateAISettings,
+  DEFAULT_SYSTEM_CONFIG,
+  DEFAULT_AI_SETTINGS
 };
