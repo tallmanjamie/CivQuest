@@ -584,6 +584,84 @@ function generateGraphHtml(graphType, data, theme, options = {}) {
 }
 
 /**
+ * Format a value based on its field type for display in data tables
+ * @param {*} value - The raw value to format
+ * @param {string} fieldType - The ArcGIS field type (esriFieldTypeString, esriFieldTypeDate, etc.)
+ * @param {Object} domain - Optional domain for coded values
+ * @returns {string} Formatted value for display
+ */
+function formatFieldValue(value, fieldType, domain = null) {
+  // Handle null/undefined/empty values
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  // Handle coded value domains
+  if (domain && domain.type === 'codedValue' && domain.codedValues) {
+    const codedValue = domain.codedValues.find(cv => cv.code === value);
+    if (codedValue) {
+      return codedValue.name;
+    }
+  }
+
+  // Format based on field type
+  switch (fieldType) {
+    case 'esriFieldTypeDate':
+      // ArcGIS dates are stored as milliseconds since epoch
+      if (typeof value === 'number') {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          // Format as readable date: "Jan 15, 2024"
+          return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          });
+        }
+      }
+      // Try parsing string date
+      if (typeof value === 'string') {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          });
+        }
+      }
+      return String(value);
+
+    case 'esriFieldTypeDouble':
+    case 'esriFieldTypeSingle':
+      // Format decimal numbers with 2 decimal places if needed
+      if (typeof value === 'number') {
+        // Only show decimal places if the number has them
+        if (Number.isInteger(value)) {
+          return value.toLocaleString();
+        }
+        return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+      }
+      return String(value);
+
+    case 'esriFieldTypeInteger':
+    case 'esriFieldTypeSmallInteger':
+    case 'esriFieldTypeOID':
+      // Format integers with thousand separators
+      if (typeof value === 'number') {
+        return Math.round(value).toLocaleString();
+      }
+      return String(value);
+
+    case 'esriFieldTypeString':
+    case 'esriFieldTypeGlobalID':
+    default:
+      // Return as-is for strings and other types
+      return String(value);
+  }
+}
+
+/**
  * Helper function to aggregate data for graph
  * @param {Array} records - Array of data records
  * @param {string} labelField - Field to use for labels/categories
@@ -705,6 +783,7 @@ export default function CustomTemplateEditor({
   const [isLoadingLiveData, setIsLoadingLiveData] = useState(false);
   const [liveDataRecords, setLiveDataRecords] = useState([]);
   const [liveDataFields, setLiveDataFields] = useState([]);
+  const [liveDataFieldMetadata, setLiveDataFieldMetadata] = useState({}); // Full field metadata including type info
   const [liveDataError, setLiveDataError] = useState(null);
   const [liveRecordCount, setLiveRecordCount] = useState(null);
   const [useLiveData, setUseLiveData] = useState(false);
@@ -716,6 +795,9 @@ export default function CustomTemplateEditor({
   // Server-side graph data state (keyed by graph element ID)
   const [serverGraphData, setServerGraphData] = useState({});
   const [isLoadingGraphData, setIsLoadingGraphData] = useState({});
+
+  // Track previous graph configurations to detect actual changes
+  const prevGraphConfigsRef = useRef({});
 
   // Drag and drop state
   const [draggedElement, setDraggedElement] = useState(null);
@@ -843,6 +925,19 @@ export default function CustomTemplateEditor({
       }
       console.log('[CustomTemplateEditor] Extracted field names:', fields);
       setLiveDataFields(fields);
+
+      // Store full field metadata for type detection
+      const fieldMetadata = {};
+      (metadata.fields || []).forEach(f => {
+        fieldMetadata[f.name] = {
+          type: f.type,
+          alias: f.alias || f.name,
+          length: f.length,
+          domain: f.domain
+        };
+      });
+      console.log('[CustomTemplateEditor] Field metadata:', fieldMetadata);
+      setLiveDataFieldMetadata(fieldMetadata);
 
       // Get total record count
       const baseUrl = endpoint.replace(/\/$/, '');
@@ -1305,9 +1400,26 @@ export default function CustomTemplateEditor({
   useEffect(() => {
     if (useLiveData && notification.source?.endpoint) {
       const graphElements = (template.visualElements || []).filter(el => el.type === 'graph' && el.labelField);
+
       graphElements.forEach(element => {
-        // Only fetch if we don't already have data for this element or if config changed
-        fetchGraphDataForElement(element);
+        // Build a config key to compare with previous configuration
+        const currentConfig = `${element.labelField}|${element.dataField || ''}|${element.operation || 'count'}|${element.maxItems || 10}`;
+        const prevConfig = prevGraphConfigsRef.current[element.id];
+
+        // Only fetch if configuration has actually changed or we don't have data yet
+        if (currentConfig !== prevConfig) {
+          console.log('[CustomTemplateEditor] Graph config changed for', element.id, ':', prevConfig, '->', currentConfig);
+          prevGraphConfigsRef.current[element.id] = currentConfig;
+          fetchGraphDataForElement(element);
+        }
+      });
+
+      // Clean up configs for removed graph elements
+      const currentGraphIds = new Set(graphElements.map(el => el.id));
+      Object.keys(prevGraphConfigsRef.current).forEach(id => {
+        if (!currentGraphIds.has(id)) {
+          delete prevGraphConfigsRef.current[id];
+        }
       });
     }
   }, [useLiveData, notification.source?.endpoint, template.visualElements, fetchGraphDataForElement]);
@@ -1450,6 +1562,35 @@ export default function CustomTemplateEditor({
       const fieldNames = displayFields.map(f => typeof f === 'string' ? f : f.field);
       const fieldLabels = displayFields.map(f => typeof f === 'string' ? f : (f.label || f.field));
 
+      // Helper to format cell value with type detection
+      const formatCellValue = (row, fieldName) => {
+        const rawValue = row[fieldName];
+        const fieldMeta = liveDataFieldMetadata[fieldName];
+        if (fieldMeta) {
+          return formatFieldValue(rawValue, fieldMeta.type, fieldMeta.domain);
+        }
+        // Fallback: try to detect type from value
+        if (rawValue === null || rawValue === undefined || rawValue === '') {
+          return '';
+        }
+        // Check if it's a date (large number that could be epoch milliseconds)
+        if (typeof rawValue === 'number' && rawValue > 946684800000 && rawValue < 4102444800000) {
+          // Likely a date between year 2000 and 2100
+          const date = new Date(rawValue);
+          if (!isNaN(date.getTime())) {
+            return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+          }
+        }
+        // Check if it's a regular number
+        if (typeof rawValue === 'number') {
+          if (Number.isInteger(rawValue)) {
+            return rawValue.toLocaleString();
+          }
+          return rawValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        }
+        return String(rawValue);
+      };
+
       const tableHtml = `<table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px;">
         <thead>
           <tr>
@@ -1457,7 +1598,7 @@ export default function CustomTemplateEditor({
           </tr>
         </thead>
         <tbody>
-          ${liveDataRecords.slice(0, recordLimit).map(row => `<tr>${fieldNames.map(f => `<td style="padding: 10px 8px; border-bottom: 1px solid #eee;">${row[f] ?? ''}</td>`).join('')}</tr>`).join('')}
+          ${liveDataRecords.slice(0, recordLimit).map(row => `<tr>${fieldNames.map(f => `<td style="padding: 10px 8px; border-bottom: 1px solid #eee;">${formatCellValue(row, f)}</td>`).join('')}</tr>`).join('')}
         </tbody>
       </table>`;
 
@@ -1541,7 +1682,7 @@ export default function CustomTemplateEditor({
     });
 
     return baseContext;
-  }, [notification, template, locality, useLiveData, liveDataRecords, liveDataFields, liveRecordCount, liveStatistics, serverGraphData]);
+  }, [notification, template, locality, useLiveData, liveDataRecords, liveDataFields, liveDataFieldMetadata, liveRecordCount, liveStatistics, serverGraphData]);
 
   // Process template HTML with context
   const processedHtml = useMemo(() => {
