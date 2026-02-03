@@ -200,6 +200,7 @@ export async function exportSearchResultsToShapefile({ features, filename = 'sea
   // Generate shapefile
   const options = {
     folder: filename,
+    outputType: 'blob',
     types: {
       point: 'points',
       polygon: 'polygons',

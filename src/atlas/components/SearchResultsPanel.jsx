@@ -16,8 +16,6 @@ import {
   ArrowDownAZ,
   Check,
   Filter,
-  Download,
-  ChevronDown,
   FileSpreadsheet,
   FileArchive,
   Loader2
@@ -66,7 +64,6 @@ export default function SearchResultsPanel({
   const [displayField, setDisplayField] = useState(''); // Empty means auto-detect
   const [filterText, setFilterText] = useState('');
   const [showFilter, setShowFilter] = useState(false);
-  const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   // Refs
@@ -74,7 +71,6 @@ export default function SearchResultsPanel({
   const listRef = useRef(null);
   const configRef = useRef(null);
   const filterInputRef = useRef(null);
-  const exportMenuRef = useRef(null);
 
   // Get features from search results
   const rawFeatures = searchResults?.features || [];
@@ -93,26 +89,12 @@ export default function SearchResultsPanel({
     }
   }, [showConfig]);
 
-  // Close export menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
-        setShowExportMenu(false);
-      }
-    };
-    if (showExportMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showExportMenu]);
 
   /**
    * Export to CSV
    */
   const exportCSV = useCallback(() => {
     if (!searchResults?.features?.length) return;
-
-    setShowExportMenu(false);
 
     // Get all unique field names from features
     const allFields = new Set();
@@ -165,7 +147,6 @@ export default function SearchResultsPanel({
     if (!searchResults?.features?.length) return;
 
     setIsExporting(true);
-    setShowExportMenu(false);
 
     try {
       await exportSearchResultsToShapefile({
@@ -488,17 +469,22 @@ export default function SearchResultsPanel({
                 <Filter className="w-4 h-4" style={{ color: showFilter ? colors.text600 : 'rgb(71 85 105)' }} />
               </button>
 
-              {/* Config Button */}
+              {/* Results Options Button */}
               <div className="relative" ref={configRef}>
                 <button
                   onClick={() => setShowConfig(!showConfig)}
-                  className={`p-1 rounded transition ${showConfig ? 'bg-slate-200' : 'hover:bg-slate-200'}`}
-                  title="Result Settings"
+                  disabled={isExporting}
+                  className={`p-1 rounded transition ${showConfig ? 'bg-slate-200' : 'hover:bg-slate-200'} ${isExporting ? 'opacity-50' : ''}`}
+                  title="Results Options"
                 >
-                  <Settings2 className="w-4 h-4 text-slate-600" />
+                  {isExporting ? (
+                    <Loader2 className="w-4 h-4 text-slate-600 animate-spin" />
+                  ) : (
+                    <Settings2 className="w-4 h-4 text-slate-600" />
+                  )}
                 </button>
 
-                {/* Config Popup */}
+                {/* Results Options Popup */}
                 {showConfig && (
                   <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-xl border border-slate-200 w-56 z-50">
                     {/* Sort Order Section */}
@@ -533,7 +519,7 @@ export default function SearchResultsPanel({
                     </div>
 
                     {/* Display Field Section */}
-                    <div className="p-3">
+                    <div className="p-3 border-b border-slate-100">
                       <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Display Field</p>
                       <div className="max-h-40 overflow-y-auto space-y-0.5">
                         {/* Auto option */}
@@ -570,42 +556,27 @@ export default function SearchResultsPanel({
                         )}
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
 
-              {/* Export Dropdown */}
-              <div className="relative" ref={exportMenuRef}>
-                <button
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                  disabled={isExporting}
-                  className={`p-1 rounded transition ${showExportMenu ? 'bg-slate-200' : 'hover:bg-slate-200'} ${isExporting ? 'opacity-50' : ''}`}
-                  title="Export Results"
-                >
-                  {isExporting ? (
-                    <Loader2 className="w-4 h-4 text-slate-600 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4 text-slate-600" />
-                  )}
-                </button>
-
-                {/* Export Menu */}
-                {showExportMenu && (
-                  <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-xl border border-slate-200 w-44 z-50">
-                    <button
-                      onClick={exportCSV}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors rounded-t-lg"
-                    >
-                      <FileSpreadsheet className="w-4 h-4 text-green-600" />
-                      Export to CSV
-                    </button>
-                    <button
-                      onClick={exportShapefile}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors rounded-b-lg"
-                    >
-                      <FileArchive className="w-4 h-4 text-blue-600" />
-                      Export to Shapefile
-                    </button>
+                    {/* Export Section */}
+                    <div className="p-3">
+                      <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Export</p>
+                      <div className="space-y-0.5">
+                        <button
+                          onClick={() => { exportCSV(); setShowConfig(false); }}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-slate-50 transition"
+                        >
+                          <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                          <span className="text-slate-600">Export to CSV</span>
+                        </button>
+                        <button
+                          onClick={() => { exportShapefile(); setShowConfig(false); }}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-slate-50 transition"
+                        >
+                          <FileArchive className="w-4 h-4 text-blue-600" />
+                          <span className="text-slate-600">Export to Shapefile</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
