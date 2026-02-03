@@ -296,41 +296,61 @@ const ChatView = forwardRef(function ChatView(props, ref) {
 
     console.log(`[ChatView] Calling Gemini API with model: ${modelName}`);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: useCreativeConfig ? GEMINI_CREATIVE_CONFIG : GEMINI_QUERY_CONFIG
-      })
-    });
+    // Add timeout to prevent long-running requests (30 seconds)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const data = await response.json();
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: useCreativeConfig ? GEMINI_CREATIVE_CONFIG : GEMINI_QUERY_CONFIG
+        }),
+        signal: controller.signal
+      });
 
-    if (data.error) {
-      const errorMessage = data.error.message || data.error.status || 'Unknown API error';
-      console.error(`[ChatView] Gemini API error (${modelName}):`, data.error);
+      clearTimeout(timeoutId);
 
-      if (!useFallback && GEMINI_CONFIG.fallbackModel) {
-        console.log('[ChatView] Trying fallback model...');
-        return callGeminiApi(prompt, true, useCreativeConfig);
+      const data = await response.json();
+
+      if (data.error) {
+        const errorMessage = data.error.message || data.error.status || 'Unknown API error';
+        console.error(`[ChatView] Gemini API error (${modelName}):`, data.error);
+
+        if (!useFallback && GEMINI_CONFIG.fallbackModel) {
+          console.log('[ChatView] Trying fallback model...');
+          return callGeminiApi(prompt, true, useCreativeConfig);
+        }
+
+        throw new Error(`Gemini API error: ${errorMessage}`);
       }
 
-      throw new Error(`Gemini API error: ${errorMessage}`);
-    }
+      if (!response.ok) {
+        const errorText = JSON.stringify(data);
+        console.error(`[ChatView] HTTP ${response.status}:`, errorText);
 
-    if (!response.ok) {
-      const errorText = JSON.stringify(data);
-      console.error(`[ChatView] HTTP ${response.status}:`, errorText);
+        if (!useFallback && GEMINI_CONFIG.fallbackModel) {
+          return callGeminiApi(prompt, true, useCreativeConfig);
+        }
 
-      if (!useFallback && GEMINI_CONFIG.fallbackModel) {
-        return callGeminiApi(prompt, true, useCreativeConfig);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
+      return data;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        console.error(`[ChatView] Gemini API request timed out (${modelName})`);
+        if (!useFallback && GEMINI_CONFIG.fallbackModel) {
+          console.log('[ChatView] Trying fallback model after timeout...');
+          return callGeminiApi(prompt, true, useCreativeConfig);
+        }
+        throw new Error('AI request timed out. Please try again.');
+      }
+      throw err;
     }
-
-    return data;
   }, []);
 
   const geocodeAddress = useCallback(async (address) => {
@@ -530,8 +550,25 @@ Provide a clear, helpful answer. If you reference media (images/videos), note th
   }, [config?.helpDocumentation, callGeminiApi]);
 
   /**
+   * Build a description of available search fields for the AI prompt
+   */
+  const buildAvailableFieldsContext = useCallback(() => {
+    const searchFields = activeMap?.searchFields || config?.data?.searchFields;
+    if (!searchFields || searchFields.length === 0) {
+      return '';
+    }
+
+    const fieldDescriptions = searchFields.map(sf => {
+      const typeInfo = sf.type ? ` (${sf.type})` : '';
+      return `  - ${sf.field}${typeInfo}${sf.label ? `: ${sf.label}` : ''}`;
+    }).join('\n');
+
+    return `\n\nAvailable database fields for queries:\n${fieldDescriptions}\n\nUse these exact field names in your WHERE clauses.`;
+  }, [activeMap?.searchFields, config?.data?.searchFields]);
+
+  /**
    * Translate natural language query to SQL using AI
-   * Uses the configured System Prompt for AI Query Translation
+   * Uses the configured System Prompt and available search fields
    */
   const translateQueryWithAI = useCallback(async (query) => {
     // Check multiple paths for the system prompt
@@ -554,8 +591,12 @@ Provide a clear, helpful answer. If you reference media (images/videos), note th
       // Build session context
       const sessionContext = buildSessionContext();
 
+      // Build available fields context from searchFields configuration
+      const fieldsContext = buildAvailableFieldsContext();
+      console.log('[ChatView] Available fields context:', fieldsContext || '(none configured)');
+
       // Build the full prompt with context
-      const fullPrompt = `${systemPrompt}${sessionContext}
+      const fullPrompt = `${systemPrompt}${fieldsContext}${sessionContext}
 
 User Query: ${query}
 
@@ -604,7 +645,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
       console.error('[ChatView] Gemini AI translation failed:', err);
       return null;
     }
-  }, [activeMap?.systemPrompt, config?.data?.systemPrompt, callGeminiApi, buildSessionContext]);
+  }, [activeMap?.systemPrompt, config?.data?.systemPrompt, callGeminiApi, buildSessionContext, buildAvailableFieldsContext]);
 
   const handleSearch = useCallback(async (query) => {
     if (!query?.trim() || isLoading) return;
