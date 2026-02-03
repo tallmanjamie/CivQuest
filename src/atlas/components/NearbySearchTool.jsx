@@ -14,6 +14,7 @@ import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
 import Point from '@arcgis/core/geometry/Point';
 import Polyline from '@arcgis/core/geometry/Polyline';
 import Polygon from '@arcgis/core/geometry/Polygon';
+import FeatureLayer from '@arcgis/core/layers/FeatureLayer';
 import { getThemeColors } from '../utils/themeColors';
 
 // Distance units configuration
@@ -127,44 +128,48 @@ export default function NearbySearchTool({
   }, []);
 
   /**
-   * Query features within the buffer
+   * Query features within the buffer using ArcGIS SDK FeatureLayer
+   * This approach handles CORS properly by using the SDK's built-in request handling
    */
   const queryFeaturesInBuffer = useCallback(async (bufferGeometry, serviceEndpoint) => {
     if (!serviceEndpoint) {
       throw new Error('No endpoint configured for nearby search');
     }
 
-    // Convert buffer geometry to JSON for the query
-    const geometryJson = JSON.stringify(bufferGeometry.toJSON());
-
-    const params = new URLSearchParams({
-      f: 'json',
-      where: '1=1',
-      geometry: geometryJson,
-      geometryType: 'esriGeometryPolygon',
-      spatialRel: 'esriSpatialRelIntersects',
-      outFields: '*',
-      returnGeometry: 'true',
-      outSR: '4326',
-      inSR: bufferGeometry.spatialReference?.wkid || '4326',
-      resultRecordCount: '1000'
-    });
-
     console.log('[NearbySearchTool] Querying:', serviceEndpoint);
 
-    const response = await fetch(`${serviceEndpoint}/query?${params}`);
-    const data = await response.json();
+    // Create a temporary FeatureLayer from the endpoint URL
+    // This uses the ArcGIS SDK's built-in CORS handling
+    const featureLayer = new FeatureLayer({
+      url: serviceEndpoint
+    });
 
-    if (data.error) {
-      throw new Error(data.error.message || 'Query failed');
-    }
+    // Wait for the layer to load
+    await featureLayer.load();
+
+    // Create the query
+    const query = featureLayer.createQuery();
+    query.geometry = bufferGeometry;
+    query.spatialRelationship = 'intersects';
+    query.outFields = ['*'];
+    query.returnGeometry = true;
+    query.outSpatialReference = { wkid: 4326 };
+    query.num = 1000; // Limit results
+
+    // Execute the query using the SDK (handles CORS properly)
+    const results = await featureLayer.queryFeatures(query);
+
+    // Convert ArcGIS Feature objects to plain JSON format for consistency
+    const features = (results.features || []).map(feature => ({
+      geometry: feature.geometry?.toJSON?.() || feature.geometry,
+      attributes: feature.attributes
+    }));
 
     // Ensure all features have spatial reference
-    const features = (data.features || []).map(feature => {
+    features.forEach(feature => {
       if (feature.geometry && !feature.geometry.spatialReference) {
-        feature.geometry.spatialReference = data.spatialReference || { wkid: 4326 };
+        feature.geometry.spatialReference = { wkid: 4326 };
       }
-      return feature;
     });
 
     return features;
