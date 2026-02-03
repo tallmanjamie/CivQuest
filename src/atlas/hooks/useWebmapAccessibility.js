@@ -9,7 +9,7 @@
 // 4. If user not logged in and no public maps: require login
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { checkMultipleWebmapsAccess } from '@shared/services/arcgis-auth';
+import { checkMultipleWebmapsAccess, checkPrivateWebmapsAccess, getStoredArcGISToken } from '@shared/services/arcgis-auth';
 
 /**
  * Hook to manage webmap accessibility based on authentication state
@@ -18,7 +18,7 @@ import { checkMultipleWebmapsAccess } from '@shared/services/arcgis-auth';
  * @param {Array} options.allMaps - All maps from the config
  * @param {Object|null} options.firebaseUser - Current Firebase user (null if not logged in)
  * @param {Object|null} options.firebaseUserData - User data from Firestore (contains arcgisProfile)
- * @param {Object|null} options.arcgisPortal - ArcGIS Portal instance (from useArcGISAuth)
+ * @param {Object|null} options.arcgisPortal - (Deprecated) No longer used - token is now stored separately
  * @param {boolean} options.arcgisAuthLoading - Whether ArcGIS auth is still loading
  * @returns {Object} { accessibleMaps, publicMaps, privateMaps, loading, requiresLogin, hasCheckedAccess }
  */
@@ -26,7 +26,7 @@ export function useWebmapAccessibility({
   allMaps = [],
   firebaseUser = null,
   firebaseUserData = null,
-  arcgisPortal = null,
+  arcgisPortal = null, // Kept for backward compatibility, no longer used
   arcgisAuthLoading = false
 }) {
   const [accessibleMaps, setAccessibleMaps] = useState([]);
@@ -81,31 +81,35 @@ export function useWebmapAccessibility({
   }, [allMaps]);
 
   /**
-   * Check if user has access to private maps via their linked ArcGIS account
+   * Check if user has access to private maps via their stored ArcGIS OAuth token
+   * This uses the token stored during OAuth login to directly query the ArcGIS REST API
    */
-  const checkPrivateMapAccess = useCallback(async (privateMapsInfo, portal) => {
-    if (!privateMapsInfo?.length || !portal) {
+  const checkPrivateMapAccess = useCallback(async (privateMapsInfo) => {
+    if (!privateMapsInfo?.length) {
       return [];
     }
 
-    console.log('[useWebmapAccessibility] Checking private map access for', privateMapsInfo.length, 'maps');
+    // Check if we have a stored OAuth token
+    const storedToken = getStoredArcGISToken();
+    if (!storedToken?.access_token) {
+      console.log('[useWebmapAccessibility] No stored ArcGIS token, skipping private map check');
+      return [];
+    }
+
+    console.log('[useWebmapAccessibility] Checking private map access for', privateMapsInfo.length, 'maps using stored token');
 
     try {
-      // Query the portal for all private map item IDs
+      // Get all private map item IDs
       const itemIds = privateMapsInfo
         .map(info => info.map.webMap?.itemId)
         .filter(Boolean);
 
       if (itemIds.length === 0) return [];
 
-      // Query portal for accessible items
-      const queryString = itemIds.map(id => `id:"${id}"`).join(' OR ');
-      const result = await portal.queryItems({
-        query: queryString,
-        num: 100
-      });
+      // Use the stored token to check which private maps the user can access
+      const accessibleIds = await checkPrivateWebmapsAccess(itemIds);
 
-      const accessibleIds = new Set(result.results.map(item => item.id));
+      console.log('[useWebmapAccessibility] Accessible private map IDs:', accessibleIds.size);
 
       // Return the maps that the user can access
       return privateMapsInfo.filter(info => {
@@ -144,19 +148,21 @@ export function useWebmapAccessibility({
       let accessible = [];
 
       // If user is logged in and has linked ArcGIS account, check private maps
+      // Uses stored OAuth token from login for authentication
       const hasLinkedArcGIS = firebaseUserData?.arcgisProfile?.username ||
                               firebaseUserData?.linkedArcGISUsername;
+      const hasStoredToken = !!getStoredArcGISToken();
 
-      if (firebaseUser && hasLinkedArcGIS && arcgisPortal) {
-        console.log('[useWebmapAccessibility] User has linked ArcGIS account, checking private maps');
-        const accessiblePrivate = await checkPrivateMapAccess(privateList, arcgisPortal);
+      if (firebaseUser && hasLinkedArcGIS && hasStoredToken) {
+        console.log('[useWebmapAccessibility] User has linked ArcGIS account with stored token, checking private maps');
+        const accessiblePrivate = await checkPrivateMapAccess(privateList);
         const accessiblePrivateMaps = accessiblePrivate.map(info => info.map);
         // When signed in, prioritize private maps over public maps
         // This ensures the default selected map is the private one when available
         accessible = [...accessiblePrivateMaps, ...publicMapObjects];
         console.log('[useWebmapAccessibility] Accessible private maps:', accessiblePrivateMaps.length);
       } else {
-        // Not signed in or no linked ArcGIS - use public maps only
+        // Not signed in or no linked ArcGIS/stored token - use public maps only
         accessible = [...publicMapObjects];
       }
 
@@ -174,7 +180,8 @@ export function useWebmapAccessibility({
         private: privateMapObjects.length,
         loginRequired,
         userLoggedIn: !!firebaseUser,
-        hasLinkedArcGIS
+        hasLinkedArcGIS,
+        hasStoredToken
       });
 
       setAccessibleMaps(accessible);
@@ -188,7 +195,6 @@ export function useWebmapAccessibility({
     allMaps,
     firebaseUser,
     firebaseUserData,
-    arcgisPortal,
     arcgisAuthLoading,
     checkPublicAccess,
     checkPrivateMapAccess
