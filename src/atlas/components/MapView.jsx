@@ -1184,6 +1184,34 @@ const MapView = forwardRef(function MapView(props, ref) {
   }, [mapReady]);
 
   /**
+   * Zoom to a specific coordinate without adding to search results
+   * Used for geocoder location selection
+   */
+  const zoomToCoordinate = useCallback((lat, lng, zoomLevel = 17) => {
+    if (!viewRef.current) return;
+
+    const point = new Point({
+      longitude: lng,
+      latitude: lat,
+      spatialReference: { wkid: 4326 }
+    });
+
+    // Clear any existing search results and highlights to avoid confusion
+    if (graphicsLayerRef.current) graphicsLayerRef.current.removeAll();
+    if (highlightLayerRef.current) highlightLayerRef.current.removeAll();
+    if (pushpinLayerRef.current) pushpinLayerRef.current.removeAll();
+
+    // Close any open panels
+    setShowSearchResults(false);
+    setShowFeaturePanel(false);
+
+    viewRef.current.goTo(
+      { target: point, zoom: zoomLevel },
+      { duration: 500 }
+    );
+  }, []);
+
+  /**
    * Display GPS marker at the given coordinates
    */
   const displayGpsMarker = useCallback((latitude, longitude, accuracy) => {
@@ -1899,6 +1927,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     renderResults,
     highlightFeature,
     zoomToFeature,
+    zoomToCoordinate,
     zoomToAllResults,
     clearResults,
     selectFeature: handleFeatureSelect,
@@ -1906,7 +1935,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     get view() { return viewRef.current; },
     get map() { return mapRef.current; },
     get markupLayer() { return markupLayerRef.current; }
-  }), [renderResults, highlightFeature, zoomToFeature, zoomToAllResults, clearResults, handleFeatureSelect, handleCloseFeaturePanel]);
+  }), [renderResults, highlightFeature, zoomToFeature, zoomToCoordinate, zoomToAllResults, clearResults, handleFeatureSelect, handleCloseFeaturePanel]);
 
   // Update results when searchResults change
   useEffect(() => {

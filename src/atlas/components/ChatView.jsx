@@ -969,7 +969,22 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
     }
   }, [config, activeMap, mapViewRef]);
 
-  useImperativeHandle(ref, () => ({ handleSearch, addMessage }), [handleSearch, addMessage]);
+  /**
+   * Add a location-only message (from geocoder autocomplete)
+   * Shows a mini map with the location and an "Open in Map" button
+   */
+  const addLocationMessage = useCallback((location, address) => {
+    addMessage('ai', `📍 **${location.formatted || address}**`, {
+      isLocationMessage: true,
+      location: {
+        lat: location.lat,
+        lng: location.lng,
+        formatted: location.formatted || address
+      }
+    });
+  }, [addMessage]);
+
+  useImperativeHandle(ref, () => ({ handleSearch, addMessage, addLocationMessage }), [handleSearch, addMessage, addLocationMessage]);
 
   // Get the search tip text from config (empty = hidden)
   const searchTipText = config?.messages?.searchTip || '';
@@ -1137,6 +1152,14 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
                 if (enabledModes.includes('map')) {
                   setMode('map');
                 }
+              }}
+              onOpenInMap={(location) => {
+                // Zoom to the geocoded location without search results
+                if (location && mapViewRef?.current?.zoomToCoordinate) {
+                  mapViewRef.current.zoomToCoordinate(location.lat, location.lng, 17);
+                }
+                // Switch to map mode
+                setMode('map');
               }}
             />
           ))}
@@ -1369,6 +1392,7 @@ function MessageBubble({
   onExportShapefile,
   onExportPDF,
   onRowClick,
+  onOpenInMap,
   tableColumns,
   searchFields,
   themeColor,
@@ -1457,6 +1481,72 @@ function MessageBubble({
               </button>
             </div>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // Check if this is a location message (from geocoder autocomplete)
+  if (message.isLocationMessage && message.location) {
+    // Create a point feature for the mini map
+    const locationFeature = {
+      geometry: {
+        x: message.location.lng,
+        y: message.location.lat,
+        spatialReference: { wkid: 4326 }
+      },
+      attributes: {
+        address: message.location.formatted
+      }
+    };
+
+    return (
+      <div className="flex gap-3 md:gap-4">
+        <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+          {botAvatar ? (
+            <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
+          ) : (
+            <div
+              className="w-full h-full rounded-full flex items-center justify-center"
+              style={{ backgroundColor: colors.bg100 }}
+            >
+              <MapPin className="w-4 h-4 md:w-5 md:h-5" style={{ color: colors.text600 }} />
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0 max-w-[85%] md:max-w-[70%]">
+          <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200">
+            <div className="text-sm text-slate-700 prose prose-sm" dangerouslySetInnerHTML={{
+              __html: message.content
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            }} />
+
+            {/* Mini map showing the location */}
+            <div className="mt-3">
+              <ChatMiniMap
+                features={[locationFeature]}
+                themeColor={themeColor}
+                height={200}
+              />
+            </div>
+
+            {/* Open in Map button */}
+            {enabledModes?.includes('map') && onOpenInMap && (
+              <div className="mt-3">
+                <button
+                  onClick={() => onOpenInMap(message.location)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                  style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
+                >
+                  <Map className="w-4 h-4" />
+                  Open in Map
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );

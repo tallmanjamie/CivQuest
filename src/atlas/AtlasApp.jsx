@@ -125,6 +125,7 @@ function SearchToolbar({
   enabledModes,
   searchQuery,
   onSearch,
+  onGeocodingLocation,
   isSearching,
   activeMap,
   showHistory,
@@ -351,6 +352,8 @@ function SearchToolbar({
 
   /**
    * Handle suggestion selection
+   * For geocoding suggestions, use the dedicated handler to zoom to location
+   * without treating it as a property search
    */
   const handleSelectSuggestion = useCallback((suggestion) => {
     if (suggestion.isTypeHint) {
@@ -364,12 +367,19 @@ function SearchToolbar({
     setShowSuggestions(false);
     setSuggestions([]);
 
-    // Auto-submit the search
+    // For geocoding suggestions, use the dedicated handler
+    if (suggestion.isGeocodingSuggestion && onGeocodingLocation) {
+      onGeocodingLocation(suggestion.value, suggestion.magicKey);
+      setInputValue('');
+      return;
+    }
+
+    // Auto-submit the search for other suggestions
     if (onSearch) {
       onSearch(suggestion.value);
       setInputValue('');
     }
-  }, [onSearch]);
+  }, [onSearch, onGeocodingLocation]);
 
   /**
    * Handle keyboard navigation in suggestions
@@ -1213,6 +1223,73 @@ export default function AtlasApp() {
     }
   }, [enabledModes, handleModeChange]);
 
+  /**
+   * Handle geocoding location selection from autocomplete
+   * This zooms to the location without treating it as a property search
+   * - In chat mode: Shows a location message with mini map and "Open in Map" button
+   * - In map mode: Just zooms to the location without search results
+   */
+  const handleGeocodingLocation = useCallback(async (address, magicKey) => {
+    console.log('[AtlasApp] Geocoding location:', address, 'magicKey:', magicKey);
+
+    const geocoderConfig = activeMap?.geocoder || config?.data?.geocoder;
+    const geocoderUrl = geocoderConfig?.url ||
+      'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer';
+
+    try {
+      // Use findAddressCandidates with magicKey for more precise results
+      const params = new URLSearchParams({
+        f: 'json',
+        SingleLine: address,
+        outFields: '*',
+        outSR: '4326',
+        maxLocations: '1'
+      });
+
+      // If we have a magicKey from the suggestion, use it for better accuracy
+      if (magicKey) {
+        params.set('magicKey', magicKey);
+      }
+
+      const response = await fetch(`${geocoderUrl}/findAddressCandidates?${params}`);
+      const data = await response.json();
+
+      if (data.error) {
+        console.error('[AtlasApp] Geocoder error:', data.error);
+        return;
+      }
+
+      if (!data.candidates || data.candidates.length === 0) {
+        console.warn('[AtlasApp] No geocoding results for:', address);
+        return;
+      }
+
+      const result = data.candidates[0];
+      const location = {
+        lat: result.location.y,
+        lng: result.location.x,
+        formatted: result.address || address
+      };
+
+      console.log('[AtlasApp] Geocoded location:', location);
+
+      // Handle based on current mode
+      if (mode === 'map') {
+        // In map mode: Just zoom to the location without search results
+        if (mapViewRef.current?.zoomToCoordinate) {
+          mapViewRef.current.zoomToCoordinate(location.lat, location.lng, 17);
+        }
+      } else {
+        // In chat mode: Show a location message with mini map and "Open in Map" button
+        if (chatViewRef.current?.addLocationMessage) {
+          chatViewRef.current.addLocationMessage(location, address);
+        }
+      }
+    } catch (err) {
+      console.error('[AtlasApp] Geocoding error:', err);
+    }
+  }, [activeMap?.geocoder, config?.data?.geocoder, mode]);
+
   // Debug logging for map picker feature
   console.log('[AtlasApp] Map picker context debug:', {
     configMaps: configMaps?.map(m => m.name),
@@ -1438,6 +1515,7 @@ export default function AtlasApp() {
       enabledModes={enabledModes}
       searchQuery={searchQuery}
       onSearch={handleSearch}
+      onGeocodingLocation={handleGeocodingLocation}
       isSearching={isSearching}
       activeMap={activeMap}
       showHistory={showHistory}
