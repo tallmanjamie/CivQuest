@@ -4,7 +4,8 @@
 // Implements the Atlas authentication workflow:
 // 1. Check each webmap in config for public accessibility
 // 2. If user not logged in and there are public maps: show them
-// 3. If user logged in: show public maps + check private maps with linked ArcGIS account
+// 3. If user logged in: show accessible private maps FIRST, then public maps
+//    (Private maps are prioritized so the default selected map is the private one)
 // 4. If user not logged in and no public maps: require login
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -140,7 +141,7 @@ export function useWebmapAccessibility({
       setPrivateMaps(privateMapObjects);
 
       // Step 2: Determine what maps are accessible based on auth state
-      let accessible = [...publicMapObjects];
+      let accessible = [];
 
       // If user is logged in and has linked ArcGIS account, check private maps
       const hasLinkedArcGIS = firebaseUserData?.arcgisProfile?.username ||
@@ -150,8 +151,13 @@ export function useWebmapAccessibility({
         console.log('[useWebmapAccessibility] User has linked ArcGIS account, checking private maps');
         const accessiblePrivate = await checkPrivateMapAccess(privateList, arcgisPortal);
         const accessiblePrivateMaps = accessiblePrivate.map(info => info.map);
-        accessible = [...accessible, ...accessiblePrivateMaps];
+        // When signed in, prioritize private maps over public maps
+        // This ensures the default selected map is the private one when available
+        accessible = [...accessiblePrivateMaps, ...publicMapObjects];
         console.log('[useWebmapAccessibility] Accessible private maps:', accessiblePrivateMaps.length);
+      } else {
+        // Not signed in or no linked ArcGIS - use public maps only
+        accessible = [...publicMapObjects];
       }
 
       // Step 3: Determine if login is required
