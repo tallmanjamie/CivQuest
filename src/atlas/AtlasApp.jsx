@@ -784,6 +784,7 @@ export default function AtlasApp() {
     requiresLogin,
     hasCheckedAccess,
     allMapsPublic,
+    allMapsConfiguredPrivate,
     defaultMapIsPublic
   } = useWebmapAccessibility({
     allMaps: configMaps,
@@ -1304,7 +1305,9 @@ export default function AtlasApp() {
     activeMap: activeMap?.name,
     activeMapIndex,
     firebaseUser: !!firebaseUser,
-    hasCheckedAccess
+    hasCheckedAccess,
+    allMapsConfiguredPrivate,
+    requiresLogin
   });
 
   // Context value - includes theme colors for child components
@@ -1319,7 +1322,8 @@ export default function AtlasApp() {
     availableMaps: accessibleMaps,  // Maps the user can actually access
     publicMaps,                      // Maps available to everyone
     privateMaps,                     // Maps requiring authentication
-    allMapsPublic,                   // True if all configured maps are public (no private maps)
+    allMapsPublic,                   // True if all configured maps are public (no private maps based on ArcGIS)
+    allMapsConfiguredPrivate,        // True if all maps in Atlas config have access="private"
     defaultMapIsPublic,              // True if the default/first map is public
 
     // Theme colors (for child components)
