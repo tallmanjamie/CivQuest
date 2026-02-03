@@ -928,9 +928,11 @@ const MapView = forwardRef(function MapView(props, ref) {
     let geometry;
     let geometryType = 'point'; // Default
 
-    // Default to the view's spatial reference if missing in the feature geometry (common with JSON objects)
-    const defaultSR = viewRef.current?.spatialReference || { wkid: 4326 };
-    const geomSR = geom.spatialReference || defaultSR;
+    // Always default to WGS84 (4326) for coordinates without a spatial reference
+    // Feature coordinates from queries are typically in WGS84 (longitude/latitude)
+    // Using the view's spatial reference (e.g., Web Mercator) would misinterpret
+    // WGS84 values as projected coordinates, causing incorrect positioning
+    const geomSR = geom.spatialReference || { wkid: 4326 };
 
     // Detect geometry type - check for rings (polygon), paths (polyline), or point coordinates
     if (geom.rings && geom.rings.length > 0) {
@@ -1100,8 +1102,11 @@ const MapView = forwardRef(function MapView(props, ref) {
       // ArcGIS goTo() requires proper Geometry objects, not raw JSON
       let pointGeometry = geometry;
       if (!(geometry instanceof Point) && geometry.type !== 'point') {
-        const defaultSR = viewRef.current?.spatialReference || { wkid: 4326 };
-        const geomSR = geometry.spatialReference || defaultSR;
+        // Always default to WGS84 (4326) for coordinates without a spatial reference
+        // Feature coordinates from queries are typically in WGS84 (longitude/latitude)
+        // Using the view's spatial reference (e.g., Web Mercator) would misinterpret
+        // WGS84 values as projected coordinates, causing incorrect map positioning
+        const geomSR = geometry.spatialReference || { wkid: 4326 };
 
         if (geometry.x !== undefined && geometry.y !== undefined) {
           pointGeometry = new Point({
