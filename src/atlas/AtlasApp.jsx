@@ -50,7 +50,9 @@ import {
   generateDeterministicPassword,
   getOAuthMode,
   getOAuthRedirectUri,
-  initiateArcGISLogin
+  initiateArcGISLogin,
+  storeArcGISToken,
+  clearStoredArcGISToken
 } from '@shared/services/arcgis-auth';
 import {
   createUserWithEmailAndPassword,
@@ -763,6 +765,9 @@ export default function AtlasApp() {
         const redirectUri = getOAuthRedirectUri();
         const { token, user: agolUser, org: agolOrg } = await completeArcGISOAuth(code, redirectUri);
 
+        // Store the ArcGIS token for later use in authenticated API calls (e.g., checking private map access)
+        storeArcGISToken(token);
+
         // Clear OAuth params from URL
         clearOAuthParams();
 
@@ -964,6 +969,8 @@ export default function AtlasApp() {
   const handleSignOut = useCallback(async () => {
     try {
       await firebaseSignOut(auth);
+      // Clear stored ArcGIS OAuth token
+      clearStoredArcGISToken();
       // Also sign out of ArcGIS Portal if needed
       arcgisSignOut?.();
     } catch (err) {

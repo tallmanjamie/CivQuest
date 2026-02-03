@@ -368,6 +368,111 @@ export async function checkMultipleWebmapsAccess(webmaps) {
   return results;
 }
 
+// Token storage key
+const ARCGIS_TOKEN_KEY = 'atlas_arcgis_oauth_token';
+
+/**
+ * Stores the ArcGIS OAuth token for later use in authenticated API calls
+ * @param {object} tokenData - The token data from OAuth flow (access_token, expires_in, refresh_token, username)
+ */
+export function storeArcGISToken(tokenData) {
+  if (typeof localStorage === 'undefined' || !tokenData?.access_token) return;
+
+  const storageData = {
+    access_token: tokenData.access_token,
+    refresh_token: tokenData.refresh_token,
+    username: tokenData.username,
+    // Store expiration as absolute timestamp
+    expires_at: Date.now() + (tokenData.expires_in * 1000),
+    stored_at: Date.now()
+  };
+
+  localStorage.setItem(ARCGIS_TOKEN_KEY, JSON.stringify(storageData));
+}
+
+/**
+ * Retrieves the stored ArcGIS OAuth token
+ * @returns {object|null} The token data or null if not found/expired
+ */
+export function getStoredArcGISToken() {
+  if (typeof localStorage === 'undefined') return null;
+
+  const stored = localStorage.getItem(ARCGIS_TOKEN_KEY);
+  if (!stored) return null;
+
+  try {
+    const data = JSON.parse(stored);
+
+    // Check if token is expired (with 5 minute buffer)
+    const bufferMs = 5 * 60 * 1000;
+    if (data.expires_at && data.expires_at < Date.now() + bufferMs) {
+      // Token is expired or about to expire
+      clearStoredArcGISToken();
+      return null;
+    }
+
+    return data;
+  } catch (e) {
+    console.warn('[ArcGIS Auth] Error reading stored token:', e);
+    clearStoredArcGISToken();
+    return null;
+  }
+}
+
+/**
+ * Clears the stored ArcGIS OAuth token
+ */
+export function clearStoredArcGISToken() {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.removeItem(ARCGIS_TOKEN_KEY);
+}
+
+/**
+ * Checks if user has access to specific webmaps using their stored OAuth token
+ * @param {Array<string>} itemIds - Array of ArcGIS item IDs to check
+ * @param {string} portalUrl - The portal URL (default: https://www.arcgis.com)
+ * @returns {Promise<Set<string>>} Set of accessible item IDs
+ */
+export async function checkPrivateWebmapsAccess(itemIds, portalUrl = 'https://www.arcgis.com') {
+  const tokenData = getStoredArcGISToken();
+  if (!tokenData?.access_token || !itemIds?.length) {
+    return new Set();
+  }
+
+  try {
+    // Query portal for items the user can access
+    const queryString = itemIds.map(id => `id:"${id}"`).join(' OR ');
+    const params = new URLSearchParams({
+      q: queryString,
+      num: '100',
+      token: tokenData.access_token,
+      f: 'json'
+    });
+
+    const response = await fetch(
+      `${portalUrl}/sharing/rest/search?${params.toString()}`
+    );
+
+    const data = await response.json();
+
+    if (data.error) {
+      console.warn('[ArcGIS Auth] Error checking private webmaps:', data.error.message);
+      return new Set();
+    }
+
+    // Return set of accessible item IDs
+    const accessibleIds = new Set();
+    if (data.results) {
+      data.results.forEach(item => accessibleIds.add(item.id));
+    }
+
+    return accessibleIds;
+  } catch (err) {
+    console.warn('[ArcGIS Auth] Error checking private webmaps access:', err);
+    return new Set();
+  }
+}
+
 // Default export for convenience
 export default {
   getOAuthRedirectUri,
@@ -386,5 +491,9 @@ export default {
   generateSecurePassword,
   generateDeterministicPassword,
   checkWebmapPublicAccess,
-  checkMultipleWebmapsAccess
+  checkMultipleWebmapsAccess,
+  storeArcGISToken,
+  getStoredArcGISToken,
+  clearStoredArcGISToken,
+  checkPrivateWebmapsAccess
 };
