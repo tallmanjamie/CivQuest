@@ -749,7 +749,8 @@ function aggregateGraphData(records, labelField, dataField, operation, maxItems 
   let skippedRecords = 0;
   records.forEach(record => {
     const labelValue = getFieldValue(record, labelField);
-    const label = String(labelValue ?? 'Unknown');
+    // Normalize label: trim whitespace to ensure proper grouping
+    const label = String(labelValue ?? 'Unknown').trim();
     // Skip invalid labels
     if (label === 'Unknown' || label === 'null' || label === 'undefined' || label === '') {
       skippedRecords++;
@@ -1489,17 +1490,31 @@ export default function CustomTemplateEditor({
       }
 
       // Transform to graph data format using case-insensitive field lookup
-      const graphData = features
-        .map(f => {
-          const labelValue = getFieldValueCaseInsensitive(f.attributes, element.labelField);
-          // Use multiple fallback patterns since ArcGIS servers may return different field names
-          const aggValue = findAggregatedValue(f.attributes);
-          return {
-            label: String(labelValue ?? 'Unknown'),
-            value: Math.round((aggValue || 0) * 100) / 100
-          };
-        })
-        .filter(d => d.label && d.label !== 'Unknown' && d.label !== 'null' && d.label !== '' && d.label !== 'undefined')
+      // First, collect all data points and aggregate duplicates (same label after trimming)
+      const labelGroups = {};
+      features.forEach(f => {
+        const labelValue = getFieldValueCaseInsensitive(f.attributes, element.labelField);
+        // Normalize label: trim whitespace and convert to string
+        const rawLabel = String(labelValue ?? 'Unknown').trim();
+        // Skip invalid labels
+        if (!rawLabel || rawLabel === 'Unknown' || rawLabel === 'null' || rawLabel === 'undefined') {
+          return;
+        }
+        // Use multiple fallback patterns since ArcGIS servers may return different field names
+        const aggValue = findAggregatedValue(f.attributes);
+        const value = Math.round((aggValue || 0) * 100) / 100;
+
+        // Aggregate values for duplicate labels
+        if (labelGroups[rawLabel]) {
+          labelGroups[rawLabel] += value;
+        } else {
+          labelGroups[rawLabel] = value;
+        }
+      });
+
+      // Convert to array format, sort, and limit
+      const graphData = Object.entries(labelGroups)
+        .map(([label, value]) => ({ label, value: Math.round(value * 100) / 100 }))
         .sort((a, b) => b.value - a.value)
         .slice(0, maxItems);
 
