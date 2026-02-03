@@ -1273,6 +1273,9 @@ export default function AtlasApp() {
 
       console.log('[AtlasApp] Geocoded location:', location);
 
+      // Clear any previous search results since we're now showing a geocoded location
+      updateSearchResults({ features: [] });
+
       // Handle based on current mode
       if (mode === 'map') {
         // In map mode: Just zoom to the location without search results
@@ -1288,7 +1291,7 @@ export default function AtlasApp() {
     } catch (err) {
       console.error('[AtlasApp] Geocoding error:', err);
     }
-  }, [activeMap?.geocoder, config?.data?.geocoder, mode]);
+  }, [activeMap?.geocoder, config?.data?.geocoder, mode, updateSearchResults]);
 
   // Debug logging for map picker feature
   console.log('[AtlasApp] Map picker context debug:', {
