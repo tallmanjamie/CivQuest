@@ -102,14 +102,23 @@ export default function LayersPanel({
   className = '',
   justification = 'left'
 }) {
-  const { 
-    config: atlasConfig, 
-    activeMap, 
+  const {
+    config: atlasConfig,
+    activeMap,
     activeMapIndex,
-    setActiveMap, 
-    availableMaps 
+    setActiveMap,
+    availableMaps
   } = useAtlas();
-  
+
+  // Debug logging for map picker
+  console.log('[LayersPanel] Map picker debug:', {
+    availableMaps,
+    availableMapsLength: availableMaps?.length,
+    activeMap: activeMap?.name,
+    activeMapIndex,
+    hasMultipleMaps: availableMaps && availableMaps.length > 1
+  });
+
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
@@ -426,9 +435,10 @@ export default function LayersPanel({
    * Handle map selection
    */
   const handleMapSelect = useCallback((index) => {
+    console.log('[LayersPanel] Map selected:', index, availableMaps?.[index]?.name);
     setActiveMap(index);
     setShowMapPicker(false);
-  }, [setActiveMap]);
+  }, [setActiveMap, availableMaps]);
 
   /**
    * Render a layer item
@@ -549,6 +559,16 @@ export default function LayersPanel({
 
   // Check if we have multiple maps
   const hasMultipleMaps = availableMaps && availableMaps.length > 1;
+
+  // Debug: Log whether map picker should be shown
+  if (isExpanded) {
+    console.log('[LayersPanel] MAP PICKER VISIBILITY:', {
+      hasMultipleMaps,
+      availableMapsLength: availableMaps?.length,
+      shouldShowDropdown: hasMultipleMaps,
+      mapNames: availableMaps?.map(m => m.name)
+    });
+  }
 
   // Collapsed button
   const justifyClass = justification === 'center' ? 'justify-center' : justification === 'right' ? 'justify-end' : 'justify-start';

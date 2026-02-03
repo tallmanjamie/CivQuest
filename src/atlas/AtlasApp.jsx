@@ -1142,6 +1142,20 @@ export default function AtlasApp() {
     }
   }, [enabledModes, handleModeChange]);
 
+  // Debug logging for map picker feature
+  console.log('[AtlasApp] Map picker context debug:', {
+    configMaps: configMaps?.map(m => m.name),
+    configMapsLength: configMaps?.length,
+    accessibleMaps: accessibleMaps?.map(m => m.name),
+    accessibleMapsLength: accessibleMaps?.length,
+    publicMaps: publicMaps?.map(m => m.name),
+    privateMaps: privateMaps?.map(m => m.name),
+    activeMap: activeMap?.name,
+    activeMapIndex,
+    firebaseUser: !!firebaseUser,
+    hasCheckedAccess
+  });
+
   // Context value - includes theme colors for child components
   const contextValue = {
     // Config

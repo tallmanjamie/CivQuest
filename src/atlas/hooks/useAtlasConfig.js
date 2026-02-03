@@ -277,7 +277,12 @@ export function useAtlasConfig(providedOrgId = null) {
           console.log('[useAtlasConfig] printServiceUrl:', mergedConfig.printServiceUrl);
           
           setConfig(mergedConfig);
-          setAvailableMaps(mergedConfig.data?.maps || []);
+          const mapsFromConfig = mergedConfig.data?.maps || [];
+          console.log('[useAtlasConfig] MAP PICKER: Maps loaded from config:', {
+            count: mapsFromConfig.length,
+            maps: mapsFromConfig.map(m => ({ name: m.name, itemId: m.webMap?.itemId, access: m.access }))
+          });
+          setAvailableMaps(mapsFromConfig);
           setLoading(false);
           
           // Store last used org (but don't store if in preview mode to avoid confusion)
