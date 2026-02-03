@@ -52,16 +52,21 @@ const getRouteInfo = () => {
 // Route component selection
 const getAppComponent = () => {
   const { subdomain, path, params } = getRouteInfo();
-  
+
   // Path-based routing (development and production)
-  if (path.startsWith('/admin')) {
-    // Unified admin portal - handles both super admin and org admin
-    return AdminApp;
+  // Super admin portal - separate access point with email/password login
+  if (path.startsWith('/super-admin')) {
+    return () => <AdminApp loginMode="super_admin" />;
   }
-  
+
+  // Standard admin portal - org admin with ESRI login only
+  if (path.startsWith('/admin')) {
+    return () => <AdminApp loginMode="org_admin" />;
+  }
+
   // Legacy route - redirect org-admin to unified admin
   if (path.startsWith('/org-admin')) {
-    return AdminApp;
+    return () => <AdminApp loginMode="org_admin" />;
   }
   
   // Atlas routes
@@ -70,7 +75,7 @@ const getAppComponent = () => {
   }
   
   // Check if path is an org ID (not a known route) - e.g., /chesapeake
-  const knownRoutes = ['admin', 'notify', 'atlas', 'org-admin', 'test-editor', 'test-spatial'];
+  const knownRoutes = ['admin', 'super-admin', 'notify', 'atlas', 'org-admin', 'test-editor', 'test-spatial'];
   const pathSegment = path.split('/')[1];
   if (pathSegment && !knownRoutes.includes(pathSegment.toLowerCase())) {
     // Treat as Atlas with org ID in path
@@ -90,8 +95,8 @@ const getAppComponent = () => {
     case 'atlas':
       return AtlasApp;
     case 'admin':
-      // Unified admin portal
-      return AdminApp;
+      // Org admin portal with ESRI login only
+      return () => <AdminApp loginMode="org_admin" />;
     default:
       // Check if subdomain is an org ID
       if (subdomain && !['www', 'notify', 'atlas', 'admin'].includes(subdomain)) {
