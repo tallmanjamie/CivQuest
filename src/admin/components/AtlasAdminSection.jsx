@@ -2712,7 +2712,7 @@ function AtlasSettingsInline({
                     useGlobalHelp: !prev.useGlobalHelp,
                     supplementGlobalHelp: !prev.useGlobalHelp ? prev.supplementGlobalHelp : false
                   }))}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${
                     config.useGlobalHelp ? 'bg-emerald-500' : 'bg-slate-300'
                   }`}
                 >
@@ -2735,7 +2735,7 @@ function AtlasSettingsInline({
                   <button
                     type="button"
                     onClick={() => setConfig(prev => ({ ...prev, supplementGlobalHelp: !prev.supplementGlobalHelp }))}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                    className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${
                       config.supplementGlobalHelp ? 'bg-blue-500' : 'bg-slate-300'
                     }`}
                   >
