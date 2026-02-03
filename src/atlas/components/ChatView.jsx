@@ -1052,6 +1052,26 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
               }}
               onExportCSV={exportCSV}
               onExportPDF={exportPDF}
+              onRowClick={(feature) => {
+                // Zoom to the clicked feature on the map
+                if (feature && mapViewRef?.current) {
+                  // Render all features from the message first to keep context
+                  if (msg.features && mapViewRef.current.renderResults) {
+                    mapViewRef.current.renderResults(msg.features);
+                  }
+                  // Zoom to and select the specific feature
+                  if (mapViewRef.current.zoomToFeature) {
+                    mapViewRef.current.zoomToFeature(feature);
+                  }
+                  if (mapViewRef.current.selectFeature) {
+                    mapViewRef.current.selectFeature(feature);
+                  }
+                }
+                // Switch to map mode
+                if (enabledModes.includes('map')) {
+                  setMode('map');
+                }
+              }}
             />
           ))}
 
@@ -1096,7 +1116,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
  * Results Table Component - shows preview of multiple results
  * Uses tableColumns with chatResults: true, displaying headerName instead of field name
  */
-function ResultsTable({ features, tableColumns, searchFields, colors }) {
+function ResultsTable({ features, tableColumns, searchFields, colors, onRowClick }) {
   // Priority: tableColumns with chatResults: true > all tableColumns > auto-generate
   let columns;
 
@@ -1125,6 +1145,13 @@ function ResultsTable({ features, tableColumns, searchFields, colors }) {
     return null;
   }
 
+  // Handle row click - zoom to feature on map
+  const handleRowClick = (feature) => {
+    if (onRowClick) {
+      onRowClick(feature);
+    }
+  };
+
   // Show all rows for multi-result display
   return (
     <div className="overflow-x-auto max-h-64 overflow-y-auto">
@@ -1143,7 +1170,12 @@ function ResultsTable({ features, tableColumns, searchFields, colors }) {
         </thead>
         <tbody className="divide-y divide-slate-100">
           {features.map((feature, idx) => (
-            <tr key={idx} className="hover:bg-slate-50">
+            <tr
+              key={idx}
+              className="hover:bg-slate-50 cursor-pointer transition-colors"
+              onClick={() => handleRowClick(feature)}
+              title="Click to view on map"
+            >
               {columns.map(col => (
                 <td key={col.field} className="px-2 py-1.5 text-slate-700 truncate max-w-[150px]">
                   {feature.attributes?.[col.field] != null ? String(feature.attributes[col.field]) : '-'}
@@ -1154,7 +1186,7 @@ function ResultsTable({ features, tableColumns, searchFields, colors }) {
         </tbody>
       </table>
       <p className="text-xs text-slate-400 mt-2 text-center">
-        Showing {features.length} results
+        Showing {features.length} results - click a row to view on map
       </p>
     </div>
   );
@@ -1269,6 +1301,7 @@ function MessageBubble({
   onViewTable,
   onExportCSV,
   onExportPDF,
+  onRowClick,
   tableColumns,
   searchFields,
   themeColor,
@@ -1496,7 +1529,7 @@ function MessageBubble({
                     </button>
                   </div>
                   {activeTab === 'details' ? (
-                    <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} />
+                    <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} onRowClick={onRowClick} />
                   ) : (
                     <ChatMiniMap
                       features={message.features}
@@ -1509,7 +1542,7 @@ function MessageBubble({
                 /* Desktop: Side by side layout - map matches results height */
                 <div className={`${showMap ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}`}>
                   <div>
-                    <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} />
+                    <ResultsTable features={message.features} tableColumns={tableColumns} searchFields={searchFields} colors={colors} onRowClick={onRowClick} />
                   </div>
                   {showMap && (
                     <div className="min-h-[200px]">
