@@ -135,6 +135,16 @@ const TableView = forwardRef(function TableView(props, ref) {
   }, []);
 
   /**
+   * Format currency values for display
+   */
+  const formatCurrency = useCallback((value) => {
+    if (value === null || value === undefined || value === '') return '';
+    const num = parseFloat(value);
+    if (isNaN(num)) return value;
+    return num.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  }, []);
+
+  /**
    * Action button cell renderer component
    */
   const ActionCellRenderer = useCallback((params) => {
@@ -224,24 +234,37 @@ const TableView = forwardRef(function TableView(props, ref) {
           cellClass: 'table-cell-truncate'
         };
 
-        // Date formatting
-        if (col.field.toUpperCase().includes('DATE')) {
-          colDef.valueFormatter = (params) => formatDate(params.value);
-          colDef.filter = 'agDateColumnFilter';
+        // Apply formatting based on configured fieldType
+        const fieldType = col.fieldType || 'text';
+
+        switch (fieldType) {
+          case 'date':
+            colDef.valueFormatter = (params) => formatDate(params.value);
+            colDef.filter = 'agDateColumnFilter';
+            break;
+          case 'number':
+            colDef.valueFormatter = (params) => formatNumber(params.value);
+            colDef.filter = 'agNumberColumnFilter';
+            colDef.type = 'numericColumn';
+            colDef.cellStyle = { textAlign: 'right' };
+            break;
+          case 'currency':
+            colDef.valueFormatter = (params) => formatCurrency(params.value);
+            colDef.filter = 'agNumberColumnFilter';
+            colDef.type = 'numericColumn';
+            colDef.cellStyle = { textAlign: 'right' };
+            break;
+          case 'text':
+          default:
+            // Auto-detect date fields by name if no explicit type set
+            if (col.field.toUpperCase().includes('DATE')) {
+              colDef.valueFormatter = (params) => formatDate(params.value);
+              colDef.filter = 'agDateColumnFilter';
+            }
+            break;
         }
 
-        // Number formatting
-        if (col.field === 'SALEAMOUNT' || col.field === 'LIVINGAREA' ||
-            col.field === 'LEGALACRES' || col.field === 'YEARBUILT' ||
-            col.field === 'STORIES' || col.field === 'FRONTAGE' ||
-            col.field === 'ASSESSEDVALUE' || col.field === 'TAXAMOUNT') {
-          colDef.valueFormatter = (params) => formatNumber(params.value);
-          colDef.filter = 'agNumberColumnFilter';
-          colDef.type = 'numericColumn';
-          colDef.cellStyle = { textAlign: 'right' };
-        }
-
-        // Custom formatter
+        // Custom formatter (overrides fieldType if present)
         if (col.valueFormatter) {
           colDef.valueFormatter = (params) => {
             try {
@@ -257,7 +280,7 @@ const TableView = forwardRef(function TableView(props, ref) {
     }
 
     return dataCols;
-  }, [activeMap?.tableColumns, searchResults?.features, formatDate, formatNumber]);
+  }, [activeMap?.tableColumns, searchResults?.features, formatDate, formatNumber, formatCurrency]);
 
   /**
    * Full column definitions including action column
@@ -547,19 +570,27 @@ const TableView = forwardRef(function TableView(props, ref) {
   const formatValueForDisplay = useCallback((field, value) => {
     if (value === null || value === undefined || value === '') return '';
 
-    if (field.toUpperCase().includes('DATE')) {
-      return formatDate(value);
-    }
+    // Check for configured fieldType in tableColumns
+    const tableColumns = activeMap?.tableColumns || [];
+    const colConfig = tableColumns.find(c => c.field === field);
+    const fieldType = colConfig?.fieldType || 'text';
 
-    if (field === 'SALEAMOUNT' || field === 'LIVINGAREA' ||
-        field === 'LEGALACRES' || field === 'YEARBUILT' ||
-        field === 'STORIES' || field === 'FRONTAGE' ||
-        field === 'ASSESSEDVALUE' || field === 'TAXAMOUNT') {
-      return formatNumber(value);
+    switch (fieldType) {
+      case 'date':
+        return formatDate(value);
+      case 'number':
+        return formatNumber(value);
+      case 'currency':
+        return formatCurrency(value);
+      case 'text':
+      default:
+        // Fall back to auto-detection by field name
+        if (field.toUpperCase().includes('DATE')) {
+          return formatDate(value);
+        }
+        return String(value);
     }
-
-    return String(value);
-  }, [formatDate, formatNumber]);
+  }, [formatDate, formatNumber, formatCurrency, activeMap?.tableColumns]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({

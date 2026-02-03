@@ -332,7 +332,7 @@ export default function MapEditor({
       ...prev,
       tableColumns: [
         ...(prev.tableColumns || []),
-        { field: '', headerName: '', width: 150, sortable: true, filter: true, chatResults: false }
+        { field: '', headerName: '', width: 150, sortable: true, filter: true, chatResults: false, fieldType: 'text' }
       ]
     }));
   };
@@ -1263,8 +1263,9 @@ export default function MapEditor({
                   <div className="flex gap-2 text-xs font-medium text-slate-500 px-2">
                     <div className="w-8"></div>
                     <div className="flex-1 grid grid-cols-12 gap-2">
-                      <div className="col-span-3">Field</div>
-                      <div className="col-span-3">Header</div>
+                      <div className="col-span-2">Field</div>
+                      <div className="col-span-2">Header</div>
+                      <div className="col-span-2">Type</div>
                       <div className="col-span-1">Width</div>
                       <div className="col-span-1 text-center">Sort</div>
                       <div className="col-span-1 text-center">Filter</div>
@@ -1295,7 +1296,7 @@ export default function MapEditor({
                         </button>
                       </div>
                       <div className="flex-1 grid grid-cols-12 gap-2 items-center">
-                        <div className="col-span-3">
+                        <div className="col-span-2">
                           {availableFields.length > 0 ? (
                             <select
                               value={col.field}
@@ -1329,7 +1330,7 @@ export default function MapEditor({
                             />
                           )}
                         </div>
-                        <div className="col-span-3">
+                        <div className="col-span-2">
                           <input
                             type="text"
                             value={col.headerName}
@@ -1337,6 +1338,19 @@ export default function MapEditor({
                             placeholder="Column Header"
                             className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
                           />
+                        </div>
+                        <div className="col-span-2">
+                          <select
+                            value={col.fieldType || 'text'}
+                            onChange={(e) => updateTableColumn(idx, 'fieldType', e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded bg-white"
+                            title="Display format for this field"
+                          >
+                            <option value="text">Text</option>
+                            <option value="number">Number</option>
+                            <option value="currency">Currency</option>
+                            <option value="date">Date</option>
+                          </select>
                         </div>
                         <div className="col-span-1">
                           <input
