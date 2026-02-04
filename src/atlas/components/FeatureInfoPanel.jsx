@@ -259,12 +259,17 @@ export default function FeatureInfoPanel({
 
     const timer = setTimeout(loadArcGIS, 50);
     
-    // Cleanup function
+    // Cleanup function - destroy widget when view changes to force recreation with new context
     return () => {
       clearTimeout(timer);
       if (titleWatcherRef.current) {
         titleWatcherRef.current.remove();
         titleWatcherRef.current = null;
+      }
+      // Destroy widget so it gets recreated with the new view when map switches
+      if (featureWidgetRef.current) {
+        featureWidgetRef.current.destroy?.();
+        featureWidgetRef.current = null;
       }
     };
   }, [feature, view, sourceLayer, activeTab, tabs, isMobile]);
