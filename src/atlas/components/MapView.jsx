@@ -208,6 +208,16 @@ const MapView = forwardRef(function MapView(props, ref) {
     searchResultsRef.current = searchResults;
   }, [searchResults]);
 
+  // Clear selected feature state when the map changes to avoid stale feature/arcade context
+  useEffect(() => {
+    setSelectedFeature(null);
+    setSelectedFeatureLayer(null);
+    setRelatedFeatures([]);
+    setCurrentRelatedIndex(0);
+    setShowFeaturePanel(false);
+    setIsMarkupFeature(false);
+  }, [activeMap?.webMap?.itemId]);
+
   /**
    * Get storage key for persisting map extent
    */
