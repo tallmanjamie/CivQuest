@@ -18,6 +18,7 @@ import {
   Plus,
   Trash2,
   AlertCircle,
+  AlertTriangle,
   HelpCircle,
   ArrowUpFromLine,
   ArrowDownToLine,
@@ -57,6 +58,7 @@ import {
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
+import { isHttpUrl } from '../../shared/utils/urlSecurity';
 
 /**
  * Helper to check if a string is a valid hex color
@@ -1704,6 +1706,15 @@ export default function AtlasSettingsEditor({
                       <p className="mt-1 text-xs text-slate-500">
                         The page will be embedded in an iframe. Ensure the URL allows embedding.
                       </p>
+                      {/* HTTPS warning */}
+                      {isHttpUrl(config.disclaimer.embedUrl) && (
+                        <div className="flex items-center gap-2 mt-2 text-amber-600">
+                          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                          <p className="text-xs">
+                            HTTP URLs will be automatically upgraded to HTTPS for security.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 

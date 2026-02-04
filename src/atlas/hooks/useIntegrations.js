@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { db } from '@shared/services/firebase';
 import { PATHS } from '@shared/services/paths';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { ensureHttps } from '@shared/utils/urlSecurity';
 
 /**
  * Hook to get integrations enabled for a specific organization
@@ -443,7 +444,8 @@ export function useIntegrations(orgId) {
       // Build URL by replacing placeholders in the embed URL
       // Supports {lat}, {lon}, {latitude}, {longitude}, {width}, {height} placeholders
       // Width and height are always passed as calculated pixel values for the iframe content area
-      let url = nearmapConfig.embedUrl
+      // Ensure HTTPS to prevent mixed content warnings on secure sites
+      let url = ensureHttps(nearmapConfig.embedUrl)
         .replace(/\{lat\}/gi, lat.toString())
         .replace(/\{latitude\}/gi, lat.toString())
         .replace(/\{lon\}/gi, lon.toString())
