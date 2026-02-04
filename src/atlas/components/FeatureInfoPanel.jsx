@@ -99,7 +99,18 @@ export default function FeatureInfoPanel({
     if (!template?.content || !Array.isArray(template.content)) return [];
     return template.content
       .filter(el => el.type === 'expression' && el.expressionInfo)
-      .map(el => el.expressionInfo?.name || el.expressionInfo?.title || '')
+      .map(el => {
+        // Get name from expressionInfo properties
+        // Note: expressionInfo.expression may contain "expression/name" format reference
+        const name = el.expressionInfo?.name || el.expressionInfo?.title || '';
+        if (name) return name;
+        // Fallback: extract name from expression reference (e.g., "expression/Summary" -> "Summary")
+        const exprRef = el.expressionInfo?.expression || '';
+        if (exprRef.startsWith('expression/')) {
+          return exprRef.substring('expression/'.length);
+        }
+        return '';
+      })
       .filter(Boolean);
   }, [sourceLayer, feature]);
 
@@ -199,31 +210,59 @@ export default function FeatureInfoPanel({
 
         const originalTemplate = sourceLayer?.popupTemplate || feature.popupTemplate;
         if (currentTab?.isCustom && currentTab.elements?.length > 0 && originalTemplate) {
-          graphic.popupTemplate = {
-            title: originalTemplate.title,
-            content: (Array.isArray(originalTemplate.content) ? originalTemplate.content : [originalTemplate.content]).filter(el => {
+          try {
+            const contentArray = Array.isArray(originalTemplate.content)
+              ? originalTemplate.content
+              : [originalTemplate.content].filter(Boolean);
+
+            const filteredContent = contentArray.filter(el => {
+              if (!el) return false;
               const titleText = el.title || el.description || el.text || '';
-              const expr = el.expressionInfo?.name || el.expressionInfo?.title || '';
-              return currentTab.elements.some(name => 
-                titleText.toLowerCase().includes(name.toLowerCase()) || 
-                expr.toLowerCase().includes(name.toLowerCase())
-              );
-            }),
-            expressionInfos: originalTemplate.expressionInfos,
-            fieldInfos: originalTemplate.fieldInfos
-          };
+              // Also check el.expressionInfo?.expression which may contain "expression/name" format
+              const exprName = el.expressionInfo?.name || el.expressionInfo?.title || '';
+              const exprRef = el.expressionInfo?.expression || '';
+
+              return currentTab.elements.some(name => {
+                const nameLower = name.toLowerCase();
+                return titleText.toLowerCase().includes(nameLower) ||
+                       exprName.toLowerCase().includes(nameLower) ||
+                       exprRef.toLowerCase().includes(nameLower);
+              });
+            });
+
+            // Only apply filtered template if we actually have content
+            // Otherwise fall back to the original template to avoid showing empty popup
+            if (filteredContent.length > 0) {
+              graphic.popupTemplate = {
+                title: originalTemplate.title,
+                content: filteredContent,
+                expressionInfos: originalTemplate.expressionInfos,
+                fieldInfos: originalTemplate.fieldInfos
+              };
+            } else {
+              console.warn('[FeatureInfoPanel] Content filter returned empty array, using original template');
+            }
+          } catch (filterErr) {
+            console.warn('[FeatureInfoPanel] Error filtering popup template content:', filterErr);
+            // Fall back to original template on error
+          }
         }
 
         // Initialize or update widget
+        // Note: The 'map' property is required for Arcade expressions that use
+        // FeatureSet functions like FeatureSetByName, Filter, FeatureSetByRelationshipName, etc.
         if (!featureWidgetRef.current) {
           featureWidgetRef.current = new FeatureClass({
             graphic,
             view,
+            map: view?.map,
             container: featureContainerRef.current
           });
         } else {
           featureWidgetRef.current.container = featureContainerRef.current;
           featureWidgetRef.current.graphic = graphic;
+          // Also update map reference in case the view/map changed
+          featureWidgetRef.current.map = view?.map;
         }
 
         // --- Title Resolution Logic (Updated for reactiveUtils) ---
