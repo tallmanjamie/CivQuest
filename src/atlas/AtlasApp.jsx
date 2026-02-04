@@ -19,6 +19,7 @@ import {
   LogIn,
   LogOut,
   ChevronDown,
+  ChevronRight,
   HelpCircle,
   Loader2,
   AlertCircle,
@@ -28,7 +29,8 @@ import {
   Plus,
   Clock,
   Filter,
-  Settings
+  Settings,
+  Check
 } from 'lucide-react';
 
 // Firebase Auth
@@ -128,6 +130,9 @@ function SearchToolbar({
   onGeocodingLocation,
   isSearching,
   activeMap,
+  availableMaps,
+  activeMapIndex,
+  onMapSelect,
   showHistory,
   onShowHistory,
   onHideHistory,
@@ -143,6 +148,7 @@ function SearchToolbar({
 }) {
   const [inputValue, setInputValue] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [showMapSubmenu, setShowMapSubmenu] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
@@ -544,10 +550,59 @@ function SearchToolbar({
         {/* Menu Dropdown */}
         {showMenu && !showHistory && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+            <div className="fixed inset-0 z-40" onClick={() => { setShowMenu(false); setShowMapSubmenu(false); }} />
             <div className={`absolute ${isBottom ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-slate-200 shadow-xl rounded-xl w-56 p-1.5 z-50`}>
+              {/* Map Toggle - only shown when multiple maps available */}
+              {availableMaps && availableMaps.length > 1 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowMapSubmenu(!showMapSubmenu)}
+                    className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center"
+                      style={{ backgroundColor: colors.bg100, color: colors.text600 }}
+                    >
+                      <Map className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold text-slate-700">Switch Map</span>
+                      <span className="block text-xs text-slate-400 truncate">{activeMap?.name || 'Select map'}</span>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${showMapSubmenu ? 'rotate-90' : ''}`} />
+                  </button>
+
+                  {/* Map Submenu */}
+                  {showMapSubmenu && (
+                    <div className="absolute left-full top-0 ml-1 bg-white border border-slate-200 shadow-xl rounded-xl w-56 p-1.5 z-50 max-h-64 overflow-y-auto">
+                      {availableMaps.map((mapOption, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            onMapSelect?.(idx);
+                            setShowMenu(false);
+                            setShowMapSubmenu(false);
+                          }}
+                          className={`flex items-center gap-2 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left
+                                     ${activeMapIndex === idx ? 'bg-slate-50' : ''}`}
+                        >
+                          {activeMapIndex === idx ? (
+                            <Check className="w-4 h-4 flex-shrink-0" style={{ color: colors.text600 }} />
+                          ) : (
+                            <div className="w-4 h-4" />
+                          )}
+                          <span className={`text-sm truncate ${activeMapIndex === idx ? 'font-medium text-slate-700' : 'text-slate-600'}`}>
+                            {mapOption.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
-                onClick={() => { onShowAdvanced?.(); setShowMenu(false); }}
+                onClick={() => { onShowAdvanced?.(); setShowMenu(false); setShowMapSubmenu(false); }}
                 className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
               >
                 <div
@@ -562,7 +617,7 @@ function SearchToolbar({
                 </div>
               </button>
               <button
-                onClick={() => { onShowHistory?.(); setShowMenu(false); }}
+                onClick={() => { onShowHistory?.(); setShowMenu(false); setShowMapSubmenu(false); }}
                 className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
               >
                 <div
@@ -577,7 +632,7 @@ function SearchToolbar({
                 </div>
               </button>
               <button
-                onClick={() => { onShowHelp?.(); setShowMenu(false); }}
+                onClick={() => { onShowHelp?.(); setShowMenu(false); setShowMapSubmenu(false); }}
                 className="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-slate-50 text-left"
               >
                 <div
@@ -1567,6 +1622,9 @@ export default function AtlasApp() {
       onGeocodingLocation={handleGeocodingLocation}
       isSearching={isSearching}
       activeMap={activeMap}
+      availableMaps={accessibleMaps}
+      activeMapIndex={activeMapIndex}
+      onMapSelect={setActiveMap}
       showHistory={showHistory}
       onShowHistory={() => setShowHistory(true)}
       onHideHistory={() => setShowHistory(false)}
