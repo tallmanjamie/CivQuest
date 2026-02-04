@@ -17,7 +17,9 @@ import {
   Lock,
   Download,
   FileArchive,
-  Loader2
+  FileSpreadsheet,
+  Loader2,
+  ChevronDown
 } from 'lucide-react';
 
 /**
@@ -203,6 +205,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   const [markups, setMarkups] = useState([]);
   const [editingMarkup, setEditingMarkup] = useState(null); // The graphic currently being edited
   const [isExporting, setIsExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   
   const [settings, setSettings] = useState({
     pointType: 'circle',
@@ -659,6 +662,7 @@ const MarkupTool = forwardRef(function MarkupTool({
     }
 
     setIsExporting(true);
+    setShowExportMenu(false);
 
     try {
       const result = await exportMarkupsToShapefile({
@@ -676,6 +680,75 @@ const MarkupTool = forwardRef(function MarkupTool({
     } finally {
       setIsExporting(false);
     }
+  }, [markups]);
+
+  // Export markups to CSV
+  const exportToCSV = useCallback(() => {
+    if (markups.length === 0) {
+      alert('No markups to export. Add some markups first.');
+      return;
+    }
+
+    setShowExportMenu(false);
+
+    // Build CSV content from markups
+    const headers = ['Type', 'Label', 'Color', 'Notes', 'Geometry Type', 'Coordinates'];
+
+    const rows = markups.map(markup => {
+      const attrs = markup.attributes || {};
+      const geom = markup.geometry;
+
+      // Determine geometry type and coordinates
+      let geomType = 'unknown';
+      let coords = '';
+      if (geom) {
+        if (geom.type === 'point' || (geom.x !== undefined && geom.y !== undefined)) {
+          geomType = 'point';
+          coords = `${geom.x}, ${geom.y}`;
+        } else if (geom.type === 'polyline' || geom.paths) {
+          geomType = 'polyline';
+          coords = JSON.stringify(geom.paths);
+        } else if (geom.type === 'polygon' || geom.rings) {
+          geomType = 'polygon';
+          coords = JSON.stringify(geom.rings);
+        }
+      }
+
+      return [
+        attrs.tool || geomType,
+        attrs.label || '',
+        attrs.color || '',
+        attrs.notes || '',
+        geomType,
+        coords
+      ];
+    });
+
+    // Escape CSV values
+    const escapeCSV = (value) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const csvContent = [
+      headers.map(escapeCSV).join(','),
+      ...rows.map(row => row.map(escapeCSV).join(','))
+    ].join('\n');
+
+    // Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `markups-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }, [markups]);
 
   // Start editing a markup - enables geometry editing and opens settings panel
@@ -898,19 +971,54 @@ const MarkupTool = forwardRef(function MarkupTool({
           <span className="text-sm font-bold text-slate-800">Map Markup</span>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={exportToShapefile}
-            disabled={markups.length === 0 || isExporting}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-slate-200"
-            title="Export markups to Shapefile"
-          >
-            {isExporting ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Download className="w-3.5 h-3.5" />
-            )}
-            <span>SHP</span>
-          </button>
+          {/* Export dropdown - only show if at least one export option is enabled */}
+          {(atlasConfig?.exportOptions?.mapMarkup?.csv !== false || atlasConfig?.exportOptions?.mapMarkup?.shp !== false) && (
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                disabled={markups.length === 0 || isExporting}
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-slate-200"
+                title="Export markups"
+              >
+                {isExporting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" />
+                    <ChevronDown className="w-3 h-3" />
+                  </>
+                )}
+              </button>
+              {showExportMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowExportMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
+                    {atlasConfig?.exportOptions?.mapMarkup?.csv !== false && (
+                      <button
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                        onClick={exportToCSV}
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                        Export to CSV
+                      </button>
+                    )}
+                    {atlasConfig?.exportOptions?.mapMarkup?.shp !== false && (
+                      <button
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                        onClick={exportToShapefile}
+                      >
+                        <FileArchive className="w-4 h-4 text-blue-600" />
+                        Export to Shapefile
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <button onClick={onToggle} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
             <X className="w-4 h-4 text-slate-500" />
           </button>

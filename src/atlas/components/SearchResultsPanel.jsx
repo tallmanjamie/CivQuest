@@ -557,26 +557,32 @@ export default function SearchResultsPanel({
                       </div>
                     </div>
 
-                    {/* Export Section */}
-                    <div className="p-3">
-                      <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Export</p>
-                      <div className="space-y-0.5">
-                        <button
-                          onClick={() => { exportCSV(); setShowConfig(false); }}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-slate-50 transition"
-                        >
-                          <FileSpreadsheet className="w-4 h-4 text-green-600" />
-                          <span className="text-slate-600">Export to CSV</span>
-                        </button>
-                        <button
-                          onClick={() => { exportShapefile(); setShowConfig(false); }}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-slate-50 transition"
-                        >
-                          <FileArchive className="w-4 h-4 text-blue-600" />
-                          <span className="text-slate-600">Export to Shapefile</span>
-                        </button>
+                    {/* Export Section - only show if at least one export option is enabled */}
+                    {(atlasConfig?.exportOptions?.searchResultsPanel?.csv !== false || atlasConfig?.exportOptions?.searchResultsPanel?.shp !== false) && (
+                      <div className="p-3">
+                        <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Export</p>
+                        <div className="space-y-0.5">
+                          {atlasConfig?.exportOptions?.searchResultsPanel?.csv !== false && (
+                            <button
+                              onClick={() => { exportCSV(); setShowConfig(false); }}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-slate-50 transition"
+                            >
+                              <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                              <span className="text-slate-600">Export to CSV</span>
+                            </button>
+                          )}
+                          {atlasConfig?.exportOptions?.searchResultsPanel?.shp !== false && (
+                            <button
+                              onClick={() => { exportShapefile(); setShowConfig(false); }}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-slate-50 transition"
+                            >
+                              <FileArchive className="w-4 h-4 text-blue-600" />
+                              <span className="text-slate-600">Export to Shapefile</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>

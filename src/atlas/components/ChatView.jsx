@@ -1133,6 +1133,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
               onExportCSV={exportCSV}
               onExportShapefile={exportShapefile}
               onExportPDF={exportPDF}
+              exportOptions={config?.exportOptions?.chatSearchResults || {}}
               onRowClick={(feature) => {
                 // Zoom to the clicked feature on the map
                 if (feature && mapViewRef?.current) {
@@ -1398,7 +1399,8 @@ function MessageBubble({
   themeColor,
   isMobile,
   enabledModes,
-  onExitHelpMode
+  onExitHelpMode,
+  exportOptions = {}  // Export options configuration
 }) {
   // Mobile tab state for results with map
   const [activeTab, setActiveTab] = useState('details');
@@ -1650,16 +1652,18 @@ function MessageBubble({
                   <Map className="w-4 h-4" />
                   View in Map
                 </button>
-                <button
-                  onClick={() => onExportPDF?.(message.feature)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
-                  style={{ backgroundColor: colors.bg50, color: colors.text700 }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
-                >
-                  <FileText className="w-4 h-4" />
-                  Export PDF
-                </button>
+                {exportOptions.pdf !== false && (
+                  <button
+                    onClick={() => onExportPDF?.(message.feature)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                    style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
+                  >
+                    <FileText className="w-4 h-4" />
+                    Export PDF
+                  </button>
+                )}
               </div>
 
               {/* Metadata viewer */}
@@ -1751,26 +1755,30 @@ function MessageBubble({
                   <Table2 className="w-4 h-4" />
                   View in Table
                 </button>
-                <button
-                  onClick={onExportCSV}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
-                  style={{ backgroundColor: colors.bg50, color: colors.text700 }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  Export CSV
-                </button>
-                <button
-                  onClick={onExportShapefile}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
-                  style={{ backgroundColor: colors.bg50, color: colors.text700 }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
-                >
-                  <FileArchive className="w-4 h-4" />
-                  Export Shapefile
-                </button>
+                {exportOptions.csv !== false && (
+                  <button
+                    onClick={onExportCSV}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                    style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Export CSV
+                  </button>
+                )}
+                {exportOptions.shp !== false && (
+                  <button
+                    onClick={onExportShapefile}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                    style={{ backgroundColor: colors.bg50, color: colors.text700 }}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = colors.bg100}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = colors.bg50}
+                  >
+                    <FileArchive className="w-4 h-4" />
+                    Export Shapefile
+                  </button>
+                )}
               </div>
 
               {/* Metadata viewer */}
