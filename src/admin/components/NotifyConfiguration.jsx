@@ -843,6 +843,8 @@ async function generateBroadcastEmailHtml(notification, orgData) {
 
   // If no endpoint configured, return with default template
   if (!endpoint) {
+    // Still pre-generate visual elements HTML with empty stat values for consistent template rendering
+    preGenerateVisualElementsForBroadcast(context, customTemplate, {});
     return {
       html: generateFinalHtml(notification, context, theme),
       recordCount: 0,
@@ -930,11 +932,16 @@ async function generateBroadcastEmailHtml(notification, orgData) {
 
     // Fetch statistics if configured
     const statistics = customTemplate.statistics || [];
+    let statValues = {};
     if (statistics.length > 0) {
-      const statValues = await fetchStatistics(baseUrl, whereClause, statistics, username, password);
+      statValues = await fetchStatistics(baseUrl, whereClause, statistics, username, password);
       Object.assign(context, statValues);
       context.statisticsHtml = generateStatisticsHtmlForBroadcast(statistics, statValues, theme);
     }
+
+    // Pre-generate visual elements HTML (statistics cards, icons) for custom templates
+    // This ensures custom template placeholders like {{statisticsHtml_id_24_center_100_center}} are populated
+    preGenerateVisualElementsForBroadcast(context, customTemplate, statValues);
 
     return {
       html: generateFinalHtml(notification, context, theme),
@@ -944,6 +951,8 @@ async function generateBroadcastEmailHtml(notification, orgData) {
 
   } catch (err) {
     console.error('Error generating broadcast email:', err);
+    // Pre-generate visual elements with empty values on error for consistent template rendering
+    preGenerateVisualElementsForBroadcast(context, customTemplate, {});
     // Return with default content on error
     return {
       html: generateFinalHtml(notification, context, theme),
@@ -1119,6 +1128,120 @@ function generateStatisticsHtmlForBroadcast(statistics, statValues, theme) {
       <tr>${cards}</tr>
     </table>
   </div>`;
+}
+
+/**
+ * Get icon SVG by name from DASHBOARD_ICONS
+ */
+function getIconSvgByName(iconName) {
+  const icon = DASHBOARD_ICONS.find(i => i.id === iconName.toLowerCase() || i.name.toLowerCase() === iconName.toLowerCase());
+  return icon?.svg || '';
+}
+
+/**
+ * Generate icon HTML for placeholders
+ */
+function generateIconHtmlForBroadcast(iconName, size, color) {
+  const svg = getIconSvgByName(iconName);
+  if (!svg) return '';
+  return svg.replace(/width="\d+"/, `width="${size}"`)
+            .replace(/height="\d+"/, `height="${size}"`)
+            .replace(/stroke="currentColor"/, `stroke="${color || '#004E7C'}"`);
+}
+
+/**
+ * Generate custom statistics HTML with configurable styling for visual elements
+ */
+function generateCustomStatisticsHtmlForBroadcast(statistics, statValues, theme, options = {}) {
+  if (!statistics || statistics.length === 0) return '';
+
+  const primaryColor = theme?.primaryColor || '#004E7C';
+  const secondaryColor = theme?.secondaryColor || '#f2f2f2';
+  const mutedTextColor = theme?.mutedTextColor || '#666666';
+  const valueSize = options.valueSize || '24';
+  const valueAlignment = options.valueAlignment || 'center';
+  const containerWidth = options.containerWidth || '100';
+  const containerAlignment = options.containerAlignment || 'center';
+  const labelSize = Math.max(9, Math.round(parseInt(valueSize) * 0.45));
+
+  const cards = statistics.map(stat => {
+    const value = statValues[`stat_${stat.id}`] || '-';
+    const label = stat.label || stat.id;
+
+    return `<td style="width: ${100 / statistics.length}%; padding: 10px; text-align: ${valueAlignment}; vertical-align: top;">
+      <div style="background: white; padding: 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <p style="margin: 0; font-size: ${labelSize}px; color: ${mutedTextColor}; text-transform: uppercase; letter-spacing: 0.5px;">${label}</p>
+        <p style="margin: 8px 0 0 0; font-size: ${valueSize}px; font-weight: bold; color: ${primaryColor};">${value}</p>
+      </div>
+    </td>`;
+  }).join('');
+
+  const tableMargin = containerAlignment === 'left'
+    ? 'margin-right: auto;'
+    : containerAlignment === 'right'
+      ? 'margin-left: auto;'
+      : 'margin: 0 auto;';
+  const widthValue = containerWidth === '100' ? '100%' : `${containerWidth}%`;
+
+  return `<div style="padding: 0; margin: 0;">
+    <table style="width: ${widthValue}; border-collapse: collapse; background-color: ${secondaryColor}; border-radius: 8px; ${tableMargin}">
+      <tr>${cards}</tr>
+    </table>
+  </div>`;
+}
+
+/**
+ * Pre-generate visual elements HTML for broadcast emails
+ * This mirrors the logic in EmailPreviewModal to ensure consistency
+ */
+function preGenerateVisualElementsForBroadcast(context, customTemplate, statValues) {
+  const theme = customTemplate.theme || {};
+  const statistics = customTemplate.statistics || [];
+  const visualElements = customTemplate.visualElements || [];
+
+  visualElements.forEach(el => {
+    if (el.type === 'statistics') {
+      const selectedIds = el.selectedStatistics || [];
+      const statsToShow = selectedIds.length > 0
+        ? statistics.filter(s => selectedIds.includes(s.id))
+        : statistics;
+
+      const valueSize = el.valueSize || '24';
+      const valueAlignment = el.valueAlignment || 'center';
+      const containerWidth = el.containerWidth || '100';
+      const containerAlignment = el.containerAlignment || 'center';
+      const key = `statisticsHtml_${el.id}_${valueSize}_${valueAlignment}_${containerWidth}_${containerAlignment}`;
+      context[key] = generateCustomStatisticsHtmlForBroadcast(statsToShow, statValues, theme, {
+        valueSize,
+        valueAlignment,
+        containerWidth,
+        containerAlignment
+      });
+    } else if (el.type === 'row' && el.contentType === 'statistics') {
+      const selectedIds = el.selectedStatistics || [];
+      const statsToShow = selectedIds.length > 0
+        ? statistics.filter(s => selectedIds.includes(s.id))
+        : statistics;
+
+      const valueSize = el.statisticsValueSize || '24';
+      const valueAlignment = el.statisticsValueAlignment || 'left';
+      const containerWidth = el.statisticsContainerWidth || '100';
+      const containerAlignment = el.statisticsContainerAlignment || 'center';
+      const key = `statisticsHtml_${el.id}_${valueSize}_${valueAlignment}_${containerWidth}_${containerAlignment}`;
+      context[key] = generateCustomStatisticsHtmlForBroadcast(statsToShow, statValues, theme, {
+        valueSize,
+        valueAlignment,
+        containerWidth,
+        containerAlignment
+      });
+    }
+
+    // Generate icon placeholder if element has an icon
+    if (el.iconName) {
+      const iconSize = el.iconSize || '32';
+      context[`icon_${el.iconName}_${iconSize}`] = generateIconHtmlForBroadcast(el.iconName, iconSize, theme.primaryColor || '#004E7C');
+    }
+  });
 }
 
 /**
