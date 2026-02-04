@@ -118,6 +118,38 @@ function isUnrestrictedQuery(whereClause) {
 }
 
 /**
+ * Detect if the AI response indicates the query was too ambiguous or invalid
+ * Returns the interpretation message if ambiguous, null otherwise
+ */
+function getAmbiguousQueryMessage(aiResponse) {
+  if (!aiResponse || !aiResponse.interpretation) return null;
+
+  const interpretation = aiResponse.interpretation.toLowerCase();
+
+  // Patterns that indicate the AI couldn't properly interpret the query
+  const ambiguityPatterns = [
+    'too ambiguous',
+    'could not be generated',
+    'no sql where clause',
+    'could not be interpreted',
+    'unable to interpret',
+    'not specific enough',
+    'cannot determine',
+    'unclear what',
+    'insufficient information',
+    'no clear'
+  ];
+
+  for (const pattern of ambiguityPatterns) {
+    if (interpretation.includes(pattern)) {
+      return aiResponse.interpretation;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Detect if query is a help/documentation question
  */
 function isHelpQuery(query, helpModeEnabled) {
@@ -752,6 +784,13 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
           console.log('[ChatView] AI translation successful:', aiResult);
           searchMetadata.aiResponse = aiResult;
           searchMetadata.interpretation = aiResult.interpretation || aiResult.explanation || null;
+
+          // Check if the AI indicated the query was too ambiguous to interpret properly
+          const ambiguousMessage = getAmbiguousQueryMessage(aiResult);
+          if (ambiguousMessage) {
+            console.warn('[ChatView] Blocked ambiguous query:', ambiguousMessage);
+            throw new Error(`The query was not completed. ${ambiguousMessage}`);
+          }
 
           if (aiResult.parcelId) {
             setLoadingText('Looking up parcel...');
