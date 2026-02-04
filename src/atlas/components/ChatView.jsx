@@ -514,22 +514,29 @@ const ChatView = forwardRef(function ChatView(props, ref) {
     const endpoint = activeMap?.endpoint || config?.data?.endpoint;
     if (!endpoint) throw new Error('No endpoint configured');
 
-    console.log('[ChatView] Executing SQL query:', queryParams);
+    // Enforce maxRecordCount from organization's Atlas configuration
+    const maxRecordCount = config?.data?.maxRecordCount || 1000;
+    // Cap the requested limit at maxRecordCount, or use maxRecordCount as default
+    const effectiveLimit = queryParams.limit
+      ? Math.min(Number(queryParams.limit), maxRecordCount)
+      : maxRecordCount;
+
+    console.log('[ChatView] Executing SQL query:', queryParams, 'with limit:', effectiveLimit);
 
     const params = new URLSearchParams({
       f: 'json',
       outFields: '*',
       returnGeometry: 'true',
       outSR: '4326',
-      where: queryParams.where
+      where: queryParams.where,
+      resultRecordCount: String(effectiveLimit)
     });
 
     if (queryParams.orderBy) params.set('orderByFields', queryParams.orderBy);
-    if (queryParams.limit) params.set('resultRecordCount', String(queryParams.limit));
 
     const response = await fetch(`${endpoint}/query?${params}`);
     return response.json();
-  }, [activeMap?.endpoint, config?.data?.endpoint]);
+  }, [activeMap?.endpoint, config?.data?.endpoint, config?.data?.maxRecordCount]);
 
   /**
    * Handle help queries using documentation

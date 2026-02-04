@@ -83,7 +83,8 @@ function SingleSelectDropdown({
   onChange,
   endpoint,
   colors,
-  disabled
+  disabled,
+  maxRecordCount = 1000
 }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -113,7 +114,7 @@ function SingleSelectDropdown({
           returnGeometry: 'false',
           returnDistinctValues: 'true',
           orderByFields: field,
-          resultRecordCount: '500'
+          resultRecordCount: String(maxRecordCount)
         });
 
         const response = await fetch(`${endpoint}/query?${params}`);
@@ -136,7 +137,7 @@ function SingleSelectDropdown({
     };
 
     fetchOptions();
-  }, [endpoint, field]);
+  }, [endpoint, field, maxRecordCount]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -248,7 +249,8 @@ function MultiSelectTags({
   onChange,
   endpoint,
   colors,
-  disabled
+  disabled,
+  maxRecordCount = 1000
 }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -277,7 +279,7 @@ function MultiSelectTags({
           returnGeometry: 'false',
           returnDistinctValues: 'true',
           orderByFields: field,
-          resultRecordCount: '500'
+          resultRecordCount: String(maxRecordCount)
         });
 
         const response = await fetch(`${endpoint}/query?${params}`);
@@ -299,7 +301,7 @@ function MultiSelectTags({
     };
 
     fetchOptions();
-  }, [endpoint, field]);
+  }, [endpoint, field, maxRecordCount]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -401,7 +403,8 @@ function FieldRow({
   filterState,
   onChange,
   endpoint,
-  colors
+  colors,
+  maxRecordCount = 1000
 }) {
   const { field, label, type } = fieldConfig;
   const operators = OPERATORS[type] || OPERATORS.text;
@@ -514,6 +517,7 @@ function FieldRow({
           onChange={handleValueChange}
           endpoint={endpoint}
           colors={colors}
+          maxRecordCount={maxRecordCount}
         />
       )}
 
@@ -524,6 +528,7 @@ function FieldRow({
           onChange={handleValueChange}
           endpoint={endpoint}
           colors={colors}
+          maxRecordCount={maxRecordCount}
         />
       )}
     </div>
@@ -812,13 +817,16 @@ export default function AdvancedSearchModal({
     try {
       console.log('[AdvancedSearch] WHERE clause:', whereClause);
 
+      // Use maxRecordCount from organization's Atlas configuration
+      const maxRecordCount = config?.data?.maxRecordCount || 1000;
+
       const params = new URLSearchParams({
         f: 'json',
         where: whereClause,
         outFields: '*',
         returnGeometry: 'true',
         outSR: '4326', // Request geometry in WGS84 (lat/lon) for consistent handling
-        resultRecordCount: '1000'
+        resultRecordCount: String(maxRecordCount)
       });
 
       const response = await fetch(`${endpoint}/query?${params}`);
@@ -972,6 +980,7 @@ export default function AdvancedSearchModal({
                 onChange={handleFieldChange}
                 endpoint={endpoint}
                 colors={colors}
+                maxRecordCount={config?.data?.maxRecordCount || 1000}
               />
             ))
           )}
