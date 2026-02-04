@@ -235,7 +235,8 @@ export default function NotifyConfiguration({
             dateRangeStart: emailResult.dateRange.startStr,
             dateRangeEnd: emailResult.dateRange.endStr,
             requestedAt: serverTimestamp(),
-            status: 'pending'
+            status: 'pending',
+            isForce: true
           });
           addToast("Broadcast queued with content", "success");
         } catch (err) {
