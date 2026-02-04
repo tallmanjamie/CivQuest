@@ -228,6 +228,8 @@ export default function NotifyConfiguration({
           const forceRef = doc(db, 'force_queue', `${targetOrgId}_${notifId}_${Date.now()}`);
           await setDoc(forceRef, {
             orgId: targetOrgId,
+            notifId: notifId,
+            type: 'broadcast',
             notificationId: notifId,
             notificationName: notifName,
             emailHtml: emailResult.html,
