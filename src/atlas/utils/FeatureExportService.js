@@ -344,8 +344,12 @@ async function renderPopupContentAsHtml(feature, sourceLayer, filterElements = n
 
     // Add map context if available - this is required for Arcade expressions
     // that use functions like FeatureSetByRelationshipName, FeatureSetByName, etc.
+    // The spatialReference is required for geometry-based Arcade functions like Filter, Intersects, etc.
     if (mapView?.map) {
       featureWidgetOptions.map = mapView.map;
+    }
+    if (mapView?.spatialReference || mapView?.map?.spatialReference) {
+      featureWidgetOptions.spatialReference = mapView.spatialReference || mapView.map.spatialReference;
     }
 
     const featureWidget = new Feature(featureWidgetOptions);
