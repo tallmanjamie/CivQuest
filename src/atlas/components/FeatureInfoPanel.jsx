@@ -71,6 +71,8 @@ export default function FeatureInfoPanel({
   const featureContainerRef = useRef(null);
   const titleWatcherRef = useRef(null); // Ref to hold the title watcher handle
   const resizeRef = useRef({ startX: 0, startW: 0 });
+  // Track previous context to determine when to destroy vs update widget
+  const prevContextRef = useRef({ feature: null, view: null, sourceLayer: null });
 
   // Notify parent of width changes for positioning navigation controls
   // When maximized, report a very large width to push controls out of view
@@ -166,6 +168,13 @@ export default function FeatureInfoPanel({
   useEffect(() => {
     if (!feature || !view || !activeTab) return;
 
+    // Determine if core context has changed (requires widget recreation)
+    const prevContext = prevContextRef.current;
+    const contextChanged =
+      prevContext.feature !== feature ||
+      prevContext.view !== view ||
+      prevContext.sourceLayer !== sourceLayer;
+
     const loadArcGIS = async () => {
       try {
         // Dynamically load modules
@@ -174,7 +183,7 @@ export default function FeatureInfoPanel({
           import('@arcgis/core/Graphic').then(m => m.default).catch(() => window.esri?.Graphic),
           import('@arcgis/core/core/reactiveUtils').catch(() => window.esri?.core?.reactiveUtils)
         ]);
-        
+
         if (!FeatureClass || !GraphicClass || !featureContainerRef.current) return;
 
         const currentTab = tabs.find(t => t.id === activeTab);
@@ -191,7 +200,7 @@ export default function FeatureInfoPanel({
         if (geometry && typeof geometry === 'object' && !geometry.declaredClass) {
           // It's likely a plain JSON object. Clone it to avoid mutating props.
           geometry = { ...geometry };
-          
+
           // Injects type if missing (required for Graphic autocasting)
           if (!geometry.type) {
              if (geometry.rings) geometry.type = 'polygon';
@@ -233,11 +242,19 @@ export default function FeatureInfoPanel({
             // Only apply filtered template if we actually have content
             // Otherwise fall back to the original template to avoid showing empty popup
             if (filteredContent.length > 0) {
+              // Convert expressionInfos to a plain array to ensure proper auto-casting
+              // when creating the popup template (handles Collection objects from existing templates)
+              const expressionInfosArray = originalTemplate.expressionInfos
+                ? (originalTemplate.expressionInfos.toArray?.() || [...originalTemplate.expressionInfos])
+                : [];
+
               graphic.popupTemplate = {
                 title: originalTemplate.title,
                 content: filteredContent,
-                expressionInfos: originalTemplate.expressionInfos,
-                fieldInfos: originalTemplate.fieldInfos
+                expressionInfos: expressionInfosArray,
+                fieldInfos: originalTemplate.fieldInfos,
+                // Include outFields if present - some Arcade expressions need specific fields
+                outFields: originalTemplate.outFields
               };
             } else {
               console.warn('[FeatureInfoPanel] Content filter returned empty array, using original template');
@@ -255,7 +272,15 @@ export default function FeatureInfoPanel({
         // geometry functions like Intersects, Buffer, Filter with geometry, etc.
         const spatialReference = view?.spatialReference || view?.map?.spatialReference;
 
-        if (!featureWidgetRef.current) {
+        // Only create new widget if context changed or widget doesn't exist
+        // This prevents destroying the widget (and cancelling Arcade evaluation) on tab switches
+        if (!featureWidgetRef.current || contextChanged) {
+          // Destroy existing widget if context changed
+          if (featureWidgetRef.current && contextChanged) {
+            featureWidgetRef.current.destroy?.();
+            featureWidgetRef.current = null;
+          }
+
           featureWidgetRef.current = new FeatureClass({
             graphic,
             view,
@@ -263,10 +288,15 @@ export default function FeatureInfoPanel({
             spatialReference,
             container: featureContainerRef.current
           });
+
+          // Update context tracking
+          prevContextRef.current = { feature, view, sourceLayer };
         } else {
+          // Just update the graphic on existing widget (for tab switches)
+          // This allows Arcade evaluation to continue without interruption
           featureWidgetRef.current.container = featureContainerRef.current;
           featureWidgetRef.current.graphic = graphic;
-          // Also update map and spatialReference in case the view/map changed
+          // Ensure map and spatialReference are set
           featureWidgetRef.current.map = view?.map;
           featureWidgetRef.current.spatialReference = spatialReference;
         }
@@ -303,21 +333,29 @@ export default function FeatureInfoPanel({
     };
 
     const timer = setTimeout(loadArcGIS, 50);
-    
-    // Cleanup function - destroy widget when view changes to force recreation with new context
+
+    // Cleanup function - only run full cleanup on unmount
+    // The widget destruction logic is now handled inside the effect based on context changes
     return () => {
       clearTimeout(timer);
       if (titleWatcherRef.current) {
         titleWatcherRef.current.remove();
         titleWatcherRef.current = null;
       }
-      // Destroy widget so it gets recreated with the new view when map switches
+    };
+  }, [feature, view, view?.map, sourceLayer, activeTab, tabs, isMobile]);
+
+  // Separate cleanup effect that only destroys widget when component unmounts or feature/view/sourceLayer changes
+  useEffect(() => {
+    return () => {
+      // Destroy widget on unmount
       if (featureWidgetRef.current) {
         featureWidgetRef.current.destroy?.();
         featureWidgetRef.current = null;
       }
+      prevContextRef.current = { feature: null, view: null, sourceLayer: null };
     };
-  }, [feature, view, view?.map, sourceLayer, activeTab, tabs, isMobile]);
+  }, [feature, view, sourceLayer]);
 
   const startResizingDesktop = useCallback((e) => {
     e.preventDefault();
