@@ -231,6 +231,28 @@ export default function LayersPanel({
     const updateLayers = () => {
       const tree = buildLayerTreeRef.current ? buildLayerTreeRef.current() : [];
       setLayers(tree);
+
+      // Auto-expand visible group layers on initial load
+      const visibleGroupIds = new Set();
+      const findVisibleGroups = (layers) => {
+        layers.forEach(layer => {
+          if (layer.isGroup && layer.visible) {
+            visibleGroupIds.add(layer.id);
+          }
+          if (layer.children) {
+            findVisibleGroups(layer.children);
+          }
+        });
+      };
+      findVisibleGroups(tree);
+
+      if (visibleGroupIds.size > 0) {
+        setExpandedGroups(prev => {
+          const next = new Set(prev);
+          visibleGroupIds.forEach(id => next.add(id));
+          return next;
+        });
+      }
     };
 
     updateLayers();
