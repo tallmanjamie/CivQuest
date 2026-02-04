@@ -29,6 +29,7 @@ const DEFAULT_CONFIG = {
     searchBarPosition: 'top',
     searchPlaceholder: '',  // Empty = use default
     defaultSearchBarSize: 'medium',  // Default search bar size for org users (small, medium, large)
+    chatWindowPlacement: 'bottom',   // Chat window placement (top or bottom)
     // Info button configuration - shows info popup when clicked
     info: {
       enabled: false,                  // Disabled by default
@@ -76,7 +77,16 @@ const DEFAULT_CONFIG = {
   },
   // Help configuration
   helpDocumentation: [],     // Organization-specific help
-  useGlobalHelp: true        // Whether to use global Atlas help (default: true)
+  useGlobalHelp: true,       // Whether to use global Atlas help (default: true)
+  // ArcGIS Portal URL for organization authentication
+  arcgisPortalUrl: '',
+  // Export options configuration - controls which export formats are available
+  exportOptions: {
+    chatSearchResults: { csv: true, pdf: true, shp: true },
+    searchResultsPanel: { csv: true, shp: true },
+    mapMarkup: { csv: true, shp: true },
+    tableMode: { csv: true, shp: true }
+  }
 };
 
 /**
@@ -266,7 +276,16 @@ export function useAtlasConfig(providedOrgId = null) {
             supplementGlobalHelp: supplementGlobalHelpSetting,
             customHelpModeText: atlasConfig.customHelpModeText || '',
             // Also store the org's own help docs in case admin needs to edit them
-            orgHelpDocumentation: orgHelpDocs
+            orgHelpDocumentation: orgHelpDocs,
+            // ArcGIS Portal URL for organization authentication
+            arcgisPortalUrl: atlasConfig.arcgisPortalUrl || DEFAULT_CONFIG.arcgisPortalUrl,
+            // Export options - deep merge to preserve individual format settings
+            exportOptions: {
+              chatSearchResults: { ...DEFAULT_CONFIG.exportOptions.chatSearchResults, ...atlasConfig.exportOptions?.chatSearchResults },
+              searchResultsPanel: { ...DEFAULT_CONFIG.exportOptions.searchResultsPanel, ...atlasConfig.exportOptions?.searchResultsPanel },
+              mapMarkup: { ...DEFAULT_CONFIG.exportOptions.mapMarkup, ...atlasConfig.exportOptions?.mapMarkup },
+              tableMode: { ...DEFAULT_CONFIG.exportOptions.tableMode, ...atlasConfig.exportOptions?.tableMode }
+            }
           };
 
           // DEBUG: Log the merged config

@@ -668,20 +668,24 @@ const TableView = forwardRef(function TableView(props, ref) {
                   onClick={() => setShowExportMenu(false)}
                 />
                 <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
-                  <button
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                    onClick={exportCSV}
-                  >
-                    <FileSpreadsheet className="w-4 h-4 text-green-600" />
-                    Export to CSV
-                  </button>
-                  <button
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                    onClick={exportShapefile}
-                  >
-                    <FileArchive className="w-4 h-4 text-blue-600" />
-                    Export to Shapefile
-                  </button>
+                  {config?.exportOptions?.tableMode?.csv !== false && (
+                    <button
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                      onClick={exportCSV}
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                      Export to CSV
+                    </button>
+                  )}
+                  {config?.exportOptions?.tableMode?.shp !== false && (
+                    <button
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                      onClick={exportShapefile}
+                    >
+                      <FileArchive className="w-4 h-4 text-blue-600" />
+                      Export to Shapefile
+                    </button>
+                  )}
                 </div>
               </>
             )}

@@ -46,7 +46,14 @@ import {
   Layers,
   AlignLeft,
   AlignCenter,
-  AlignRight
+  AlignRight,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  FileArchive,
+  MessageCircle,
+  Map,
+  Table2
 } from 'lucide-react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -134,6 +141,7 @@ export default function AtlasSettingsEditor({
       searchBarPosition: 'top',
       searchPlaceholder: '',
       defaultSearchBarSize: 'medium',  // Default search bar size for org users
+      chatWindowPlacement: 'bottom',  // Chat window placement (top or bottom)
       // Map tools position and layout
       mapToolsPosition: 'upper-left',
       mapToolsLayout: 'stacked',
@@ -189,7 +197,30 @@ export default function AtlasSettingsEditor({
     helpDocumentation: data?.helpDocumentation || [],
     useGlobalHelp: data?.useGlobalHelp !== false,  // Default to true
     supplementGlobalHelp: data?.supplementGlobalHelp || false,  // Use global + org-specific
-    customHelpModeText: data?.customHelpModeText || ''  // Custom text for help mode display
+    customHelpModeText: data?.customHelpModeText || '',  // Custom text for help mode display
+    // ArcGIS Portal URL for organization authentication
+    arcgisPortalUrl: data?.arcgisPortalUrl || '',
+    // Export options configuration
+    exportOptions: {
+      chatSearchResults: {
+        csv: true,
+        pdf: true,
+        shp: true
+      },
+      searchResultsPanel: {
+        csv: true,
+        shp: true
+      },
+      mapMarkup: {
+        csv: true,
+        shp: true
+      },
+      tableMode: {
+        csv: true,
+        shp: true
+      },
+      ...data?.exportOptions
+    }
   }));
 
   const [errors, setErrors] = useState({});
@@ -225,6 +256,8 @@ export default function AtlasSettingsEditor({
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'disclaimer', label: 'Disclaimer', icon: Shield },
     { id: 'basemaps', label: 'Basemaps', icon: Globe },
+    { id: 'exports', label: 'Exports', icon: Download },
+    { id: 'integrations', label: 'Integrations', icon: Globe },
     { id: 'help', label: 'Help', icon: BookOpen },
     { id: 'advanced', label: 'Advanced', icon: HelpCircle }
   ];
@@ -251,6 +284,20 @@ export default function AtlasSettingsEditor({
     setConfig(prev => ({
       ...prev,
       data: { ...prev.data, [field]: value }
+    }));
+  };
+
+  // Update export options
+  const updateExportOption = (category, format, value) => {
+    setConfig(prev => ({
+      ...prev,
+      exportOptions: {
+        ...prev.exportOptions,
+        [category]: {
+          ...prev.exportOptions[category],
+          [format]: value
+        }
+      }
     }));
   };
 
@@ -827,6 +874,36 @@ export default function AtlasSettingsEditor({
                       }`}
                     >
                       <span className="text-sm font-medium">{size.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chat Window Placement */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Chat Window Placement
+                </label>
+                <p className="text-xs text-slate-500 mb-2">
+                  Position the chat interface at the top or bottom of the screen. Logged-in users can override this in their settings.
+                </p>
+                <div className="flex gap-2">
+                  {[
+                    { id: 'top', label: 'Top', icon: ArrowUpFromLine },
+                    { id: 'bottom', label: 'Bottom', icon: ArrowDownToLine }
+                  ].map(placement => (
+                    <button
+                      key={placement.id}
+                      type="button"
+                      onClick={() => updateUI('chatWindowPlacement', placement.id)}
+                      className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                        (config.ui.chatWindowPlacement || 'bottom') === placement.id
+                          ? 'border-sky-500 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      <placement.icon className="w-5 h-5" />
+                      <span className="text-sm font-medium">{placement.label}</span>
                     </button>
                   ))}
                 </div>
@@ -1787,6 +1864,241 @@ export default function AtlasSettingsEditor({
               >
                 <Plus className="w-4 h-4" /> Add Basemap
               </button>
+            </div>
+          )}
+
+          {/* Exports Tab */}
+          {activeTab === 'exports' && (
+            <div className="space-y-6">
+              {/* Info Banner */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-blue-800">Export Options</p>
+                    <p className="text-blue-700 mt-1">
+                      Configure which export formats are available for each feature. Disabled formats will be hidden from users.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Chat Search Results Exports */}
+              <div className="p-4 bg-white border border-slate-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <MessageCircle className="w-5 h-5" style={{ color: accentColor }} />
+                  <h3 className="font-semibold text-slate-800">Chat Search Results</h3>
+                </div>
+                <p className="text-xs text-slate-500 mb-4">
+                  Export options available when viewing search results in the chat interface.
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.chatSearchResults?.csv !== false}
+                      onChange={(e) => updateExportOption('chatSearchResults', 'csv', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                    <span className="text-sm text-slate-700">CSV</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.chatSearchResults?.pdf !== false}
+                      onChange={(e) => updateExportOption('chatSearchResults', 'pdf', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileText className="w-4 h-4 text-red-600" />
+                    <span className="text-sm text-slate-700">PDF</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.chatSearchResults?.shp !== false}
+                      onChange={(e) => updateExportOption('chatSearchResults', 'shp', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileArchive className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm text-slate-700">Shapefile</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Search Results Panel Exports */}
+              <div className="p-4 bg-white border border-slate-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <Search className="w-5 h-5" style={{ color: accentColor }} />
+                  <h3 className="font-semibold text-slate-800">Search Results Panel</h3>
+                </div>
+                <p className="text-xs text-slate-500 mb-4">
+                  Export options available in the map's search results panel.
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.searchResultsPanel?.csv !== false}
+                      onChange={(e) => updateExportOption('searchResultsPanel', 'csv', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                    <span className="text-sm text-slate-700">CSV</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.searchResultsPanel?.shp !== false}
+                      onChange={(e) => updateExportOption('searchResultsPanel', 'shp', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileArchive className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm text-slate-700">Shapefile</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Map Markup Exports */}
+              <div className="p-4 bg-white border border-slate-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <Map className="w-5 h-5" style={{ color: accentColor }} />
+                  <h3 className="font-semibold text-slate-800">Map Markup</h3>
+                </div>
+                <p className="text-xs text-slate-500 mb-4">
+                  Export options for user-drawn markups on the map.
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.mapMarkup?.csv !== false}
+                      onChange={(e) => updateExportOption('mapMarkup', 'csv', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                    <span className="text-sm text-slate-700">CSV</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.mapMarkup?.shp !== false}
+                      onChange={(e) => updateExportOption('mapMarkup', 'shp', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileArchive className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm text-slate-700">Shapefile</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Table Mode Exports */}
+              <div className="p-4 bg-white border border-slate-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <Table2 className="w-5 h-5" style={{ color: accentColor }} />
+                  <h3 className="font-semibold text-slate-800">Table Mode</h3>
+                </div>
+                <p className="text-xs text-slate-500 mb-4">
+                  Export options available in the table view.
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.tableMode?.csv !== false}
+                      onChange={(e) => updateExportOption('tableMode', 'csv', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                    <span className="text-sm text-slate-700">CSV</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.exportOptions.tableMode?.shp !== false}
+                      onChange={(e) => updateExportOption('tableMode', 'shp', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <FileArchive className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm text-slate-700">Shapefile</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Integrations Tab */}
+          {activeTab === 'integrations' && (
+            <div className="space-y-6">
+              {/* Info Banner */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-blue-800">ArcGIS Integration</p>
+                    <p className="text-blue-700 mt-1">
+                      Configure your ArcGIS organization settings for user authentication and map services.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* ArcGIS Organization URL */}
+              <div className="p-4 bg-white border border-slate-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <Globe className="w-5 h-5" style={{ color: accentColor }} />
+                  <h3 className="font-semibold text-slate-800">ArcGIS Organization</h3>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Organization Portal URL
+                    </label>
+                    <input
+                      type="url"
+                      value={config.arcgisPortalUrl}
+                      onChange={(e) => setConfig(prev => ({ ...prev, arcgisPortalUrl: e.target.value }))}
+                      placeholder="https://yourorg.maps.arcgis.com"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50"
+                    />
+                    <p className="mt-2 text-xs text-slate-500">
+                      Enter your ArcGIS organization portal URL. This is used to authenticate Atlas users with your organization's ArcGIS account.
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Example: https://civicvanguard.maps.arcgis.com or https://yourorg.maps.arcgis.com
+                    </p>
+                  </div>
+
+                  {/* Preview of configured URL */}
+                  {config.arcgisPortalUrl && (
+                    <div className="p-3 bg-slate-50 rounded-lg">
+                      <p className="text-xs font-medium text-slate-600 mb-1">Configured Portal:</p>
+                      <a
+                        href={config.arcgisPortalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-sky-600 hover:text-sky-700 hover:underline break-all"
+                      >
+                        {config.arcgisPortalUrl}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Additional info */}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-amber-800">Important</p>
+                    <p className="text-amber-700 mt-1">
+                      The ESRI Client ID for OAuth authentication is configured at the system level by administrators.
+                      Contact your system administrator if you need to update the OAuth credentials.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
