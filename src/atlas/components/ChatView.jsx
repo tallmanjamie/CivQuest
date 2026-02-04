@@ -118,31 +118,53 @@ function isUnrestrictedQuery(whereClause) {
 }
 
 /**
- * Detect if the AI response indicates the query was too ambiguous or invalid
- * Returns the interpretation message if ambiguous, null otherwise
+ * Detect if the AI response indicates the query was too ambiguous, needs clarification, or is invalid
+ * Returns an object with the message and type, or null if the query is valid
  */
 function getAmbiguousQueryMessage(aiResponse) {
-  if (!aiResponse || !aiResponse.interpretation) return null;
+  if (!aiResponse) return null;
 
-  const interpretation = aiResponse.interpretation.toLowerCase();
+  // Check for explicit clarification request from conservative search guidelines
+  if (aiResponse.needsClarification === true) {
+    const message = aiResponse.clarificationMessage || aiResponse.interpretation ||
+      'Your search query is too broad. Please provide more specific criteria such as an address, owner name, price range, or date range.';
+    return {
+      message,
+      type: 'clarification',
+      suggestions: aiResponse.suggestions || null
+    };
+  }
 
-  // Patterns that indicate the AI couldn't properly interpret the query
-  const ambiguityPatterns = [
-    'too ambiguous',
-    'could not be generated',
-    'no sql where clause',
-    'could not be interpreted',
-    'unable to interpret',
-    'not specific enough',
-    'cannot determine',
-    'unclear what',
-    'insufficient information',
-    'no clear'
-  ];
+  // Check interpretation for ambiguity patterns
+  if (aiResponse.interpretation) {
+    const interpretation = aiResponse.interpretation.toLowerCase();
 
-  for (const pattern of ambiguityPatterns) {
-    if (interpretation.includes(pattern)) {
-      return aiResponse.interpretation;
+    // Patterns that indicate the AI couldn't properly interpret the query
+    const ambiguityPatterns = [
+      'too ambiguous',
+      'could not be generated',
+      'no sql where clause',
+      'could not be interpreted',
+      'unable to interpret',
+      'not specific enough',
+      'cannot determine',
+      'unclear what',
+      'insufficient information',
+      'no clear',
+      'too vague',
+      'too broad',
+      'needs more detail',
+      'please specify',
+      'please provide'
+    ];
+
+    for (const pattern of ambiguityPatterns) {
+      if (interpretation.includes(pattern)) {
+        return {
+          message: aiResponse.interpretation,
+          type: 'ambiguous'
+        };
+      }
     }
   }
 
@@ -611,6 +633,7 @@ Provide a clear, helpful answer. If you reference media (images/videos), note th
   /**
    * Translate natural language query to SQL using AI
    * Uses the configured System Prompt and available search fields
+   * Includes conservative search instructions to avoid overly broad queries
    */
   const translateQueryWithAI = useCallback(async (query) => {
     // Check multiple paths for the system prompt
@@ -637,12 +660,44 @@ Provide a clear, helpful answer. If you reference media (images/videos), note th
       const fieldsContext = buildAvailableFieldsContext();
       console.log('[ChatView] Available fields context:', fieldsContext || '(none configured)');
 
-      // Build the full prompt with context
-      const fullPrompt = `${systemPrompt}${fieldsContext}${sessionContext}
+      // Conservative search instructions to prevent overly broad or vague queries
+      const conservativeSearchInstructions = `
+
+IMPORTANT - Conservative Search Guidelines:
+You must be CONSERVATIVE when interpreting search queries. If a query is too vague, open-ended, or could return an excessive number of results, DO NOT attempt to run the search. Instead, ask for clarification.
+
+Set "needsClarification": true in your response if ANY of the following apply:
+1. The query is too vague (e.g., "show me properties", "find parcels", "what's available")
+2. The query lacks specific criteria (e.g., no address, owner name, price range, date range, or other filtering criteria)
+3. The query would likely return hundreds or thousands of results
+4. The query contains only generic terms without clear search parameters
+5. The query asks for "all" or "everything" without meaningful filters
+6. You cannot determine what specific records the user is looking for
+
+When clarification is needed, provide helpful feedback in the "clarificationMessage" field explaining:
+- What was unclear about the query
+- What specific information the user could provide to narrow down the search
+- Examples of more specific queries they could try
+
+Examples of queries that NEED clarification:
+- "show me properties" → needs location, owner, price range, or other criteria
+- "find land" → needs size, location, zoning, or other criteria
+- "recent sales" → needs time period, location, price range, or other criteria
+- "large parcels" → needs specific acreage threshold and location
+- "properties over $100000" → acceptable but could suggest adding location
+
+Examples of queries that are specific enough:
+- "306 Cedar Lane" → specific address
+- "properties owned by John Smith" → specific owner
+- "parcels over 10 acres in district 5" → specific criteria with location
+- "sales in January 2024 over $500000" → specific time and price criteria`;
+
+      // Build the full prompt with context and conservative instructions
+      const fullPrompt = `${systemPrompt}${fieldsContext}${conservativeSearchInstructions}${sessionContext}
 
 User Query: ${query}
 
-Remember to respond with ONLY a valid JSON object, no additional text or markdown. Include an "interpretation" field explaining how you understood the query.`;
+Remember to respond with ONLY a valid JSON object, no additional text or markdown. Include an "interpretation" field explaining how you understood the query. If the query needs clarification, set "needsClarification": true and provide a "clarificationMessage" with helpful feedback.`;
 
       console.log('[ChatView] Sending query to Gemini AI...');
       const data = await callGeminiApi(fullPrompt);
@@ -792,11 +847,24 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
           searchMetadata.aiResponse = aiResult;
           searchMetadata.interpretation = aiResult.interpretation || aiResult.explanation || null;
 
-          // Check if the AI indicated the query was too ambiguous to interpret properly
-          const ambiguousMessage = getAmbiguousQueryMessage(aiResult);
-          if (ambiguousMessage) {
-            console.warn('[ChatView] Blocked ambiguous query:', ambiguousMessage);
-            throw new Error(`The query was not completed. ${ambiguousMessage}`);
+          // Check if the AI indicated the query was too ambiguous or needs clarification
+          const clarificationResult = getAmbiguousQueryMessage(aiResult);
+          if (clarificationResult) {
+            console.warn('[ChatView] Query needs clarification:', clarificationResult);
+            // Don't throw an error - instead show a helpful message asking for clarification
+            setIsLoading(false);
+            setIsSearching?.(false);
+            addMessage('ai', clarificationResult.message, {
+              isClarificationRequest: true,
+              clarificationType: clarificationResult.type,
+              suggestions: clarificationResult.suggestions,
+              searchMetadata: {
+                ...searchMetadata,
+                queryType: 'needsClarification',
+                interpretation: aiResult.interpretation
+              }
+            });
+            return; // Exit early without running a search
           }
 
           if (aiResult.parcelId) {
@@ -1528,6 +1596,52 @@ function MessageBubble({
                 Exit Help Mode
               </button>
             </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Check if this is a clarification request (query was too vague)
+  if (message.isClarificationRequest) {
+    return (
+      <div className="flex gap-3 md:gap-4">
+        <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-amber-100 border border-amber-200 flex-shrink-0 flex items-center justify-center">
+          <Lightbulb className="w-4 h-4 md:w-5 md:h-5 text-amber-600" />
+        </div>
+        <div className="bg-amber-50 p-4 rounded-2xl rounded-tl-none shadow-sm border border-amber-200 max-w-[85%] md:max-w-[80%]">
+          <div className="flex items-start gap-2 mb-2">
+            <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+              More details needed
+            </span>
+          </div>
+          <div className="text-sm text-amber-900 prose prose-sm" dangerouslySetInnerHTML={{
+            __html: message.content
+              .replace(/\n/g, '<br>')
+              .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+              .replace(/- (.*?)(<br>|$)/g, '<li class="ml-4">$1</li>')
+          }} />
+
+          {/* Show suggestions if provided */}
+          {message.suggestions && message.suggestions.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-amber-200">
+              <p className="text-xs font-medium text-amber-700 mb-2">Try searching for:</p>
+              <div className="flex flex-wrap gap-2">
+                {message.suggestions.map((suggestion, idx) => (
+                  <span
+                    key={idx}
+                    className="px-2 py-1 bg-white border border-amber-200 rounded text-xs text-amber-800"
+                  >
+                    {suggestion}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Query details if available */}
+          {message.searchMetadata && (
+            <MetadataViewer metadata={message.searchMetadata} colors={colors} />
           )}
         </div>
       </div>
