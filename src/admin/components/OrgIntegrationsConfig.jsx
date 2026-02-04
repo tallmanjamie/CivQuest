@@ -10,6 +10,7 @@ import {
   Save,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   CheckCircle,
   Info,
   ExternalLink,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 import { doc, updateDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { PATHS } from '../../shared/services/paths';
+import { isHttpUrl } from '../../shared/utils/urlSecurity';
 import {
   AVAILABLE_INTEGRATIONS,
   subscribeToIntegrations
@@ -474,6 +476,15 @@ function IntegrationConfigCard({
             <p className="text-xs text-slate-500 mt-1">
               Use <code className="bg-slate-100 px-1 rounded">{'{lat}'}</code>, <code className="bg-slate-100 px-1 rounded">{'{lon}'}</code>, <code className="bg-slate-100 px-1 rounded">{'{width}'}</code>, and <code className="bg-slate-100 px-1 rounded">{'{height}'}</code> as placeholders.
             </p>
+            {/* HTTPS warning */}
+            {isHttpUrl(config?.embedUrl) && (
+              <div className="flex items-center gap-2 mt-2 text-amber-600">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <p className="text-xs">
+                  HTTP URLs will be automatically upgraded to HTTPS for security. Please use HTTPS URLs.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Info about configuration */}

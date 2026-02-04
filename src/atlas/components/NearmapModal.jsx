@@ -5,6 +5,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { X, MapPin, Loader2 } from 'lucide-react';
+import { ensureHttps } from '../../shared/utils/urlSecurity';
 
 /**
  * NearmapModal Component
@@ -161,9 +162,10 @@ export default function NearmapModal({
               </div>
             </div>
           )}
+          {/* Ensure HTTPS to prevent mixed content warnings */}
           <iframe
             ref={iframeRef}
-            src={url}
+            src={ensureHttps(url)}
             className="w-full h-full border-0"
             title="Nearmap Viewer"
             allow="fullscreen"

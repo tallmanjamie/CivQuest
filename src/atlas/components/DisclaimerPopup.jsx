@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, X } from 'lucide-react';
 import { getThemeColors } from '../utils/themeColors';
+import { ensureHttps } from '../../shared/utils/urlSecurity';
 
 /**
  * Cookie utility functions
@@ -109,9 +110,9 @@ export default function DisclaimerPopup({ config, orgId, onAccept }) {
         {/* Content Area */}
         <div className="flex-1 overflow-auto">
           {disclaimer.contentMode === 'embed' && disclaimer.embedUrl ? (
-            // Embedded iframe mode
+            // Embedded iframe mode - ensure HTTPS to prevent mixed content warnings
             <iframe
-              src={disclaimer.embedUrl}
+              src={ensureHttps(disclaimer.embedUrl)}
               className="w-full h-full border-0"
               title="Disclaimer Content"
               sandbox="allow-scripts allow-same-origin"

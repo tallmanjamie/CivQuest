@@ -17,6 +17,7 @@ import {
   Layers,
   Eye,
   AlertCircle,
+  AlertTriangle,
   Users,
   Printer,
   Building2,
@@ -65,6 +66,7 @@ import FeatureExportTemplateConfiguration from './FeatureExportTemplateConfigura
 import FeatureExportTemplateEditor from './FeatureExportTemplateEditor';
 import OrgIntegrationsConfig from './OrgIntegrationsConfig';
 import { subscribeToGlobalExportTemplates, subscribeToGlobalFeatureExportTemplates } from '../../shared/services/systemConfig';
+import { isHttpUrl } from '../../shared/utils/urlSecurity';
 
 /**
  * AtlasAdminSection Component
@@ -2591,6 +2593,15 @@ function AtlasSettingsInline({
                         placeholder="https://example.com/disclaimer"
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg"
                       />
+                      {/* HTTPS warning */}
+                      {isHttpUrl(config.disclaimer.embedUrl) && (
+                        <div className="flex items-center gap-2 mt-2 text-amber-600">
+                          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                          <p className="text-xs">
+                            HTTP URLs will be automatically upgraded to HTTPS for security.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
