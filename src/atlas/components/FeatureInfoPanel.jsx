@@ -251,18 +251,24 @@ export default function FeatureInfoPanel({
         // Initialize or update widget
         // Note: The 'map' property is required for Arcade expressions that use
         // FeatureSet functions like FeatureSetByName, Filter, FeatureSetByRelationshipName, etc.
+        // The 'spatialReference' property is required for Arcade expressions that use
+        // geometry functions like Intersects, Buffer, Filter with geometry, etc.
+        const spatialReference = view?.spatialReference || view?.map?.spatialReference;
+
         if (!featureWidgetRef.current) {
           featureWidgetRef.current = new FeatureClass({
             graphic,
             view,
             map: view?.map,
+            spatialReference,
             container: featureContainerRef.current
           });
         } else {
           featureWidgetRef.current.container = featureContainerRef.current;
           featureWidgetRef.current.graphic = graphic;
-          // Also update map reference in case the view/map changed
+          // Also update map and spatialReference in case the view/map changed
           featureWidgetRef.current.map = view?.map;
+          featureWidgetRef.current.spatialReference = spatialReference;
         }
 
         // --- Title Resolution Logic (Updated for reactiveUtils) ---
@@ -311,7 +317,7 @@ export default function FeatureInfoPanel({
         featureWidgetRef.current = null;
       }
     };
-  }, [feature, view, sourceLayer, activeTab, tabs, isMobile]);
+  }, [feature, view, view?.map, sourceLayer, activeTab, tabs, isMobile]);
 
   const startResizingDesktop = useCallback((e) => {
     e.preventDefault();
