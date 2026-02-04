@@ -139,8 +139,7 @@ function SearchToolbar({
   onHideHelp,
   position = 'top',
   helpModeEnabled = false,
-  searchBarSize = 'medium',
-  searchPlaceholder = ''
+  searchBarSize = 'medium'
 }) {
   const [inputValue, setInputValue] = useState('');
   const [showMenu, setShowMenu] = useState(false);
@@ -691,7 +690,7 @@ function SearchToolbar({
                 setShowSuggestions(true);
               }
             }}
-            placeholder={helpModeEnabled ? "Ask for help." : (searchPlaceholder || activeMap?.searchPlaceholder || config?.ui?.searchPlaceholder || "Search properties...")}
+            placeholder={helpModeEnabled ? "Ask for help." : (activeMap?.searchPlaceholder || config?.ui?.searchPlaceholder || "Search properties...")}
             className={`w-full ${sizes.input} bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:bg-white transition`}
             style={{
               '--tw-ring-color': colors.bg500,
@@ -1580,7 +1579,6 @@ export default function AtlasApp() {
       position={searchBarPosition}
       helpModeEnabled={helpModeEnabled}
       searchBarSize={firebaseUserData?.preferences?.searchBarSize || 'medium'}
-      searchPlaceholder={firebaseUserData?.preferences?.searchPlaceholder || ''}
     />
   );
   
