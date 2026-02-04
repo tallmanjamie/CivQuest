@@ -169,11 +169,13 @@ export default function FeatureInfoPanel({
     if (!feature || !view || !activeTab) return;
 
     // Determine if core context has changed (requires widget recreation)
+    // Note: We distinguish between view/sourceLayer changes (require recreation) and
+    // feature-only changes (can update existing widget)
     const prevContext = prevContextRef.current;
-    const contextChanged =
-      prevContext.feature !== feature ||
+    const viewOrLayerChanged =
       prevContext.view !== view ||
       prevContext.sourceLayer !== sourceLayer;
+    const featureChanged = prevContext.feature !== feature;
 
     const loadArcGIS = async () => {
       try {
@@ -272,11 +274,12 @@ export default function FeatureInfoPanel({
         // geometry functions like Intersects, Buffer, Filter with geometry, etc.
         const spatialReference = view?.spatialReference || view?.map?.spatialReference;
 
-        // Only create new widget if context changed or widget doesn't exist
-        // This prevents destroying the widget (and cancelling Arcade evaluation) on tab switches
-        if (!featureWidgetRef.current || contextChanged) {
-          // Destroy existing widget if context changed
-          if (featureWidgetRef.current && contextChanged) {
+        // Only create new widget if view/sourceLayer changed or widget doesn't exist
+        // IMPORTANT: Do NOT destroy widget on feature-only changes - this breaks Arcade FeatureSet evaluation
+        // Instead, update the graphic on the existing widget to preserve Arcade evaluation state
+        if (!featureWidgetRef.current || viewOrLayerChanged) {
+          // Destroy existing widget only if view or sourceLayer changed (not for feature changes)
+          if (featureWidgetRef.current && viewOrLayerChanged) {
             featureWidgetRef.current.destroy?.();
             featureWidgetRef.current = null;
           }
@@ -292,13 +295,17 @@ export default function FeatureInfoPanel({
           // Update context tracking
           prevContextRef.current = { feature, view, sourceLayer };
         } else {
-          // Just update the graphic on existing widget (for tab switches)
-          // This allows Arcade evaluation to continue without interruption
+          // Update the graphic on existing widget (for feature changes and tab switches)
+          // This allows Arcade FeatureSet evaluation to work correctly on subsequent feature clicks
           featureWidgetRef.current.container = featureContainerRef.current;
           featureWidgetRef.current.graphic = graphic;
           // Ensure map and spatialReference are set
           featureWidgetRef.current.map = view?.map;
           featureWidgetRef.current.spatialReference = spatialReference;
+          // Track the new feature in context (view and sourceLayer stay the same)
+          if (featureChanged) {
+            prevContextRef.current = { feature, view, sourceLayer };
+          }
         }
 
         // --- Title Resolution Logic (Updated for reactiveUtils) ---
@@ -345,17 +352,20 @@ export default function FeatureInfoPanel({
     };
   }, [feature, view, view?.map, sourceLayer, activeTab, tabs, isMobile]);
 
-  // Separate cleanup effect that only destroys widget when component unmounts or feature/view/sourceLayer changes
+  // Cleanup effect that only destroys widget when component unmounts
+  // Note: Widget destruction on context changes (view/sourceLayer) is handled in the main effect
+  // We do NOT include feature in dependencies because we want to UPDATE the widget, not destroy it
+  // Destroying on feature change causes Arcade FeatureSet evaluation to fail on subsequent clicks
   useEffect(() => {
     return () => {
-      // Destroy widget on unmount
+      // Destroy widget only on unmount
       if (featureWidgetRef.current) {
         featureWidgetRef.current.destroy?.();
         featureWidgetRef.current = null;
       }
       prevContextRef.current = { feature: null, view: null, sourceLayer: null };
     };
-  }, [feature, view, sourceLayer]);
+  }, []); // Empty deps - only run cleanup on unmount
 
   const startResizingDesktop = useCallback((e) => {
     e.preventDefault();
