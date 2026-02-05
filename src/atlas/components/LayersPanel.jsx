@@ -14,7 +14,6 @@ import {
   Layers,
   ChevronDown,
   ChevronRight,
-  Eye,
   X,
   Minus,
   Plus,
@@ -235,66 +234,38 @@ export default function LayersPanel({
     };
 
     // Process operational layers
-    const layerTree = view.map.layers
+    // For map-image/tile layers with sublayers, we flatten them to show only sublayers
+    const layerTree = [];
+
+    view.map.layers
       .toArray()
       .reverse()
-      .map(layer => processLayer(layer))
-      .filter(Boolean);
+      .forEach(layer => {
+        const processed = processLayer(layer);
+        if (!processed) return;
 
-    // Process basemap layers (baseLayers and referenceLayers)
-    const basemap = view.map.basemap;
-    if (basemap) {
-      const basemapChildren = [];
+        // If it's a map-image or tile layer with sublayers, add only the children (not the container)
+        if ((layer.type === 'map-image' || layer.type === 'tile') && processed.children && processed.children.length > 0) {
+          // Add each sublayer directly to the tree (at depth 0)
+          processed.children.forEach(child => {
+            // Reset depth to 0 since we're promoting these to top level
+            child.depth = 0;
+            // Recursively adjust depths of nested children
+            const adjustDepths = (item, baseDepth) => {
+              item.depth = baseDepth;
+              if (item.children) {
+                item.children.forEach(c => adjustDepths(c, baseDepth + 1));
+              }
+            };
+            adjustDepths(child, 0);
+            layerTree.push(child);
+          });
+        } else {
+          layerTree.push(processed);
+        }
+      });
 
-      // Process baseLayers (the main basemap layers)
-      if (basemap.baseLayers && basemap.baseLayers.length > 0) {
-        const baseLayers = basemap.baseLayers.toArray ?
-          basemap.baseLayers.toArray() : Array.from(basemap.baseLayers);
-
-        baseLayers.reverse().forEach(layer => {
-          const processed = processLayer(layer, 1);
-          if (processed) {
-            // Mark as basemap layer for identification
-            processed.isBasemapLayer = true;
-            basemapChildren.push(processed);
-          }
-        });
-      }
-
-      // Process referenceLayers (labels, boundaries that go on top)
-      if (basemap.referenceLayers && basemap.referenceLayers.length > 0) {
-        const refLayers = basemap.referenceLayers.toArray ?
-          basemap.referenceLayers.toArray() : Array.from(basemap.referenceLayers);
-
-        refLayers.reverse().forEach(layer => {
-          const processed = processLayer(layer, 1);
-          if (processed) {
-            // Mark as basemap layer for identification
-            processed.isBasemapLayer = true;
-            processed.isReferenceLayer = true;
-            basemapChildren.push(processed);
-          }
-        });
-      }
-
-      // Add basemap group to layer tree if there are basemap layers
-      if (basemapChildren.length > 0) {
-        layerTree.push({
-          id: '__basemap__',
-          title: basemap.title || 'Basemap',
-          type: 'basemap-group',
-          visible: true,
-          opacity: 1,
-          depth: 0,
-          isGroup: true,
-          isBasemapGroup: true,
-          children: basemapChildren,
-          hasLegend: false,
-          // Store basemap reference for visibility toggling
-          basemap: basemap
-        });
-      }
-    }
+    // Note: Basemap is intentionally not shown in the layer list
 
     return layerTree;
   }, [view, hiddenLayerIdsKey]);
@@ -337,40 +308,8 @@ export default function LayersPanel({
     // Watch for operational layer changes
     const handle = view.map.layers.on('change', updateLayers);
 
-    // Watch for basemap changes
-    const basemapWatchHandle = view.map.watch('basemap', updateLayers);
-
-    // Watch for changes within basemap layers
-    let baseLayersHandle = null;
-    let refLayersHandle = null;
-
-    const setupBasemapWatchers = () => {
-      // Clean up existing watchers
-      if (baseLayersHandle) baseLayersHandle.remove();
-      if (refLayersHandle) refLayersHandle.remove();
-
-      const basemap = view.map.basemap;
-      if (basemap) {
-        if (basemap.baseLayers) {
-          baseLayersHandle = basemap.baseLayers.on('change', updateLayers);
-        }
-        if (basemap.referenceLayers) {
-          refLayersHandle = basemap.referenceLayers.on('change', updateLayers);
-        }
-      }
-    };
-
-    setupBasemapWatchers();
-
-    // Re-setup watchers when basemap changes
-    const basemapChangeHandle = view.map.watch('basemap', setupBasemapWatchers);
-
     return () => {
       handle?.remove();
-      basemapWatchHandle?.remove();
-      basemapChangeHandle?.remove();
-      if (baseLayersHandle) baseLayersHandle.remove();
-      if (refLayersHandle) refLayersHandle.remove();
       // Clean up combined legend widget
       if (combinedLegendWidgetRef.current?.destroy) {
         combinedLegendWidgetRef.current.destroy();
@@ -577,7 +516,6 @@ export default function LayersPanel({
    */
   const renderLayerItem = (layerData, key) => {
     const isGroup = layerData.isGroup;
-    const isBasemapGroup = layerData.isBasemapGroup;
     const isGroupExpanded = expandedGroups.has(layerData.id);
     const isVisible = layerData.sublayer ? layerData.sublayer.visible : layerData.visible;
     const inScale = isLayerInScale(layerData);
@@ -590,24 +528,11 @@ export default function LayersPanel({
           className={`layer-item flex items-start gap-2 py-1.5 px-2 rounded transition
                      ${isVisible ? 'bg-white' : 'bg-slate-50'}
                      ${!inScale ? 'opacity-60' : ''}
-                     ${isBasemapGroup ? 'bg-slate-100 border-t border-slate-200 mt-2' : ''}
                      hover:bg-slate-100 group`}
           style={{ paddingLeft: `${8 + layerData.depth * 16}px` }}
         >
           {/* Checkbox / Group Toggle */}
-          {isBasemapGroup ? (
-            // Basemap group - just show expand/collapse, no visibility toggle
-            <button
-              onClick={() => toggleGroup(layerData.id)}
-              className="flex-shrink-0 w-4 h-4 flex items-center justify-center text-slate-500"
-            >
-              {isGroupExpanded ? (
-                <ChevronDown className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5" />
-              )}
-            </button>
-          ) : isGroup ? (
+          {isGroup ? (
             <button
               onClick={() => toggleGroupVisibility(layerData)}
               className="flex-shrink-0 w-4 h-4 flex items-center justify-center
@@ -622,20 +547,21 @@ export default function LayersPanel({
           ) : (
             <button
               onClick={() => toggleLayerVisibility(layerData)}
-              className={`flex-shrink-0 w-4 h-4 flex items-center justify-center 
+              className={`flex-shrink-0 w-4 h-4 flex items-center justify-center
                          border rounded transition
-                         ${isVisible 
-                           ? 'border-slate-400 bg-slate-600' 
+                         ${isVisible
+                           ? ''
                            : 'border-slate-300 bg-white hover:bg-slate-100'}`}
+              style={isVisible ? { backgroundColor: colors.bg500, borderColor: colors.bg600 } : {}}
             >
-              {isVisible && <Eye className="w-2.5 h-2.5 text-white" />}
+              {isVisible && <Check className="w-2.5 h-2.5 text-white" />}
             </button>
           )}
 
           {/* Layer Title */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
-              <span className={`text-xs truncate ${isVisible ? 'text-slate-700' : 'text-slate-400'}`}>
+              <span className="text-xs truncate text-slate-700">
                 {layerData.title}
               </span>
               
@@ -673,8 +599,8 @@ export default function LayersPanel({
             )}
           </div>
 
-          {/* Group Expand/Collapse (not for basemap groups - they have it in the checkbox area) */}
-          {isGroup && !isBasemapGroup && isVisible && layerData.children?.length > 0 && (
+          {/* Group Expand/Collapse */}
+          {isGroup && isVisible && layerData.children?.length > 0 && (
             <button
               onClick={() => toggleGroup(layerData.id)}
               className="flex-shrink-0 p-0.5 hover:bg-slate-200 rounded"
@@ -693,9 +619,9 @@ export default function LayersPanel({
           <LayerLegend view={view} layer={layerData.layer} />
         )}
 
-        {/* Group Children - basemap groups are always "visible" for expansion purposes */}
-        {isGroup && isGroupExpanded && (isVisible || isBasemapGroup) && layerData.children && (
-          <div className={`layer-group-children border-l ml-3 ${isBasemapGroup ? 'border-slate-300' : 'border-slate-200'}`}>
+        {/* Group Children */}
+        {isGroup && isGroupExpanded && isVisible && layerData.children && (
+          <div className="layer-group-children border-l ml-3 border-slate-200">
             {layerData.children.map((child, idx) => renderLayerItem(child, `${layerData.id}-${idx}`))}
           </div>
         )}
