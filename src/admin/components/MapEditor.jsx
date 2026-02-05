@@ -1,14 +1,16 @@
 // src/admin/components/MapEditor.jsx
 // Modal for editing individual Atlas map configurations
-// Handles webmap settings, endpoint, columns, search fields, geocoder, and export templates
+// Handles webmap settings, endpoint, columns, search fields, geocoder, export templates, and layer visibility
 //
 // LICENSE ENFORCEMENT: Enforces public/private visibility based on organization license
 // - Professional: Private only (no public maps allowed)
 // - Organization: Public or private allowed
 //
-// UPDATED:
-// - Added Export Templates tab for selecting which export templates are available for this map
-// - Added Feature Export Template selection (one per map)
+// FEATURES:
+// - Export Templates tab for selecting which export templates are available for this map
+// - Feature Export Template selection (one per map)
+// - Layers tab for configuring which layers are hidden from the Atlas layer list
+//   (hidden layers remain functional but don't appear in the layers panel)
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -30,6 +32,7 @@ import {
   ExternalLink,
   Lock,
   Eye,
+  EyeOff,
   Link2,
   Settings,
   HelpCircle,
@@ -146,6 +149,8 @@ export default function MapEditor({
     exportTemplates: [],
     // Feature export template - single template ID (for feature/attribute export)
     featureExportTemplateId: null,
+    // Hidden layers - array of layer IDs to hide from the layer list
+    hiddenLayers: [],
     // Custom feature info - per-map configuration for feature popup tabs
     customFeatureInfo: {
       layerId: '',
@@ -177,6 +182,12 @@ export default function MapEditor({
   const [fieldsLoading, setFieldsLoading] = useState(false);
   const [fieldsError, setFieldsError] = useState(null);
   const [lastFetchedEndpoint, setLastFetchedEndpoint] = useState('');
+
+  // WebMap layers state (for hidden layers configuration)
+  const [webMapLayers, setWebMapLayers] = useState([]);
+  const [webMapLayersLoading, setWebMapLayersLoading] = useState(false);
+  const [webMapLayersError, setWebMapLayersError] = useState(null);
+  const [lastFetchedWebMap, setLastFetchedWebMap] = useState('');
 
   // Fetch fields from feature service endpoint
   const fetchServiceFields = useCallback(async (endpointUrl) => {
@@ -251,6 +262,86 @@ export default function MapEditor({
       fetchServiceFields(mapConfig.endpoint);
     }
   }, [mapConfig.endpoint, lastFetchedEndpoint, fetchServiceFields]);
+
+  // Fetch layers from WebMap for hidden layers configuration
+  const fetchWebMapLayers = useCallback(async (portalUrl, itemId) => {
+    if (!portalUrl || !itemId) {
+      setWebMapLayers([]);
+      setWebMapLayersError(null);
+      return;
+    }
+
+    const webMapKey = `${portalUrl}|${itemId}`;
+
+    // Don't refetch if we already have layers for this webmap
+    if (webMapKey === lastFetchedWebMap && webMapLayers.length > 0) {
+      return;
+    }
+
+    setWebMapLayersLoading(true);
+    setWebMapLayersError(null);
+
+    try {
+      // Fetch the WebMap item data from ArcGIS
+      const itemUrl = `${portalUrl}/sharing/rest/content/items/${itemId}/data?f=json`;
+      const response = await fetch(itemUrl);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch WebMap: ${response.status}`);
+      }
+
+      const webMapData = await response.json();
+
+      if (webMapData.error) {
+        throw new Error(webMapData.error.message || 'Error fetching WebMap data');
+      }
+
+      // Extract layers from the WebMap
+      const extractedLayers = [];
+
+      // Process operational layers
+      if (webMapData.operationalLayers && Array.isArray(webMapData.operationalLayers)) {
+        const processLayer = (layer, depth = 0) => {
+          const layerInfo = {
+            id: layer.id,
+            title: layer.title || layer.name || 'Untitled Layer',
+            type: layer.layerType || 'unknown',
+            depth
+          };
+          extractedLayers.push(layerInfo);
+
+          // Process sublayers if present (for group layers or map services)
+          if (layer.layers && Array.isArray(layer.layers)) {
+            layer.layers.forEach(sublayer => processLayer(sublayer, depth + 1));
+          }
+        };
+
+        webMapData.operationalLayers.forEach(layer => processLayer(layer));
+      }
+
+      setWebMapLayers(extractedLayers);
+      setLastFetchedWebMap(webMapKey);
+      setWebMapLayersError(null);
+    } catch (err) {
+      console.error('Error fetching WebMap layers:', err);
+      setWebMapLayersError(err.message || 'Failed to fetch WebMap layers');
+      setWebMapLayers([]);
+    } finally {
+      setWebMapLayersLoading(false);
+    }
+  }, [lastFetchedWebMap, webMapLayers.length]);
+
+  // Fetch WebMap layers when webMap config changes
+  useEffect(() => {
+    const portalUrl = mapConfig.webMap?.portalUrl;
+    const itemId = mapConfig.webMap?.itemId;
+    if (portalUrl && itemId) {
+      const webMapKey = `${portalUrl}|${itemId}`;
+      if (webMapKey !== lastFetchedWebMap) {
+        fetchWebMapLayers(portalUrl, itemId);
+      }
+    }
+  }, [mapConfig.webMap?.portalUrl, mapConfig.webMap?.itemId, lastFetchedWebMap, fetchWebMapLayers]);
 
   // Update field
   const updateField = (field, value) => {
@@ -433,6 +524,32 @@ export default function MapEditor({
     }));
   };
 
+  // Hidden layers management
+  const toggleHiddenLayer = (layerId) => {
+    setMapConfig(prev => {
+      const currentIds = prev.hiddenLayers || [];
+      if (currentIds.includes(layerId)) {
+        return { ...prev, hiddenLayers: currentIds.filter(id => id !== layerId) };
+      } else {
+        return { ...prev, hiddenLayers: [...currentIds, layerId] };
+      }
+    });
+  };
+
+  const hideAllLayers = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      hiddenLayers: webMapLayers.map(l => l.id)
+    }));
+  };
+
+  const showAllLayers = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      hiddenLayers: []
+    }));
+  };
+
   // Custom Feature Info management
   const updateCustomFeatureInfo = (field, value) => {
     setMapConfig(prev => ({
@@ -608,14 +725,15 @@ export default function MapEditor({
     onSave(mapConfig);
   };
 
-  // Tab definitions - now includes Feature Info and Export tabs
+  // Tab definitions - now includes Feature Info, Layers, and Export tabs
   const tabs = [
     { id: 'basic', label: 'Basic', icon: Settings },
     { id: 'data', label: 'Data Source', icon: Link2 },
     { id: 'search', label: 'Search', icon: Search },
     { id: 'table', label: 'Table', icon: Table2 },
     { id: 'geocoder', label: 'Geocoder', icon: MapPin },
-    { id: 'featureInfo', label: 'Feature Info', icon: Layers },
+    { id: 'layers', label: 'Layers', icon: Layers },
+    { id: 'featureInfo', label: 'Feature Info', icon: LayoutList },
     { id: 'export', label: 'Export', icon: Printer }
   ];
 
@@ -1433,6 +1551,219 @@ export default function MapEditor({
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg"
                   />
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Layers Tab - Hidden Layers Configuration */}
+          {activeTab === 'layers' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-slate-800">
+                <Layers className="w-5 h-5" />
+                <h3 className="font-semibold">Layer Visibility</h3>
+              </div>
+
+              <p className="text-sm text-slate-600">
+                Select layers to hide from the Atlas layer list. Hidden layers remain functional for
+                operations and display but won't appear in the layers panel for end users.
+              </p>
+
+              {/* WebMap Configuration Required Notice */}
+              {(!mapConfig.webMap?.portalUrl || !mapConfig.webMap?.itemId) ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-amber-800">WebMap Configuration Required</h4>
+                      <p className="text-sm text-amber-700 mt-1">
+                        Configure a WebMap in the Data Source tab to load and manage layer visibility.
+                        You need to set both the Portal URL and WebMap Item ID.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Loading State */}
+                  {webMapLayersLoading && (
+                    <div className="flex items-center gap-2 text-slate-500 py-4">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">Loading layers from WebMap...</span>
+                    </div>
+                  )}
+
+                  {/* Error State */}
+                  {webMapLayersError && !webMapLayersLoading && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="font-medium text-red-800">Failed to Load Layers</h4>
+                          <p className="text-sm text-red-700 mt-1">{webMapLayersError}</p>
+                          <button
+                            type="button"
+                            onClick={() => fetchWebMapLayers(mapConfig.webMap?.portalUrl, mapConfig.webMap?.itemId)}
+                            className="mt-2 text-sm text-red-600 hover:text-red-700 flex items-center gap-1"
+                          >
+                            <RefreshCw className="w-3 h-3" /> Retry
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Layers List */}
+                  {!webMapLayersLoading && !webMapLayersError && webMapLayers.length === 0 && (
+                    <div className="text-center py-6 text-slate-400">
+                      <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No layers found in WebMap</p>
+                      <button
+                        type="button"
+                        onClick={() => fetchWebMapLayers(mapConfig.webMap?.portalUrl, mapConfig.webMap?.itemId)}
+                        className="mt-2 text-sm hover:underline flex items-center gap-1 mx-auto"
+                        style={{ color: accentColor }}
+                      >
+                        <RefreshCw className="w-3 h-3" /> Refresh Layers
+                      </button>
+                    </div>
+                  )}
+
+                  {!webMapLayersLoading && webMapLayers.length > 0 && (
+                    <>
+                      {/* Header with selection info */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-slate-600">
+                            {(mapConfig.hiddenLayers || []).length} of {webMapLayers.length} layers hidden
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={showAllLayers}
+                            className="text-xs text-slate-600 hover:text-slate-800 underline"
+                          >
+                            Show All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={hideAllLayers}
+                            className="text-xs text-slate-600 hover:text-slate-800 underline"
+                          >
+                            Hide All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => fetchWebMapLayers(mapConfig.webMap?.portalUrl, mapConfig.webMap?.itemId)}
+                            className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                            title="Refresh layer list"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Info note */}
+                      <div className="flex items-start gap-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
+                        <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <p>
+                          Layers marked as hidden will not appear in the layers panel but remain active
+                          in the map. Users can still see features and interact with hidden layers.
+                        </p>
+                      </div>
+
+                      {/* Layer list */}
+                      <div className="space-y-1 max-h-[350px] overflow-y-auto border border-slate-200 rounded-lg">
+                        {webMapLayers.map(layer => {
+                          const isHidden = (mapConfig.hiddenLayers || []).includes(layer.id);
+
+                          return (
+                            <label
+                              key={layer.id}
+                              className={`
+                                flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors
+                                ${isHidden
+                                  ? 'bg-slate-100 hover:bg-slate-150'
+                                  : 'bg-white hover:bg-slate-50'}
+                                ${layer.depth > 0 ? 'border-l-2 border-slate-200' : ''}
+                              `}
+                              style={{ paddingLeft: `${12 + layer.depth * 16}px` }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isHidden}
+                                onChange={() => toggleHiddenLayer(layer.id)}
+                                className="sr-only"
+                              />
+
+                              <div
+                                className={`
+                                  w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors
+                                  ${isHidden
+                                    ? 'border-slate-400 bg-slate-400'
+                                    : 'border-slate-300 bg-white'}
+                                `}
+                              >
+                                {isHidden && <EyeOff className="w-3 h-3 text-white" />}
+                              </div>
+
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-sm truncate ${isHidden ? 'text-slate-500' : 'text-slate-700'}`}>
+                                    {layer.title}
+                                  </span>
+                                  {isHidden && (
+                                    <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">
+                                      Hidden
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-400 truncate font-mono">
+                                  {layer.id}
+                                </p>
+                              </div>
+
+                              {isHidden ? (
+                                <EyeOff className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                              ) : (
+                                <Eye className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      {/* Summary of hidden layers */}
+                      {(mapConfig.hiddenLayers || []).length > 0 && (
+                        <div className="pt-3 border-t border-slate-200">
+                          <span className="text-xs text-slate-500 uppercase font-medium">Hidden Layers</span>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {(mapConfig.hiddenLayers || []).map(id => {
+                              const layer = webMapLayers.find(l => l.id === id);
+                              return (
+                                <span
+                                  key={id}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded"
+                                >
+                                  <EyeOff className="w-3 h-3" />
+                                  {layer?.title || id}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleHiddenLayer(id)}
+                                    className="ml-1 hover:text-slate-800"
+                                    title="Show this layer"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
               )}
             </div>
           )}
