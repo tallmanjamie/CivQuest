@@ -30,6 +30,28 @@ import {
 import { getESRISettings } from '@shared/services/systemConfig';
 
 /**
+ * Get CSS classes for logo/avatar size
+ * @param {'small' | 'medium' | 'large'} size - The size setting
+ * @param {'header' | 'chat'} context - Where the logo is displayed
+ * @returns {string} Tailwind CSS classes for the size
+ */
+function getLogoSizeClasses(size, context = 'header') {
+  const sizes = {
+    header: {
+      small: 'w-7 h-7 md:w-10 md:h-10',
+      medium: 'w-10 h-10 md:w-14 md:h-14',
+      large: 'w-14 h-14 md:w-20 md:h-20'
+    },
+    chat: {
+      small: 'w-9 h-9 md:w-10 md:h-10',
+      medium: 'w-12 h-12 md:w-14 md:h-14',
+      large: 'w-16 h-16 md:w-20 md:h-20'
+    }
+  };
+  return sizes[context]?.[size] || sizes[context]?.small || sizes.header.small;
+}
+
+/**
  * Header Component
  * Displays branding and user menu
  * Map picker has been moved to MapView component (top-left corner of map)
@@ -116,7 +138,7 @@ export default function Header({
             <img
               src={config.ui.logoLeft}
               alt="Logo"
-              className="w-7 h-7 md:w-10 md:h-10 object-contain bg-white rounded-full p-0.5 flex-shrink-0"
+              className={`${getLogoSizeClasses(config.ui.logoLeftSize, 'header')} object-contain bg-white rounded-full p-0.5 flex-shrink-0`}
             />
           )}
           <div className="truncate">
@@ -131,8 +153,17 @@ export default function Header({
           </div>
         </div>
 
-        {/* Right: Links, Info Button, and User Menu (Desktop) */}
+        {/* Right: Links, Info Button, Logo Right, and User Menu (Desktop) */}
         <div className="hidden md:flex items-center gap-3">
+          {/* Logo Right */}
+          {config?.ui?.logoRight && (
+            <img
+              src={config.ui.logoRight}
+              alt="Logo"
+              className={`${getLogoSizeClasses(config.ui.logoRightSize, 'header')} object-contain bg-white rounded-full p-0.5 flex-shrink-0`}
+            />
+          )}
+
           {/* Header Links */}
           {config?.ui?.links?.enabled && config?.ui?.links?.items?.length > 0 && (
             <div className={

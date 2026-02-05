@@ -22,8 +22,11 @@ const DEFAULT_CONFIG = {
     headerSubtitle: '',  // Empty = hidden
     headerClass: 'bg-sky-700',
     logoLeft: null,
+    logoLeftSize: 'small',      // Logo size: 'small', 'medium', 'large'
     logoRight: null,
+    logoRightSize: 'small',     // Logo size: 'small', 'medium', 'large'
     botAvatar: null,
+    botAvatarSize: 'small',     // Avatar size: 'small', 'medium', 'large'
     themeColor: 'sky',
     defaultMode: 'chat',
     searchBarPosition: 'top',

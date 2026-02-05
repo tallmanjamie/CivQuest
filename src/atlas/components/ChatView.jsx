@@ -41,6 +41,34 @@ import { exportFeatureToPDF } from '../utils/FeatureExportService';
 import { exportSearchResultsToShapefile } from '../utils/ShapefileExportService';
 import ChatMiniMap from './ChatMiniMap';
 
+/**
+ * Get CSS classes for avatar size in chat
+ * @param {'small' | 'medium' | 'large'} size - The size setting
+ * @returns {string} Tailwind CSS classes for the size
+ */
+function getAvatarSizeClasses(size) {
+  const sizes = {
+    small: 'w-9 h-9 md:w-10 md:h-10',
+    medium: 'w-12 h-12 md:w-14 md:h-14',
+    large: 'w-16 h-16 md:w-20 md:h-20'
+  };
+  return sizes[size] || sizes.small;
+}
+
+/**
+ * Get CSS classes for inner icon size in chat avatar
+ * @param {'small' | 'medium' | 'large'} size - The size setting
+ * @returns {string} Tailwind CSS classes for the icon size
+ */
+function getAvatarIconSizeClasses(size) {
+  const sizes = {
+    small: 'w-4 h-4 md:w-5 md:h-5',
+    medium: 'w-5 h-5 md:w-6 md:h-6',
+    large: 'w-6 h-6 md:w-8 md:h-8'
+  };
+  return sizes[size] || sizes.small;
+}
+
 // Centralized Gemini configuration - update model in one place
 import { getGeminiUrl, getGeminiFallbackUrl, GEMINI_QUERY_CONFIG, GEMINI_CONFIG, GEMINI_CREATIVE_CONFIG } from '../../config/geminiConfig';
 
@@ -261,6 +289,7 @@ const ChatView = forwardRef(function ChatView(props, ref) {
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
   const botAvatar = config?.ui?.botAvatar || config?.ui?.logoLeft;
+  const botAvatarSize = config?.ui?.botAvatarSize || 'small';
 
   // Detect mobile
   useEffect(() => {
@@ -1123,7 +1152,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
         <div className="max-w-4xl mx-auto space-y-4">
           {/* Welcome Message - ALWAYS VISIBLE */}
           <div className="flex gap-3 md:gap-4">
-            <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+            <div className={`${getAvatarSizeClasses(botAvatarSize)} rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1`}>
               {botAvatar ? (
                 <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
               ) : (
@@ -1131,7 +1160,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
                   className="w-full h-full rounded-full flex items-center justify-center"
                   style={{ backgroundColor: colors.bg100 }}
                 >
-                  <HelpCircle className="w-4 h-4 md:w-5 md:h-5" style={{ color: colors.text600 }} />
+                  <HelpCircle className={getAvatarIconSizeClasses(botAvatarSize)} style={{ color: colors.text600 }} />
                 </div>
               )}
             </div>
@@ -1204,6 +1233,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
               key={msg.id}
               message={msg}
               botAvatar={botAvatar}
+              botAvatarSize={botAvatarSize}
               colors={colors}
               tableColumns={activeMap?.tableColumns}
               searchFields={activeMap?.searchFields || config?.data?.searchFields}
@@ -1282,7 +1312,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
           {/* Loading indicator */}
           {isLoading && (
             <div className="flex gap-3 md:gap-4">
-              <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+              <div className={`${getAvatarSizeClasses(botAvatarSize)} rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1`}>
                 {botAvatar ? (
                   <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
                 ) : (
@@ -1290,7 +1320,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
                     className="w-full h-full rounded-full flex items-center justify-center"
                     style={{ backgroundColor: colors.bg100 }}
                   >
-                    <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" style={{ color: colors.text600 }} />
+                    <Loader2 className={`${getAvatarIconSizeClasses(botAvatarSize)} animate-spin`} style={{ color: colors.text600 }} />
                   </div>
                 )}
               </div>
@@ -1500,6 +1530,7 @@ function HelpMediaDisplay({ media }) {
 function MessageBubble({
   message,
   botAvatar,
+  botAvatarSize = 'small',
   colors,
   onViewMap,
   onViewTable,
@@ -1549,8 +1580,8 @@ function MessageBubble({
   if (message.type === 'error') {
     return (
       <div className="flex gap-3 md:gap-4">
-        <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-red-100 border border-red-200 flex-shrink-0 flex items-center justify-center">
-          <AlertCircle className="w-4 h-4 md:w-5 md:h-5 text-red-600" />
+        <div className={`${getAvatarSizeClasses(botAvatarSize)} rounded-full bg-red-100 border border-red-200 flex-shrink-0 flex items-center justify-center`}>
+          <AlertCircle className={`${getAvatarIconSizeClasses(botAvatarSize)} text-red-600`} />
         </div>
         <div className="bg-red-50 p-4 rounded-2xl rounded-tl-none shadow-sm border border-red-200 max-w-[85%] md:max-w-[70%]">
           <p className="text-sm text-red-800">{message.content}</p>
@@ -1563,7 +1594,7 @@ function MessageBubble({
   if (message.isHelpResponse) {
     return (
       <div className="flex gap-3 md:gap-4">
-        <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+        <div className={`${getAvatarSizeClasses(botAvatarSize)} rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1`}>
           {botAvatar ? (
             <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
           ) : (
@@ -1571,7 +1602,7 @@ function MessageBubble({
               className="w-full h-full rounded-full flex items-center justify-center"
               style={{ backgroundColor: colors.bg100 }}
             >
-              <BookOpen className="w-4 h-4 md:w-5 md:h-5" style={{ color: colors.text600 }} />
+              <BookOpen className={getAvatarIconSizeClasses(botAvatarSize)} style={{ color: colors.text600 }} />
             </div>
           )}
         </div>
@@ -1606,8 +1637,8 @@ function MessageBubble({
   if (message.isClarificationRequest) {
     return (
       <div className="flex gap-3 md:gap-4">
-        <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-amber-100 border border-amber-200 flex-shrink-0 flex items-center justify-center">
-          <Lightbulb className="w-4 h-4 md:w-5 md:h-5 text-amber-600" />
+        <div className={`${getAvatarSizeClasses(botAvatarSize)} rounded-full bg-amber-100 border border-amber-200 flex-shrink-0 flex items-center justify-center`}>
+          <Lightbulb className={`${getAvatarIconSizeClasses(botAvatarSize)} text-amber-600`} />
         </div>
         <div className="bg-amber-50 p-4 rounded-2xl rounded-tl-none shadow-sm border border-amber-200 max-w-[85%] md:max-w-[80%]">
           <div className="flex items-start gap-2 mb-2">
@@ -1664,7 +1695,7 @@ function MessageBubble({
 
     return (
       <div className="flex gap-3 md:gap-4">
-        <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+        <div className={`${getAvatarSizeClasses(botAvatarSize)} rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1`}>
           {botAvatar ? (
             <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
           ) : (
@@ -1672,7 +1703,7 @@ function MessageBubble({
               className="w-full h-full rounded-full flex items-center justify-center"
               style={{ backgroundColor: colors.bg100 }}
             >
-              <MapPin className="w-4 h-4 md:w-5 md:h-5" style={{ color: colors.text600 }} />
+              <MapPin className={getAvatarIconSizeClasses(botAvatarSize)} style={{ color: colors.text600 }} />
             </div>
           )}
         </div>
@@ -1721,7 +1752,7 @@ function MessageBubble({
 
   return (
     <div className="flex gap-3 md:gap-4">
-      <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1">
+      <div className={`${getAvatarSizeClasses(botAvatarSize)} rounded-full bg-white border border-slate-200 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden p-1`}>
         {botAvatar ? (
           <img src={botAvatar} alt="AI" className="w-full h-full object-contain" />
         ) : (
@@ -1729,7 +1760,7 @@ function MessageBubble({
             className="w-full h-full rounded-full flex items-center justify-center"
             style={{ backgroundColor: colors.bg100 }}
           >
-            <HelpCircle className="w-4 h-4 md:w-5 md:h-5" style={{ color: colors.text600 }} />
+            <HelpCircle className={getAvatarIconSizeClasses(botAvatarSize)} style={{ color: colors.text600 }} />
           </div>
         )}
       </div>
