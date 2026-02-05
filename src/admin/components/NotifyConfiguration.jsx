@@ -530,7 +530,9 @@ function NotificationCard({ notification, orgId, accentColor, onEdit, onDelete, 
 
   // Generate signup link for this notification
   const getSignupLink = () => {
-    return `https://notify.civ.quest/?organization=${encodeURIComponent(orgId)}&notification=${encodeURIComponent(notification.id)}`;
+    // Use explicit id if available, otherwise generate from name (handles legacy notifications)
+    const notificationId = notification.id || (notification.name ? notification.name.replace(/\s+/g, '_') : '');
+    return `https://notify.civ.quest/?organization=${encodeURIComponent(orgId)}&notification=${encodeURIComponent(notificationId)}`;
   };
 
   // Copy signup link to clipboard
@@ -669,14 +671,17 @@ function OrganizationNotifyCard({
   const [copiedNotifId, setCopiedNotifId] = React.useState(null);
 
   // Generate signup link for a notification
-  const getSignupLink = (notifId) => {
-    return `https://notify.civ.quest/?organization=${encodeURIComponent(org.id)}&notification=${encodeURIComponent(notifId)}`;
+  const getSignupLink = (notif) => {
+    // Use explicit id if available, otherwise generate from name (handles legacy notifications)
+    const notificationId = notif.id || (notif.name ? notif.name.replace(/\s+/g, '_') : '');
+    return `https://notify.civ.quest/?organization=${encodeURIComponent(org.id)}&notification=${encodeURIComponent(notificationId)}`;
   };
 
   // Copy signup link to clipboard
-  const handleCopyLink = async (e, notifId) => {
+  const handleCopyLink = async (e, notif) => {
     e.stopPropagation();
-    const link = getSignupLink(notifId);
+    const link = getSignupLink(notif);
+    const notifId = notif.id || notif.name;
     try {
       await navigator.clipboard.writeText(link);
       setCopiedNotifId(notifId);
@@ -794,15 +799,15 @@ function OrganizationNotifyCard({
                       </div>
                       <div className="flex items-center gap-1 ml-2">
                         <button
-                          onClick={(e) => handleCopyLink(e, notif.id)}
+                          onClick={(e) => handleCopyLink(e, notif)}
                           className={`p-1.5 rounded transition-colors ${
-                            copiedNotifId === notif.id
+                            copiedNotifId === (notif.id || notif.name)
                               ? 'text-emerald-600 bg-white'
                               : 'text-slate-400 hover:text-indigo-600 hover:bg-white'
                           }`}
                           title="Copy Signup Link"
                         >
-                          {copiedNotifId === notif.id ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+                          {copiedNotifId === (notif.id || notif.name) ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); onPreviewEmail(notif); }}
