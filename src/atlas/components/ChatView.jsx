@@ -975,8 +975,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
         });
       } else if (features.length === 1) {
         const feature = features[0];
-        const address = feature.attributes?.[addressField] || feature.attributes?.PROPERTYADDRESS || feature.attributes?.ADDRESS || 'Property';
-        addMessage('ai', `I found **${address}**. Here are the details:`, {
+        addMessage('ai', `I found **${trimmedQuery}**. Here are the details:`, {
           feature,
           showDetails: true,
           searchMetadata
