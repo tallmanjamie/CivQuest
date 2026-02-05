@@ -202,6 +202,8 @@ export default function LayersPanel({
               visible: sub.visible,
               opacity: sub.opacity ?? 1,
               depth: subDepth,
+              minScale: sub.minScale || 0,
+              maxScale: sub.maxScale || 0,
               parentLayer: parentLayer,
               sublayer: sub,
               hasLegend: true
