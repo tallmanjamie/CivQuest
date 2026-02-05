@@ -23,8 +23,10 @@ const DEFAULT_CONFIG = {
     headerClass: 'bg-sky-700',
     logoLeft: null,
     logoLeftSize: 'small',      // Logo size: 'small', 'medium', 'large'
+    logoLeftLink: '',            // Hyperlink URL for left logo
     logoRight: null,
     logoRightSize: 'small',     // Logo size: 'small', 'medium', 'large'
+    logoRightLink: '',           // Hyperlink URL for right logo
     botAvatar: null,
     botAvatarSize: 'small',     // Avatar size: 'small', 'medium', 'large'
     themeColor: 'sky',
