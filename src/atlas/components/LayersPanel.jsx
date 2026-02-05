@@ -195,8 +195,12 @@ export default function LayersPanel({
 
           // Recursive function to process sublayers (handles nested groups in MapServer)
           const processSublayer = (sub, parentLayer, subDepth) => {
+            const sublayerId = `${parentLayer.id}-${sub.id}`;
+            // Check if this sublayer is hidden
+            if (hiddenIds.includes(sublayerId)) return null;
+
             const sublayerData = {
-              id: `${parentLayer.id}-${sub.id}`,
+              id: sublayerId,
               title: sub.title || sub.name || `Sublayer ${sub.id}`,
               type: 'sublayer',
               visible: sub.visible,

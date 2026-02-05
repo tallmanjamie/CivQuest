@@ -299,9 +299,50 @@ export default function MapEditor({
       // Extract layers from the WebMap
       const extractedLayers = [];
 
+      // Helper function to fetch sublayers from a MapServer
+      const fetchMapServerSublayers = async (url, parentId, depth) => {
+        try {
+          // Fetch the MapServer metadata
+          const mapServerUrl = `${url}?f=json`;
+          const mapServerResponse = await fetch(mapServerUrl);
+          if (!mapServerResponse.ok) return;
+
+          const mapServerData = await mapServerResponse.json();
+          if (mapServerData.error) return;
+
+          // Process sublayers recursively
+          const processSublayers = (layers, parentLayerId, currentDepth) => {
+            if (!layers || !Array.isArray(layers)) return;
+
+            layers.forEach(sublayer => {
+              const sublayerId = `${parentLayerId}-${sublayer.id}`;
+              extractedLayers.push({
+                id: sublayerId,
+                title: sublayer.name || `Sublayer ${sublayer.id}`,
+                type: 'MapServer Sublayer',
+                depth: currentDepth
+              });
+
+              // Check for nested sublayers (group layers within MapServer)
+              if (sublayer.subLayerIds && Array.isArray(sublayer.subLayerIds)) {
+                const childLayers = layers.filter(l => sublayer.subLayerIds.includes(l.id));
+                // We don't recurse into sublayers here because MapServer returns a flat list
+                // with parent/child relationships via parentLayerId
+              }
+            });
+          };
+
+          if (mapServerData.layers) {
+            processSublayers(mapServerData.layers, parentId, depth + 1);
+          }
+        } catch (err) {
+          console.warn('Failed to fetch MapServer sublayers:', err);
+        }
+      };
+
       // Process operational layers
       if (webMapData.operationalLayers && Array.isArray(webMapData.operationalLayers)) {
-        const processLayer = (layer, depth = 0) => {
+        const processLayer = async (layer, depth = 0) => {
           const layerInfo = {
             id: layer.id,
             title: layer.title || layer.name || 'Untitled Layer',
@@ -310,13 +351,25 @@ export default function MapEditor({
           };
           extractedLayers.push(layerInfo);
 
-          // Process sublayers if present (for group layers or map services)
+          // Check if this is a MapServer layer and fetch its sublayers
+          const isMapServer = layer.layerType === 'ArcGISMapServiceLayer' ||
+                              (layer.url && layer.url.includes('/MapServer'));
+
+          if (isMapServer && layer.url) {
+            await fetchMapServerSublayers(layer.url, layer.id, depth);
+          }
+
+          // Process sublayers if present (for group layers)
           if (layer.layers && Array.isArray(layer.layers)) {
-            layer.layers.forEach(sublayer => processLayer(sublayer, depth + 1));
+            for (const sublayer of layer.layers) {
+              await processLayer(sublayer, depth + 1);
+            }
           }
         };
 
-        webMapData.operationalLayers.forEach(layer => processLayer(layer));
+        for (const layer of webMapData.operationalLayers) {
+          await processLayer(layer);
+        }
       }
 
       setWebMapLayers(extractedLayers);
