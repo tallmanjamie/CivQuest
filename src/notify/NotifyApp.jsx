@@ -303,6 +303,7 @@ export default function NotifyApp() {
           const org = orgs.find(l => l.organizationId === organizationId);
           if (org) {
             console.log('[Notify Signup] Found target organization:', org.organizationName);
+            console.log('[Notify Signup] Available notification IDs in org:', org.items.map(i => i.id));
             setTargetOrganization(org);
             if (notificationId) {
               console.log('[Notify Signup] Looking for notification:', notificationId);
@@ -312,6 +313,7 @@ export default function NotifyApp() {
                 setTargetSubscription({ ...item, organizationName: org.organizationName });
               } else {
                 console.warn('[Notify Signup] Notification not found in org items:', notificationId);
+                console.log('[Notify Signup] Available items are:', org.items.map(i => ({ id: i.id, name: i.name })));
               }
             }
           } else {

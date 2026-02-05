@@ -132,9 +132,13 @@ export function formatNotificationsForDisplay(notifications = [], orgId = '') {
       scheduleText = "Daily";
     }
 
+    // Use explicit id if available, otherwise generate from name (handles legacy notifications)
+    // Convert name to id format: replace spaces with underscores
+    const notificationId = n.id || (n.name ? n.name.replace(/\s+/g, '_') : undefined);
+
     return {
-      id: n.id,
-      key: orgId ? `${orgId}_${n.id}` : n.id, // Key construction matches Admin/Backend logic
+      id: notificationId,
+      key: orgId ? `${orgId}_${notificationId}` : notificationId, // Key construction matches Admin/Backend logic
       name: n.name,
       schedule: scheduleText,
       description: n.description,
