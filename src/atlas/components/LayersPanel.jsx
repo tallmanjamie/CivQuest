@@ -187,25 +187,46 @@ export default function LayersPanel({
           .filter(Boolean);
       }
 
-      // Handle map image layers with sublayers
+      // Handle map image layers with sublayers (recursive for nested group layers)
       if ((layer.type === 'map-image' || layer.type === 'tile') && layer.sublayers) {
-        const sublayers = layer.sublayers.toArray ? 
+        const sublayers = layer.sublayers.toArray ?
           layer.sublayers.toArray() : Array.from(layer.sublayers);
         if (sublayers.length > 0) {
           layerData.isGroup = true;
-          layerData.children = sublayers
-            .reverse()
-            .map(sub => ({
-              id: `${layer.id}-${sub.id}`,
+
+          // Recursive function to process sublayers (handles nested groups in MapServer)
+          const processSublayer = (sub, parentLayer, subDepth) => {
+            const sublayerData = {
+              id: `${parentLayer.id}-${sub.id}`,
               title: sub.title || sub.name || `Sublayer ${sub.id}`,
               type: 'sublayer',
               visible: sub.visible,
               opacity: sub.opacity ?? 1,
-              depth: depth + 1,
-              parentLayer: layer,
+              depth: subDepth,
+              parentLayer: parentLayer,
               sublayer: sub,
               hasLegend: true
-            }))
+            };
+
+            // Check if this sublayer has its own sublayers (group layer in MapServer)
+            if (sub.sublayers && sub.sublayers.length > 0) {
+              const childSublayers = sub.sublayers.toArray ?
+                sub.sublayers.toArray() : Array.from(sub.sublayers);
+              sublayerData.isGroup = true;
+              sublayerData.children = childSublayers
+                .slice()
+                .reverse()
+                .map(childSub => processSublayer(childSub, parentLayer, subDepth + 1))
+                .filter(Boolean);
+            }
+
+            return sublayerData;
+          };
+
+          layerData.children = sublayers
+            .slice()
+            .reverse()
+            .map(sub => processSublayer(sub, layer, depth + 1))
             .filter(Boolean);
         }
       }
@@ -213,11 +234,67 @@ export default function LayersPanel({
       return layerData;
     };
 
+    // Process operational layers
     const layerTree = view.map.layers
       .toArray()
       .reverse()
       .map(layer => processLayer(layer))
       .filter(Boolean);
+
+    // Process basemap layers (baseLayers and referenceLayers)
+    const basemap = view.map.basemap;
+    if (basemap) {
+      const basemapChildren = [];
+
+      // Process baseLayers (the main basemap layers)
+      if (basemap.baseLayers && basemap.baseLayers.length > 0) {
+        const baseLayers = basemap.baseLayers.toArray ?
+          basemap.baseLayers.toArray() : Array.from(basemap.baseLayers);
+
+        baseLayers.reverse().forEach(layer => {
+          const processed = processLayer(layer, 1);
+          if (processed) {
+            // Mark as basemap layer for identification
+            processed.isBasemapLayer = true;
+            basemapChildren.push(processed);
+          }
+        });
+      }
+
+      // Process referenceLayers (labels, boundaries that go on top)
+      if (basemap.referenceLayers && basemap.referenceLayers.length > 0) {
+        const refLayers = basemap.referenceLayers.toArray ?
+          basemap.referenceLayers.toArray() : Array.from(basemap.referenceLayers);
+
+        refLayers.reverse().forEach(layer => {
+          const processed = processLayer(layer, 1);
+          if (processed) {
+            // Mark as basemap layer for identification
+            processed.isBasemapLayer = true;
+            processed.isReferenceLayer = true;
+            basemapChildren.push(processed);
+          }
+        });
+      }
+
+      // Add basemap group to layer tree if there are basemap layers
+      if (basemapChildren.length > 0) {
+        layerTree.push({
+          id: '__basemap__',
+          title: basemap.title || 'Basemap',
+          type: 'basemap-group',
+          visible: true,
+          opacity: 1,
+          depth: 0,
+          isGroup: true,
+          isBasemapGroup: true,
+          children: basemapChildren,
+          hasLegend: false,
+          // Store basemap reference for visibility toggling
+          basemap: basemap
+        });
+      }
+    }
 
     return layerTree;
   }, [view, hiddenLayerIdsKey]);
@@ -257,10 +334,43 @@ export default function LayersPanel({
 
     updateLayers();
 
+    // Watch for operational layer changes
     const handle = view.map.layers.on('change', updateLayers);
+
+    // Watch for basemap changes
+    const basemapWatchHandle = view.map.watch('basemap', updateLayers);
+
+    // Watch for changes within basemap layers
+    let baseLayersHandle = null;
+    let refLayersHandle = null;
+
+    const setupBasemapWatchers = () => {
+      // Clean up existing watchers
+      if (baseLayersHandle) baseLayersHandle.remove();
+      if (refLayersHandle) refLayersHandle.remove();
+
+      const basemap = view.map.basemap;
+      if (basemap) {
+        if (basemap.baseLayers) {
+          baseLayersHandle = basemap.baseLayers.on('change', updateLayers);
+        }
+        if (basemap.referenceLayers) {
+          refLayersHandle = basemap.referenceLayers.on('change', updateLayers);
+        }
+      }
+    };
+
+    setupBasemapWatchers();
+
+    // Re-setup watchers when basemap changes
+    const basemapChangeHandle = view.map.watch('basemap', setupBasemapWatchers);
 
     return () => {
       handle?.remove();
+      basemapWatchHandle?.remove();
+      basemapChangeHandle?.remove();
+      if (baseLayersHandle) baseLayersHandle.remove();
+      if (refLayersHandle) refLayersHandle.remove();
       // Clean up combined legend widget
       if (combinedLegendWidgetRef.current?.destroy) {
         combinedLegendWidgetRef.current.destroy();
@@ -467,6 +577,7 @@ export default function LayersPanel({
    */
   const renderLayerItem = (layerData, key) => {
     const isGroup = layerData.isGroup;
+    const isBasemapGroup = layerData.isBasemapGroup;
     const isGroupExpanded = expandedGroups.has(layerData.id);
     const isVisible = layerData.sublayer ? layerData.sublayer.visible : layerData.visible;
     const inScale = isLayerInScale(layerData);
@@ -479,14 +590,27 @@ export default function LayersPanel({
           className={`layer-item flex items-start gap-2 py-1.5 px-2 rounded transition
                      ${isVisible ? 'bg-white' : 'bg-slate-50'}
                      ${!inScale ? 'opacity-60' : ''}
+                     ${isBasemapGroup ? 'bg-slate-100 border-t border-slate-200 mt-2' : ''}
                      hover:bg-slate-100 group`}
           style={{ paddingLeft: `${8 + layerData.depth * 16}px` }}
         >
           {/* Checkbox / Group Toggle */}
-          {isGroup ? (
+          {isBasemapGroup ? (
+            // Basemap group - just show expand/collapse, no visibility toggle
+            <button
+              onClick={() => toggleGroup(layerData.id)}
+              className="flex-shrink-0 w-4 h-4 flex items-center justify-center text-slate-500"
+            >
+              {isGroupExpanded ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" />
+              )}
+            </button>
+          ) : isGroup ? (
             <button
               onClick={() => toggleGroupVisibility(layerData)}
-              className="flex-shrink-0 w-4 h-4 flex items-center justify-center 
+              className="flex-shrink-0 w-4 h-4 flex items-center justify-center
                         border border-slate-300 rounded bg-white hover:bg-slate-100 text-xs"
             >
               {isVisible ? (
@@ -549,8 +673,8 @@ export default function LayersPanel({
             )}
           </div>
 
-          {/* Group Expand/Collapse */}
-          {isGroup && isVisible && layerData.children?.length > 0 && (
+          {/* Group Expand/Collapse (not for basemap groups - they have it in the checkbox area) */}
+          {isGroup && !isBasemapGroup && isVisible && layerData.children?.length > 0 && (
             <button
               onClick={() => toggleGroup(layerData.id)}
               className="flex-shrink-0 p-0.5 hover:bg-slate-200 rounded"
@@ -569,9 +693,9 @@ export default function LayersPanel({
           <LayerLegend view={view} layer={layerData.layer} />
         )}
 
-        {/* Group Children */}
-        {isGroup && isGroupExpanded && isVisible && layerData.children && (
-          <div className="layer-group-children border-l border-slate-200 ml-3">
+        {/* Group Children - basemap groups are always "visible" for expansion purposes */}
+        {isGroup && isGroupExpanded && (isVisible || isBasemapGroup) && layerData.children && (
+          <div className={`layer-group-children border-l ml-3 ${isBasemapGroup ? 'border-slate-300' : 'border-slate-200'}`}>
             {layerData.children.map((child, idx) => renderLayerItem(child, `${layerData.id}-${idx}`))}
           </div>
         )}
