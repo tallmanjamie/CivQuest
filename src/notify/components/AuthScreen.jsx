@@ -47,27 +47,32 @@ export default function AuthScreen({
 
   // Handle ArcGIS OAuth login
   const handleArcGISAuth = async () => {
+    console.log('[Notify Signup] Initiating ArcGIS OAuth...');
+
     // Fetch admin-configured ESRI client ID
     let esriClientId = null;
     try {
       const esriSettings = await getESRISettings();
       esriClientId = esriSettings?.clientId || null;
     } catch (err) {
-      console.warn('Could not fetch ESRI settings, using default client ID:', err);
+      console.warn('[Notify Signup] Could not fetch ESRI settings, using default client ID:', err);
     }
 
     // Preserve URL params before OAuth redirect (they're lost during OAuth flow)
     const urlParams = new URLSearchParams(window.location.search);
     const orgParam = urlParams.get('organization') || urlParams.get('locality');
     const notifParam = urlParams.get('notification');
+    console.log('[Notify Signup] Preserving URL params for OAuth redirect:', { orgParam, notifParam });
     if (orgParam || notifParam) {
       sessionStorage.setItem('notify_signup_params', JSON.stringify({
         organization: orgParam,
         notification: notifParam
       }));
+      console.log('[Notify Signup] Params saved to sessionStorage');
     }
 
     const redirectUri = getOAuthRedirectUri();
+    console.log('[Notify Signup] Redirecting to ArcGIS OAuth with mode:', isLogin ? 'signin' : 'signup');
     initiateArcGISLogin(redirectUri, isLogin ? 'signin' : 'signup', esriClientId);
   };
 
@@ -76,27 +81,38 @@ export default function AuthScreen({
     setLoading(true);
     setError('');
     setOauthError?.(null);
-    
+
+    console.log('[Notify Signup] Email/password auth started:', {
+      isLogin,
+      email,
+      hasTargetSubscription: !!targetSubscription,
+      targetKey: targetSubscription?.key
+    });
+
     try {
       let userUid;
       if (isLogin) {
+        console.log('[Notify Signup] Signing in existing user...');
         const cred = await signInWithEmailAndPassword(auth, email, password);
         userUid = cred.user.uid;
+        console.log('[Notify Signup] Signed in user:', userUid);
       } else {
+        console.log('[Notify Signup] Creating new user account...');
         const cred = await createUserWithEmailAndPassword(auth, email, password);
         userUid = cred.user.uid;
-        
+        console.log('[Notify Signup] Created user:', userUid);
+
         try {
           await sendEmailVerification(cred.user);
         } catch (emailErr) {
-          console.warn("Could not send verification email:", emailErr);
+          console.warn("[Notify Signup] Could not send verification email:", emailErr);
         }
 
         // Send welcome email via Brevo
         try {
           await sendWelcomeEmail(email);
         } catch (emailErr) {
-          console.warn("Could not send welcome email:", emailErr);
+          console.warn("[Notify Signup] Could not send welcome email:", emailErr);
         }
 
         await setDoc(doc(db, PATHS.user(userUid)), {
@@ -105,6 +121,7 @@ export default function AuthScreen({
           subscriptions: {},
           disabled: false
         }, { merge: true });
+        console.log('[Notify Signup] User document created');
       }
 
       // Check for invitation by email and apply subscriptions
@@ -113,10 +130,12 @@ export default function AuthScreen({
 
       let appliedInvitation = false;
       if (inviteSnap.exists()) {
+        console.log('[Notify Signup] Found invitation for email');
         const inviteData = inviteSnap.data();
         const subscriptionsToApply = processInvitationSubscriptions(inviteData);
 
         if (Object.keys(subscriptionsToApply).length > 0) {
+          console.log('[Notify Signup] Applying invitation subscriptions:', Object.keys(subscriptionsToApply));
           await setDoc(doc(db, PATHS.user(userUid)), {
             subscriptions: subscriptionsToApply,
             email: email,
@@ -130,19 +149,26 @@ export default function AuthScreen({
             claimedBy: userUid
           });
           appliedInvitation = true;
+          console.log('[Notify Signup] Invitation subscriptions applied');
         }
+      } else {
+        console.log('[Notify Signup] No invitation found for email');
       }
 
       // Auto-subscribe from signup link (for both sign-up AND sign-in)
       // Only if no invitation was applied
       if (!appliedInvitation && targetSubscription && userUid) {
+        console.log('[Notify Signup] Checking signup link subscription:', targetSubscription.key);
         // Check current subscriptions to see if already subscribed
         const userRef = doc(db, PATHS.user(userUid));
         const userSnap = await getDoc(userRef);
         const existingSubscriptions = userSnap.exists() ? (userSnap.data().subscriptions || {}) : {};
 
+        console.log('[Notify Signup] User existing subscriptions:', Object.keys(existingSubscriptions));
+
         // Only subscribe if not already subscribed
         if (!existingSubscriptions[targetSubscription.key]) {
+          console.log('[Notify Signup] Applying signup link subscription:', targetSubscription.key);
           await setDoc(userRef, {
             subscriptions: {
               ...existingSubscriptions,
@@ -151,13 +177,18 @@ export default function AuthScreen({
             email: email,
             disabled: false
           }, { merge: true });
+          console.log('[Notify Signup] Signup link subscription applied successfully');
+        } else {
+          console.log('[Notify Signup] User already subscribed to:', targetSubscription.key);
         }
+      } else if (!appliedInvitation && !targetSubscription) {
+        console.log('[Notify Signup] No targetSubscription available to apply');
       }
 
       toast.success(isLogin ? 'Signed in successfully!' : 'Account created!');
 
     } catch (err) {
-      console.error(err);
+      console.error('[Notify Signup] Auth error:', err);
       setError(err.message.replace('Firebase: ', ''));
     } finally {
       setLoading(false);

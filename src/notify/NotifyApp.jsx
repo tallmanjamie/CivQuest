@@ -36,7 +36,7 @@ import { formatNotificationsForDisplay } from '@shared/services/organizations';
 import AuthScreen from './components/AuthScreen';
 import Dashboard from './components/Dashboard';
 
-// Helper to parse query params
+// Helper to parse query params - only called once on mount
 const getQueryParams = () => {
   if (typeof window === 'undefined') return {};
   const params = new URLSearchParams(window.location.search);
@@ -45,19 +45,23 @@ const getQueryParams = () => {
   let organizationId = params.get('organization') || params.get('locality');
   let notificationId = params.get('notification');
 
+  console.log('[Notify Signup] Checking URL params:', { organizationId, notificationId });
+
   // If not in URL, check sessionStorage (preserved during OAuth flow)
   if (!organizationId && !notificationId) {
     try {
       const savedParams = sessionStorage.getItem('notify_signup_params');
+      console.log('[Notify Signup] Checking sessionStorage:', savedParams);
       if (savedParams) {
         const parsed = JSON.parse(savedParams);
         organizationId = parsed.organization;
         notificationId = parsed.notification;
+        console.log('[Notify Signup] Retrieved params from sessionStorage:', { organizationId, notificationId });
         // Clear after retrieving to prevent stale params
         sessionStorage.removeItem('notify_signup_params');
       }
     } catch (err) {
-      console.warn('Could not parse saved signup params:', err);
+      console.warn('[Notify Signup] Could not parse saved signup params:', err);
     }
   }
 
@@ -76,8 +80,17 @@ export default function NotifyApp() {
   const [oauthError, setOauthError] = useState(null);
   const [activeTab, setActiveTab] = useState('feeds');
 
+  // Store signup link params in state so they persist across re-renders
+  // This is critical for OAuth flow where re-renders happen during processing
+  const [signupParams, setSignupParams] = useState(() => {
+    const params = getQueryParams();
+    console.log('[Notify Signup] Initial params stored in state:', params);
+    return params;
+  });
+
+  const { organizationId, notificationId } = signupParams;
+
   // Check for embed parameters to conditionally hide header and adjust spacing
-  const { organizationId, notificationId } = getQueryParams();
   const isEmbed = !!organizationId;
 
   // Get display name - prefer firstName/lastName, then email
@@ -92,49 +105,57 @@ export default function NotifyApp() {
   useEffect(() => {
     const handleOAuthCallback = async () => {
       const { code, state, error, errorDescription } = parseOAuthCallback();
-      
+
       if (error) {
         setOauthError(errorDescription || error);
         clearOAuthParams();
         return;
       }
-      
+
       if (!code) return;
-      
+
+      console.log('[Notify Signup] OAuth callback detected, processing...');
+      console.log('[Notify Signup] Current signup params from state:', { organizationId, notificationId });
+
       // Verify state for CSRF protection
       if (!verifyOAuthState(state)) {
         setOauthError('Invalid OAuth state. Please try again.');
         clearOAuthParams();
         return;
       }
-      
+
       // Get the mode (signin or signup) that was set before redirecting
       const oauthMode = getOAuthMode() || 'signin';
-      
+      console.log('[Notify Signup] OAuth mode:', oauthMode);
+
       setOauthProcessing(true);
-      
+
       try {
         const redirectUri = getOAuthRedirectUri();
         const { token, user: agolUser, org: agolOrg } = await completeArcGISOAuth(code, redirectUri);
-        
+
         // Clear OAuth params from URL
         clearOAuthParams();
-        
+
         // Get email from AGOL user profile
         const email = agolUser.email;
         if (!email) {
           throw new Error('No email address found in your ArcGIS account. Please ensure your ArcGIS profile has an email address.');
         }
-        
+
+        console.log('[Notify Signup] OAuth user email:', email);
+
         // Generate deterministic password based on ArcGIS credentials
         const password = await generateDeterministicPassword(agolUser.username, email);
-        
+
         if (oauthMode === 'signup') {
+          console.log('[Notify Signup] Creating new account via OAuth signup...');
           // SIGN UP MODE: Only create account, error if exists
           try {
             const cred = await createUserWithEmailAndPassword(auth, email, password);
             const userUid = cred.user.uid;
-            
+            console.log('[Notify Signup] Account created with uid:', userUid);
+
             // Build user document with AGOL data
             const userData = {
               email: email.toLowerCase(),
@@ -150,7 +171,7 @@ export default function NotifyApp() {
                 linkedAt: new Date().toISOString()
               }
             };
-            
+
             if (agolOrg) {
               userData.arcgisOrganization = {
                 id: agolOrg.id,
@@ -158,25 +179,29 @@ export default function NotifyApp() {
                 urlKey: agolOrg.urlKey || null
               };
             }
-            
+
             await setDoc(doc(db, PATHS.user(userUid)), userData);
-            
+            console.log('[Notify Signup] User document created');
+
             // Send welcome email via Brevo
             try {
               await sendWelcomeEmail(email, agolUser.fullName || '');
             } catch (emailErr) {
-              console.warn("Could not send welcome email:", emailErr);
+              console.warn("[Notify Signup] Could not send welcome email:", emailErr);
             }
-            
+
             // Check for invitation by email and apply subscriptions
             const inviteRef = doc(db, PATHS.invitation(email.toLowerCase()));
             const inviteSnap = await getDoc(inviteRef);
-            
+
+            let appliedInvitation = false;
             if (inviteSnap.exists()) {
+              console.log('[Notify Signup] Found invitation for email');
               const inviteData = inviteSnap.data();
               const subscriptionsToApply = processInvitationSubscriptions(inviteData);
 
               if (Object.keys(subscriptionsToApply).length > 0) {
+                console.log('[Notify Signup] Applying invitation subscriptions:', Object.keys(subscriptionsToApply));
                 await updateDoc(doc(db, PATHS.user(userUid)), {
                   subscriptions: subscriptionsToApply
                 });
@@ -186,9 +211,24 @@ export default function NotifyApp() {
                   claimedAt: serverTimestamp(),
                   claimedBy: userUid
                 });
+                appliedInvitation = true;
               }
             }
-            
+
+            // Apply signup link subscription if no invitation was applied
+            // Note: The auto-subscribe effect will also handle this, but applying here
+            // ensures it happens immediately during signup
+            if (!appliedInvitation && organizationId && notificationId) {
+              const subscriptionKey = `${organizationId}_${notificationId}`;
+              console.log('[Notify Signup] Applying signup link subscription:', subscriptionKey);
+              await updateDoc(doc(db, PATHS.user(userUid)), {
+                subscriptions: {
+                  [subscriptionKey]: true
+                }
+              });
+              console.log('[Notify Signup] Signup link subscription applied successfully');
+            }
+
             // Wait for auth state to propagate
             await new Promise(resolve => setTimeout(resolve, 500));
             
@@ -243,6 +283,7 @@ export default function NotifyApp() {
   // Fetch Configuration from Firestore
   useEffect(() => {
     const fetchConfig = async () => {
+      console.log('[Notify Signup] fetchConfig running with params:', { organizationId, notificationId });
       try {
         const querySnapshot = await getDocs(collection(db, PATHS.organizations));
         const orgs = querySnapshot.docs.map(docSnap => {
@@ -254,23 +295,32 @@ export default function NotifyApp() {
           };
         });
         setAvailableSubscriptions(orgs);
+        console.log('[Notify Signup] Loaded organizations:', orgs.map(o => o.organizationId));
 
         // Check for targeted URL params against loaded config
         if (organizationId) {
+          console.log('[Notify Signup] Looking for organization:', organizationId);
           const org = orgs.find(l => l.organizationId === organizationId);
           if (org) {
+            console.log('[Notify Signup] Found target organization:', org.organizationName);
             setTargetOrganization(org);
             if (notificationId) {
+              console.log('[Notify Signup] Looking for notification:', notificationId);
               const item = org.items.find(i => i.id === notificationId);
               if (item) {
+                console.log('[Notify Signup] Found target notification:', item.name, 'with key:', item.key);
                 setTargetSubscription({ ...item, organizationName: org.organizationName });
+              } else {
+                console.warn('[Notify Signup] Notification not found in org items:', notificationId);
               }
             }
+          } else {
+            console.warn('[Notify Signup] Organization not found:', organizationId);
           }
         }
 
       } catch (err) {
-        console.error("Failed to load configuration", err);
+        console.error("[Notify Signup] Failed to load configuration", err);
       }
     };
     fetchConfig();
@@ -317,24 +367,41 @@ export default function NotifyApp() {
   // This effect runs when both user and targetSubscription become available
   useEffect(() => {
     const applyAutoSubscription = async () => {
-      if (!user || !targetSubscription) return;
+      console.log('[Notify Signup] Auto-subscribe effect triggered:', {
+        hasUser: !!user,
+        userId: user?.uid,
+        hasTargetSubscription: !!targetSubscription,
+        targetKey: targetSubscription?.key
+      });
+
+      if (!user || !targetSubscription) {
+        console.log('[Notify Signup] Auto-subscribe skipped - missing user or targetSubscription');
+        return;
+      }
 
       try {
+        console.log('[Notify Signup] Applying auto-subscription for key:', targetSubscription.key);
         const userRef = doc(db, PATHS.user(user.uid));
         const userSnap = await getDoc(userRef);
         const existingSubscriptions = userSnap.exists() ? (userSnap.data().subscriptions || {}) : {};
 
+        console.log('[Notify Signup] User existing subscriptions:', Object.keys(existingSubscriptions));
+
         // Only subscribe if not already subscribed
         if (!existingSubscriptions[targetSubscription.key]) {
+          console.log('[Notify Signup] User not yet subscribed, adding subscription...');
           await setDoc(userRef, {
             subscriptions: {
               ...existingSubscriptions,
               [targetSubscription.key]: true
             }
           }, { merge: true });
+          console.log('[Notify Signup] Successfully subscribed user to:', targetSubscription.key);
+        } else {
+          console.log('[Notify Signup] User already subscribed to:', targetSubscription.key);
         }
       } catch (err) {
-        console.warn('Could not apply auto-subscription:', err);
+        console.error('[Notify Signup] Could not apply auto-subscription:', err);
       }
     };
 
