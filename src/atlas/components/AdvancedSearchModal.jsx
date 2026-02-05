@@ -859,12 +859,8 @@ export default function AdvancedSearchModal({
         if (features.length === 0) {
           chatViewRef.current.addMessage('ai', 'No records found matching your filter criteria.');
         } else if (features.length === 1) {
-          const addressField = searchFields.find(f =>
-            /ADDRESS|SITE|SITUS/i.test(f.label) || /ADDRESS|SITUS/i.test(f.field)
-          )?.field || 'PROPERTYADDRESS';
           const feature = features[0];
-          const address = feature.attributes?.[addressField] || 'Property';
-          chatViewRef.current.addMessage('ai', `I found **${address}**. Here are the details:`, {
+          chatViewRef.current.addMessage('ai', `I found **${description}**. Here are the details:`, {
             feature,
             showDetails: true
           });
