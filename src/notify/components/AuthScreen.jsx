@@ -1,5 +1,5 @@
 // src/notify/components/AuthScreen.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { auth, db } from '@shared/services/firebase';
 import { PATHS } from '@shared/services/paths';
 import {
@@ -16,20 +16,13 @@ import {
 } from "firebase/firestore";
 import { useToast } from '@shared/components/Toast';
 import { sendWelcomeEmail } from '@shared/services/email';
-import {
-  initiateArcGISLogin,
-  getOAuthRedirectUri
-} from '@shared/services/arcgis-auth';
-import { getESRISettings } from '@shared/services/systemConfig';
 import { processInvitationSubscriptions } from '@shared/services/invitations';
-import { Mail, Lock, Loader2, Rss, Globe } from 'lucide-react';
+import { Mail, Lock, Loader2, Rss } from 'lucide-react';
 
-export default function AuthScreen({ 
-  targetSubscription, 
-  targetOrganization, 
-  isEmbed,
-  oauthError,
-  setOauthError
+export default function AuthScreen({
+  targetSubscription,
+  targetOrganization,
+  isEmbed
 }) {
   const [isLogin, setIsLogin] = useState(!isEmbed);
   const [email, setEmail] = useState('');
@@ -38,49 +31,10 @@ export default function AuthScreen({
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
-  // Show OAuth error if present
-  useEffect(() => {
-    if (oauthError) {
-      setError(oauthError);
-    }
-  }, [oauthError]);
-
-  // Handle ArcGIS OAuth login
-  const handleArcGISAuth = async () => {
-    console.log('[Notify Signup] Initiating ArcGIS OAuth...');
-
-    // Fetch admin-configured ESRI client ID
-    let esriClientId = null;
-    try {
-      const esriSettings = await getESRISettings();
-      esriClientId = esriSettings?.clientId || null;
-    } catch (err) {
-      console.warn('[Notify Signup] Could not fetch ESRI settings, using default client ID:', err);
-    }
-
-    // Preserve URL params before OAuth redirect (they're lost during OAuth flow)
-    const urlParams = new URLSearchParams(window.location.search);
-    const orgParam = urlParams.get('organization') || urlParams.get('locality');
-    const notifParam = urlParams.get('notification');
-    console.log('[Notify Signup] Preserving URL params for OAuth redirect:', { orgParam, notifParam });
-    if (orgParam || notifParam) {
-      sessionStorage.setItem('notify_signup_params', JSON.stringify({
-        organization: orgParam,
-        notification: notifParam
-      }));
-      console.log('[Notify Signup] Params saved to sessionStorage');
-    }
-
-    const redirectUri = getOAuthRedirectUri();
-    console.log('[Notify Signup] Redirecting to ArcGIS OAuth with mode:', isLogin ? 'signin' : 'signup');
-    initiateArcGISLogin(redirectUri, isLogin ? 'signin' : 'signup', esriClientId);
-  };
-
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    setOauthError?.(null);
 
     console.log('[Notify Signup] Email/password auth started:', {
       isLogin,
@@ -228,31 +182,6 @@ export default function AuthScreen({
         )}
       </div>
 
-      {/* ArcGIS Sign In/Sign Up Button */}
-      <div className="mb-6">
-        <button
-          type="button"
-          onClick={handleArcGISAuth}
-          className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#0079C1] text-white rounded-lg font-medium hover:bg-[#006699] transition-colors"
-        >
-          <Globe className="w-5 h-5" />
-          {isLogin ? 'Sign in with ArcGIS' : 'Sign up with ArcGIS'}
-        </button>
-        <p className="text-xs text-slate-500 text-center mt-2">
-          Use your ArcGIS Online or Enterprise account
-        </p>
-      </div>
-
-      {/* Divider */}
-      <div className="relative my-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-slate-200"></div>
-        </div>
-        <div className="relative flex justify-center text-sm">
-          <span className="px-4 bg-white text-slate-500">or continue with email</span>
-        </div>
-      </div>
-
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
           {error}
@@ -308,7 +237,6 @@ export default function AuthScreen({
               onClick={() => {
                 setIsLogin(false);
                 setError('');
-                setOauthError?.(null);
               }}
               className="text-[#004E7C] font-medium hover:underline"
             >
@@ -322,7 +250,6 @@ export default function AuthScreen({
               onClick={() => {
                 setIsLogin(true);
                 setError('');
-                setOauthError?.(null);
               }}
               className="text-[#004E7C] font-medium hover:underline"
             >

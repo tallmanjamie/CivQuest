@@ -4,16 +4,8 @@ import { auth, db } from '@shared/services/firebase';
 import { PATHS } from '@shared/services/paths';
 import { signOut } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
-import {
-  initiateArcGISLogin,
-  getOAuthRedirectUri
-} from '@shared/services/arcgis-auth';
-import { getESRISettings } from '@shared/services/systemConfig';
-import {
-  updateUserProfile,
-  unlinkArcGISAccount
-} from '@shared/services/users';
-import { Settings, Ban, Globe, Loader2, User, Check, Unlink, AlertTriangle } from 'lucide-react';
+import { updateUserProfile } from '@shared/services/users';
+import { Settings, Ban, Loader2, User, Check } from 'lucide-react';
 
 export default function AccountTab({ user, userData }) {
   const [disabling, setDisabling] = useState(false);
@@ -22,8 +14,6 @@ export default function AccountTab({ user, userData }) {
   const [lastName, setLastName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [showUnlinkConfirm, setShowUnlinkConfirm] = useState(false);
-  const [unlinking, setUnlinking] = useState(false);
 
   // Initialize form with user data
   useEffect(() => {
@@ -73,38 +63,6 @@ export default function AccountTab({ user, userData }) {
       setSaving(false);
     }
   };
-
-  const handleUnlinkArcGIS = async () => {
-    if (!user) return;
-
-    setUnlinking(true);
-    try {
-      await unlinkArcGISAccount(user.uid);
-      setShowUnlinkConfirm(false);
-    } catch (error) {
-      console.error('[AccountTab] Unlink error:', error);
-      alert('Failed to unlink ArcGIS account. Please try again.');
-    } finally {
-      setUnlinking(false);
-    }
-  };
-
-  // Handle linking ArcGIS account
-  const handleLinkArcGIS = async () => {
-    // Fetch admin-configured ESRI client ID
-    let esriClientId = null;
-    try {
-      const esriSettings = await getESRISettings();
-      esriClientId = esriSettings?.clientId || null;
-    } catch (err) {
-      console.warn('Could not fetch ESRI settings, using default client ID:', err);
-    }
-
-    const redirectUri = getOAuthRedirectUri();
-    initiateArcGISLogin(redirectUri, 'signin', esriClientId);
-  };
-
-  const hasLinkedArcGIS = userData?.linkedArcGISUsername;
 
   return (
     <div className="space-y-6">
@@ -168,97 +126,6 @@ export default function AccountTab({ user, userData }) {
                 {saved ? 'Saved!' : 'Save Profile'}
               </button>
             </div>
-          </div>
-
-          {/* ArcGIS Account Section */}
-          <div className="border-t border-slate-200 pt-6 space-y-4">
-            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-              <Globe className="w-4 h-4" />
-              ArcGIS Online Account
-            </h4>
-
-            {hasLinkedArcGIS ? (
-              <>
-                <div className="p-4 bg-[#E6F0F6] rounded-lg border border-[#004E7C]/20">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-[#004E7C]/10 rounded-lg">
-                      <Globe className="w-5 h-5 text-[#004E7C]" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-[#004E7C] font-medium uppercase tracking-wider mb-1">Linked ArcGIS Account</p>
-                      <p className="text-slate-900 font-semibold">{userData.linkedArcGISUsername}</p>
-                      {userData.arcgisProfile?.fullName && (
-                        <p className="text-sm text-slate-600">{userData.arcgisProfile.fullName}</p>
-                      )}
-                      {userData.arcgisOrganization?.name && (
-                        <p className="text-xs text-slate-500 mt-1">
-                          Organization: {userData.arcgisOrganization.name}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Unlink Button */}
-                {!showUnlinkConfirm ? (
-                  <button
-                    onClick={() => setShowUnlinkConfirm(true)}
-                    className="flex items-center gap-2 px-4 py-2 text-slate-600 border border-slate-300 rounded-lg text-sm hover:bg-slate-50 transition"
-                  >
-                    <Unlink className="w-4 h-4" />
-                    Unlink ArcGIS Account
-                  </button>
-                ) : (
-                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-amber-800">
-                          Unlink ArcGIS Account?
-                        </p>
-                        <p className="text-xs text-amber-700 mt-1">
-                          You can link a different ArcGIS account later.
-                        </p>
-                        <div className="flex items-center gap-2 mt-3">
-                          <button
-                            onClick={() => setShowUnlinkConfirm(false)}
-                            className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={handleUnlinkArcGIS}
-                            disabled={unlinking}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 disabled:opacity-50"
-                          >
-                            {unlinking && <Loader2 className="w-3 h-3 animate-spin" />}
-                            Unlink
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium text-slate-900">Link ArcGIS Account</h4>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Connect your ArcGIS account for seamless authentication.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleLinkArcGIS}
-                    className="px-4 py-2 bg-[#0079C1] text-white rounded-lg font-medium hover:bg-[#006699] transition-colors flex items-center gap-2"
-                  >
-                    <Globe className="w-4 h-4" />
-                    Link Account
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Pause Feeds Section */}
