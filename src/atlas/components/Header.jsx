@@ -135,11 +135,21 @@ export default function Header({
         {/* Left: Logo & Title */}
         <div className="flex items-center gap-2 overflow-hidden">
           {config?.ui?.logoLeft && (
-            <img
-              src={config.ui.logoLeft}
-              alt="Logo"
-              className={`${getLogoSizeClasses(config.ui.logoLeftSize, 'header')} object-contain bg-white rounded-full p-0.5 flex-shrink-0`}
-            />
+            config.ui.logoLeftLink ? (
+              <a href={config.ui.logoLeftLink} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
+                <img
+                  src={config.ui.logoLeft}
+                  alt="Logo"
+                  className={`${getLogoSizeClasses(config.ui.logoLeftSize, 'header')} object-contain bg-white rounded-full p-0.5 flex-shrink-0 hover:opacity-80 transition-opacity`}
+                />
+              </a>
+            ) : (
+              <img
+                src={config.ui.logoLeft}
+                alt="Logo"
+                className={`${getLogoSizeClasses(config.ui.logoLeftSize, 'header')} object-contain bg-white rounded-full p-0.5 flex-shrink-0`}
+              />
+            )
           )}
           <div className="truncate">
             <h1 className="text-sm md:text-xl font-bold leading-tight truncate">
@@ -157,11 +167,21 @@ export default function Header({
         <div className="hidden md:flex items-center gap-3">
           {/* Logo Right */}
           {config?.ui?.logoRight && (
-            <img
-              src={config.ui.logoRight}
-              alt="Logo"
-              className={`${getLogoSizeClasses(config.ui.logoRightSize, 'header')} object-contain bg-white rounded-full p-0.5 flex-shrink-0`}
-            />
+            config.ui.logoRightLink ? (
+              <a href={config.ui.logoRightLink} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
+                <img
+                  src={config.ui.logoRight}
+                  alt="Logo"
+                  className={`${getLogoSizeClasses(config.ui.logoRightSize, 'header')} object-contain bg-white rounded-full p-0.5 flex-shrink-0 hover:opacity-80 transition-opacity`}
+                />
+              </a>
+            ) : (
+              <img
+                src={config.ui.logoRight}
+                alt="Logo"
+                className={`${getLogoSizeClasses(config.ui.logoRightSize, 'header')} object-contain bg-white rounded-full p-0.5 flex-shrink-0`}
+              />
+            )
           )}
 
           {/* Header Links */}

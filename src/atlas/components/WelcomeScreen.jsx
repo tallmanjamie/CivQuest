@@ -31,11 +31,21 @@ export default function WelcomeScreen({ config, onGetStarted }) {
         {/* Header */}
         <div className="text-center mb-8">
           {config?.ui?.logoLeft && (
-            <img
-              src={config.ui.logoLeft}
-              alt="Logo"
-              className={`${getWelcomeLogoSizeClasses(config.ui.logoLeftSize)} object-contain mx-auto mb-4 rounded-full bg-white shadow-lg p-2`}
-            />
+            config.ui.logoLeftLink ? (
+              <a href={config.ui.logoLeftLink} target="_blank" rel="noopener noreferrer" className="inline-block mb-4">
+                <img
+                  src={config.ui.logoLeft}
+                  alt="Logo"
+                  className={`${getWelcomeLogoSizeClasses(config.ui.logoLeftSize)} object-contain mx-auto rounded-full bg-white shadow-lg p-2 hover:opacity-80 transition-opacity`}
+                />
+              </a>
+            ) : (
+              <img
+                src={config.ui.logoLeft}
+                alt="Logo"
+                className={`${getWelcomeLogoSizeClasses(config.ui.logoLeftSize)} object-contain mx-auto mb-4 rounded-full bg-white shadow-lg p-2`}
+              />
+            )
           )}
           {config?.messages?.welcomeTitle && (
             <h1 className="text-3xl font-bold text-slate-800 mb-2">

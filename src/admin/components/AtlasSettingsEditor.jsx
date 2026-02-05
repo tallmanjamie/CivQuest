@@ -1059,6 +1059,16 @@ export default function AtlasSettingsEditor({
                     <option value="medium">Medium</option>
                     <option value="large">Large</option>
                   </select>
+                  <label className="block text-xs font-medium text-slate-500 mt-2 mb-1">
+                    <Link className="w-3 h-3 inline mr-1" />Hyperlink
+                  </label>
+                  <input
+                    type="url"
+                    value={config.ui.logoLeftLink || ''}
+                    onChange={(e) => updateUI('logoLeftLink', e.target.value)}
+                    placeholder="https://example.com"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Logo Right (Header)</label>
@@ -1084,6 +1094,16 @@ export default function AtlasSettingsEditor({
                     <option value="medium">Medium</option>
                     <option value="large">Large</option>
                   </select>
+                  <label className="block text-xs font-medium text-slate-500 mt-2 mb-1">
+                    <Link className="w-3 h-3 inline mr-1" />Hyperlink
+                  </label>
+                  <input
+                    type="url"
+                    value={config.ui.logoRightLink || ''}
+                    onChange={(e) => updateUI('logoRightLink', e.target.value)}
+                    placeholder="https://example.com"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Bot Avatar (Chat)</label>
