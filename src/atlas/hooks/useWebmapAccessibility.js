@@ -2,13 +2,17 @@
 // Hook to check webmap accessibility based on authentication state
 //
 // Implements the Atlas authentication workflow:
-// 1. Check each webmap in config for public accessibility (ArcGIS webmap sharing)
-// 2. If user not logged in and there are public maps AND not all maps are configured private: show them
-// 3. If user logged in: show accessible private maps FIRST, then public maps
-//    (Private maps are prioritized so the default selected map is the private one)
-// 4. If user not logged in and no public maps: require login
-// 5. If user not logged in and ALL maps in Atlas config have access="private": require login
-//    (This enforces login even if underlying ArcGIS webmaps are publicly shared)
+// 1. Check each webmap for "effective" public accessibility:
+//    - ArcGIS webmap must be publicly shared, AND
+//    - Atlas config access must NOT be 'private'
+// 2. If user not logged in:
+//    - Only effectively public maps → show them, no sign-in option
+//    - Mix of public and private → show public maps, show sign-in option
+//    - Only private maps → redirect to sign-in page
+// 3. If user logged in: show ALL maps (public + private)
+//    - Config-private maps (ArcGIS public, Atlas access='private') are shown to any logged-in user
+//    - ArcGIS-private maps require token access check
+//    - Private maps are prioritized so the default selected map is the private one
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { checkMultipleWebmapsAccess, checkPrivateWebmapsAccess, getStoredArcGISToken } from '@shared/services/arcgis-auth';
@@ -66,15 +70,21 @@ export function useWebmapAccessibility({
       const itemId = map.webMap?.itemId;
       if (!itemId) {
         // Maps without itemId are treated as private/invalid
-        privateList.push({ map, index });
+        privateList.push({ map, index, isArcGISPublic: false });
         return;
       }
 
       const result = accessResults.get(itemId);
-      if (result?.isPublic) {
+      const isArcGISPublic = result?.isPublic === true;
+
+      // A map is "effectively public" only if:
+      // 1. ArcGIS webmap is publicly accessible, AND
+      // 2. Atlas config access is not set to 'private' (admin hasn't restricted it)
+      // Maps with access='private' in Atlas config require login even if ArcGIS says they're public
+      if (isArcGISPublic && map.access !== 'private') {
         publicList.push({ map, index, accessResult: result });
       } else {
-        privateList.push({ map, index, accessResult: result });
+        privateList.push({ map, index, accessResult: result, isArcGISPublic });
       }
     });
 
@@ -150,44 +160,58 @@ export function useWebmapAccessibility({
       // Step 2: Determine what maps are accessible based on auth state
       let accessible = [];
 
-      // If user is logged in and has linked ArcGIS account, check private maps
-      // Uses stored OAuth token from login for authentication
+      // Separate private maps into two categories:
+      // - Config-private: ArcGIS public but Atlas access='private' (just needs login, no ArcGIS token)
+      // - ArcGIS-private: Actually private on ArcGIS (needs ArcGIS token to access)
+      const configPrivateList = privateList.filter(info => info.isArcGISPublic);
+      const arcgisPrivateList = privateList.filter(info => !info.isArcGISPublic);
+
       const hasLinkedArcGIS = firebaseUserData?.arcgisProfile?.username ||
                               firebaseUserData?.linkedArcGISUsername;
       const hasStoredToken = !!getStoredArcGISToken();
 
-      if (firebaseUser && hasLinkedArcGIS && hasStoredToken) {
-        console.log('[useWebmapAccessibility] User has linked ArcGIS account with stored token, checking private maps');
-        const accessiblePrivate = await checkPrivateMapAccess(privateList);
-        const accessiblePrivateMaps = accessiblePrivate.map(info => info.map);
-        // When signed in, prioritize private maps over public maps
-        // This ensures the default selected map is the private one when available
-        accessible = [...accessiblePrivateMaps, ...publicMapObjects];
-        console.log('[useWebmapAccessibility] Accessible private maps:', accessiblePrivateMaps.length);
+      if (firebaseUser) {
+        // Logged-in users can access config-private maps (ArcGIS public, Atlas access='private')
+        // These don't need an ArcGIS token - just being logged in is sufficient
+        const configPrivateMapObjects = configPrivateList.map(info => info.map);
+
+        if (hasLinkedArcGIS && hasStoredToken) {
+          // Also check ArcGIS-private maps with token
+          console.log('[useWebmapAccessibility] User has linked ArcGIS account with stored token, checking private maps');
+          const accessibleArcGISPrivate = await checkPrivateMapAccess(arcgisPrivateList);
+          const arcgisPrivateMapObjects = accessibleArcGISPrivate.map(info => info.map);
+          // Prioritize private maps, then config-private, then public
+          accessible = [...arcgisPrivateMapObjects, ...configPrivateMapObjects, ...publicMapObjects];
+          console.log('[useWebmapAccessibility] Accessible ArcGIS-private maps:', arcgisPrivateMapObjects.length, 'Config-private maps:', configPrivateMapObjects.length);
+        } else {
+          // Logged in but no ArcGIS token - config-private + public maps
+          accessible = [...configPrivateMapObjects, ...publicMapObjects];
+          console.log('[useWebmapAccessibility] No ArcGIS token, showing config-private + public maps');
+        }
       } else {
-        // Not signed in or no linked ArcGIS/stored token - use public maps only
+        // Not signed in - only effectively public maps
         accessible = [...publicMapObjects];
       }
 
       // Step 3: Determine if login is required
-      // Login is required if user is not logged in AND:
-      // - There are no public maps (ArcGIS webmaps not publicly accessible), OR
-      // - All maps in the Atlas config are set to private (access: "private")
-      //   This enforces login even if the underlying ArcGIS webmaps are publicly shared
+      // Login is required if user is not logged in AND there are no effectively public maps
+      // Since maps with access='private' are excluded from publicMapObjects,
+      // this naturally handles the case where all maps are configured private
       const noPublicMaps = publicMapObjects.length === 0;
       const userNotLoggedIn = !firebaseUser;
-      const allMapsConfiguredPrivate = allMaps.length > 0 && allMaps.every(map => map.access === 'private');
-      const loginRequired = userNotLoggedIn && (noPublicMaps || allMapsConfiguredPrivate);
+      const loginRequired = userNotLoggedIn && noPublicMaps;
 
       console.log('[useWebmapAccessibility] Final state:', {
         accessible: accessible.length,
         accessibleNames: accessible.map(m => m.name),
-        public: publicMapObjects.length,
+        effectivelyPublic: publicMapObjects.length,
         publicNames: publicMapObjects.map(m => m.name),
-        private: privateMapObjects.length,
-        privateNames: privateMapObjects.map(m => m.name),
+        configPrivate: configPrivateList.length,
+        configPrivateNames: configPrivateList.map(i => i.map.name),
+        arcgisPrivate: arcgisPrivateList.length,
+        arcgisPrivateNames: arcgisPrivateList.map(i => i.map.name),
+        totalPrivate: privateMapObjects.length,
         loginRequired,
-        allMapsConfiguredPrivate,
         userLoggedIn: !!firebaseUser,
         hasLinkedArcGIS,
         hasStoredToken
@@ -225,17 +249,17 @@ export function useWebmapAccessibility({
   return {
     // The maps the user can access (public + accessible private)
     accessibleMaps,
-    // Maps that are publicly accessible (based on ArcGIS webmap access)
+    // Maps that are effectively public (ArcGIS public AND Atlas config not 'private')
     publicMaps,
-    // Maps that require authentication (based on ArcGIS webmap access)
+    // Maps that require authentication (ArcGIS private OR Atlas config access='private')
     privateMaps,
     // Whether we're still checking access
     loading,
-    // Whether the user must log in (no public maps OR all maps configured as private in Atlas)
+    // Whether the user must log in (no effectively public maps available)
     requiresLogin,
     // Whether we've completed the access check
     hasCheckedAccess,
-    // Whether all configured maps are public based on ArcGIS accessibility (no private maps)
+    // Whether all maps are effectively public (no private maps of any kind)
     allMapsPublic,
     // Whether all maps in Atlas config are set to private (access: "private")
     allMapsConfiguredPrivate,

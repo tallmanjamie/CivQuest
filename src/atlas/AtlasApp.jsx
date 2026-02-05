@@ -1504,10 +1504,10 @@ export default function AtlasApp() {
     );
   }
 
-  // Authentication required - show auth screen ONLY if:
-  // - No public maps are available AND
-  // - User is not logged in
-  // This implements the workflow: if there are public maps, show them without requiring login
+  // Authentication required - show auth screen when:
+  // - No effectively public maps available (all maps are ArcGIS-private or Atlas config access='private')
+  // - AND user is not logged in
+  // If there are effectively public maps, show them without requiring login
   if (requiresLogin) {
     return (
       <div className="h-dvh flex flex-col bg-slate-100 font-sans">
