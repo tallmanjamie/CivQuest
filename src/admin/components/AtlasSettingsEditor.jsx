@@ -1037,8 +1037,8 @@ export default function AtlasSettingsEditor({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Logo Left (Header)</label>
-                  <ImagePreview 
-                    url={config.ui.logoLeft} 
+                  <ImagePreview
+                    url={config.ui.logoLeft}
                     label="Logo Left"
                     onClear={() => updateUI('logoLeft', '')}
                   />
@@ -1049,11 +1049,21 @@ export default function AtlasSettingsEditor({
                     placeholder="https://..."
                     className="w-full mt-2 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                   />
+                  <label className="block text-xs font-medium text-slate-500 mt-2 mb-1">Size</label>
+                  <select
+                    value={config.ui.logoLeftSize || 'small'}
+                    onChange={(e) => updateUI('logoLeftSize', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  >
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Logo Right (Header)</label>
-                  <ImagePreview 
-                    url={config.ui.logoRight} 
+                  <ImagePreview
+                    url={config.ui.logoRight}
                     label="Logo Right"
                     onClear={() => updateUI('logoRight', '')}
                   />
@@ -1064,6 +1074,16 @@ export default function AtlasSettingsEditor({
                     placeholder="https://..."
                     className="w-full mt-2 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                   />
+                  <label className="block text-xs font-medium text-slate-500 mt-2 mb-1">Size</label>
+                  <select
+                    value={config.ui.logoRightSize || 'small'}
+                    onChange={(e) => updateUI('logoRightSize', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  >
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Bot Avatar (Chat)</label>
@@ -1079,6 +1099,16 @@ export default function AtlasSettingsEditor({
                     placeholder="https://..."
                     className="w-full mt-2 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
                   />
+                  <label className="block text-xs font-medium text-slate-500 mt-2 mb-1">Size</label>
+                  <select
+                    value={config.ui.botAvatarSize || 'small'}
+                    onChange={(e) => updateUI('botAvatarSize', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  >
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
                 </div>
               </div>
             </div>

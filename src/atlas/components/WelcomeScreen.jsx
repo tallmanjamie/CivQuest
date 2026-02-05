@@ -6,6 +6,21 @@ import React from 'react';
 import { Map, Search, Table2, MessageSquare } from 'lucide-react';
 import { getThemeColors } from '../utils/themeColors';
 
+/**
+ * Get CSS classes for logo size on welcome screen
+ * Welcome screen uses larger sizes since the logo is featured
+ * @param {'small' | 'medium' | 'large'} size - The size setting
+ * @returns {string} Tailwind CSS classes for the size
+ */
+function getWelcomeLogoSizeClasses(size) {
+  const sizes = {
+    small: 'w-16 h-16',
+    medium: 'w-20 h-20',
+    large: 'w-28 h-28'
+  };
+  return sizes[size] || sizes.small;
+}
+
 export default function WelcomeScreen({ config, onGetStarted }) {
   const themeColor = config?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
@@ -16,10 +31,10 @@ export default function WelcomeScreen({ config, onGetStarted }) {
         {/* Header */}
         <div className="text-center mb-8">
           {config?.ui?.logoLeft && (
-            <img 
-              src={config.ui.logoLeft} 
-              alt="Logo" 
-              className="w-20 h-20 object-contain mx-auto mb-4 rounded-full bg-white shadow-lg p-2"
+            <img
+              src={config.ui.logoLeft}
+              alt="Logo"
+              className={`${getWelcomeLogoSizeClasses(config.ui.logoLeftSize)} object-contain mx-auto mb-4 rounded-full bg-white shadow-lg p-2`}
             />
           )}
           {config?.messages?.welcomeTitle && (
