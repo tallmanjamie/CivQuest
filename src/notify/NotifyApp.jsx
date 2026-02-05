@@ -4,9 +4,7 @@ import { auth, db } from '@shared/services/firebase';
 import { PATHS } from '@shared/services/paths';
 import {
   onAuthStateChanged,
-  signOut,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword
+  signOut
 } from 'firebase/auth';
 import {
   collection,
@@ -14,24 +12,11 @@ import {
   doc,
   setDoc,
   getDoc,
-  updateDoc,
   onSnapshot,
-  serverTimestamp,
-  deleteField
+  serverTimestamp
 } from 'firebase/firestore';
 import { Loader2, LogOut, Settings } from 'lucide-react';
 import { ToastProvider } from '@shared/components/Toast';
-import {
-  parseOAuthCallback,
-  clearOAuthParams,
-  verifyOAuthState,
-  completeArcGISOAuth,
-  generateDeterministicPassword,
-  getOAuthMode,
-  getOAuthRedirectUri
-} from '@shared/services/arcgis-auth';
-import { sendWelcomeEmail } from '@shared/services/email';
-import { processInvitationSubscriptions } from '@shared/services/invitations';
 import { formatNotificationsForDisplay } from '@shared/services/organizations';
 import AuthScreen from './components/AuthScreen';
 import Dashboard from './components/Dashboard';
@@ -41,29 +26,10 @@ const getQueryParams = () => {
   if (typeof window === 'undefined') return {};
   const params = new URLSearchParams(window.location.search);
 
-  // First try URL params
-  let organizationId = params.get('organization') || params.get('locality');
-  let notificationId = params.get('notification');
+  const organizationId = params.get('organization') || params.get('locality');
+  const notificationId = params.get('notification');
 
   console.log('[Notify Signup] Checking URL params:', { organizationId, notificationId });
-
-  // If not in URL, check sessionStorage (preserved during OAuth flow)
-  if (!organizationId && !notificationId) {
-    try {
-      const savedParams = sessionStorage.getItem('notify_signup_params');
-      console.log('[Notify Signup] Checking sessionStorage:', savedParams);
-      if (savedParams) {
-        const parsed = JSON.parse(savedParams);
-        organizationId = parsed.organization;
-        notificationId = parsed.notification;
-        console.log('[Notify Signup] Retrieved params from sessionStorage:', { organizationId, notificationId });
-        // Clear after retrieving to prevent stale params
-        sessionStorage.removeItem('notify_signup_params');
-      }
-    } catch (err) {
-      console.warn('[Notify Signup] Could not parse saved signup params:', err);
-    }
-  }
 
   return { organizationId, notificationId };
 };
@@ -76,13 +42,10 @@ export default function NotifyApp() {
   const [availableSubscriptions, setAvailableSubscriptions] = useState([]);
   const [targetSubscription, setTargetSubscription] = useState(null);
   const [targetOrganization, setTargetOrganization] = useState(null);
-  const [oauthProcessing, setOauthProcessing] = useState(false);
-  const [oauthError, setOauthError] = useState(null);
   const [activeTab, setActiveTab] = useState('feeds');
 
   // Store signup link params in state so they persist across re-renders
-  // This is critical for OAuth flow where re-renders happen during processing
-  const [signupParams, setSignupParams] = useState(() => {
+  const [signupParams] = useState(() => {
     const params = getQueryParams();
     console.log('[Notify Signup] Initial params stored in state:', params);
     return params;
@@ -100,185 +63,6 @@ export default function NotifyApp() {
     }
     return user?.email || 'User';
   };
-
-  // Handle OAuth callback on mount
-  useEffect(() => {
-    const handleOAuthCallback = async () => {
-      const { code, state, error, errorDescription } = parseOAuthCallback();
-
-      if (error) {
-        setOauthError(errorDescription || error);
-        clearOAuthParams();
-        return;
-      }
-
-      if (!code) return;
-
-      console.log('[Notify Signup] OAuth callback detected, processing...');
-      console.log('[Notify Signup] Current signup params from state:', { organizationId, notificationId });
-
-      // Verify state for CSRF protection
-      if (!verifyOAuthState(state)) {
-        setOauthError('Invalid OAuth state. Please try again.');
-        clearOAuthParams();
-        return;
-      }
-
-      // Get the mode (signin or signup) that was set before redirecting
-      const oauthMode = getOAuthMode() || 'signin';
-      console.log('[Notify Signup] OAuth mode:', oauthMode);
-
-      setOauthProcessing(true);
-
-      try {
-        const redirectUri = getOAuthRedirectUri();
-        const { token, user: agolUser, org: agolOrg } = await completeArcGISOAuth(code, redirectUri);
-
-        // Clear OAuth params from URL
-        clearOAuthParams();
-
-        // Get email from AGOL user profile
-        const email = agolUser.email;
-        if (!email) {
-          throw new Error('No email address found in your ArcGIS account. Please ensure your ArcGIS profile has an email address.');
-        }
-
-        console.log('[Notify Signup] OAuth user email:', email);
-
-        // Generate deterministic password based on ArcGIS credentials
-        const password = await generateDeterministicPassword(agolUser.username, email);
-
-        if (oauthMode === 'signup') {
-          console.log('[Notify Signup] Creating new account via OAuth signup...');
-          // SIGN UP MODE: Only create account, error if exists
-          try {
-            const cred = await createUserWithEmailAndPassword(auth, email, password);
-            const userUid = cred.user.uid;
-            console.log('[Notify Signup] Account created with uid:', userUid);
-
-            // Build user document with AGOL data
-            const userData = {
-              email: email.toLowerCase(),
-              createdAt: serverTimestamp(),
-              subscriptions: {},
-              disabled: false,
-              linkedArcGISUsername: agolUser.username,
-              arcgisProfile: {
-                username: agolUser.username,
-                fullName: agolUser.fullName || '',
-                email: agolUser.email,
-                orgId: agolUser.orgId || null,
-                linkedAt: new Date().toISOString()
-              }
-            };
-
-            if (agolOrg) {
-              userData.arcgisOrganization = {
-                id: agolOrg.id,
-                name: agolOrg.name,
-                urlKey: agolOrg.urlKey || null
-              };
-            }
-
-            await setDoc(doc(db, PATHS.user(userUid)), userData);
-            console.log('[Notify Signup] User document created');
-
-            // Send welcome email via Brevo
-            try {
-              await sendWelcomeEmail(email, agolUser.fullName || '');
-            } catch (emailErr) {
-              console.warn("[Notify Signup] Could not send welcome email:", emailErr);
-            }
-
-            // Check for invitation by email and apply subscriptions
-            const inviteRef = doc(db, PATHS.invitation(email.toLowerCase()));
-            const inviteSnap = await getDoc(inviteRef);
-
-            let appliedInvitation = false;
-            if (inviteSnap.exists()) {
-              console.log('[Notify Signup] Found invitation for email');
-              const inviteData = inviteSnap.data();
-              const subscriptionsToApply = processInvitationSubscriptions(inviteData);
-
-              if (Object.keys(subscriptionsToApply).length > 0) {
-                console.log('[Notify Signup] Applying invitation subscriptions:', Object.keys(subscriptionsToApply));
-                await updateDoc(doc(db, PATHS.user(userUid)), {
-                  subscriptions: subscriptionsToApply
-                });
-
-                await updateDoc(inviteRef, {
-                  status: 'claimed',
-                  claimedAt: serverTimestamp(),
-                  claimedBy: userUid
-                });
-                appliedInvitation = true;
-              }
-            }
-
-            // Apply signup link subscription if no invitation was applied
-            // Note: The auto-subscribe effect will also handle this, but applying here
-            // ensures it happens immediately during signup
-            if (!appliedInvitation && organizationId && notificationId) {
-              const subscriptionKey = `${organizationId}_${notificationId}`;
-              console.log('[Notify Signup] Applying signup link subscription:', subscriptionKey);
-              await updateDoc(doc(db, PATHS.user(userUid)), {
-                subscriptions: {
-                  [subscriptionKey]: true
-                }
-              });
-              console.log('[Notify Signup] Signup link subscription applied successfully');
-            }
-
-            // Wait for auth state to propagate
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-          } catch (authErr) {
-            if (authErr.code === 'auth/email-already-in-use') {
-              setOauthError(`An account with email ${email} already exists. Please use the Sign In option instead.`);
-            } else {
-              throw authErr;
-            }
-          }
-          
-        } else {
-          // SIGN IN MODE: Only sign in, error if account doesn't exist
-          try {
-            await signInWithEmailAndPassword(auth, email, password);
-            // Wait for auth state to propagate
-            await new Promise(resolve => setTimeout(resolve, 500));
-          } catch (signInErr) {
-            if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
-              // Check if it's because account doesn't exist or wrong password
-              try {
-                // Test if account exists by attempting to create
-                const testCred = await createUserWithEmailAndPassword(auth, email, password);
-                // Account didn't exist - delete and show error
-                await testCred.user.delete();
-                setOauthError(`No account found with email ${email}. Please use the Create Account option first.`);
-              } catch (createErr) {
-                if (createErr.code === 'auth/email-already-in-use') {
-                  // Account exists but wasn't created with ArcGIS
-                  setOauthError(`An account with email ${email} exists but wasn't created with ArcGIS. Please sign in with your email and password, then link your ArcGIS account in Account Settings.`);
-                } else {
-                  setOauthError(`No account found with email ${email}. Please use the Create Account option first.`);
-                }
-              }
-            } else {
-              throw signInErr;
-            }
-          }
-        }
-        
-      } catch (err) {
-        console.error('OAuth error:', err);
-        setOauthError(err.message || 'Failed to sign in with ArcGIS. Please try again.');
-      } finally {
-        setOauthProcessing(false);
-      }
-    };
-    
-    handleOAuthCallback();
-  }, []);
 
   // Fetch Configuration from Firestore
   useEffect(() => {
@@ -365,7 +149,7 @@ export default function NotifyApp() {
     };
   }, []);
 
-  // Auto-subscribe user when they sign in/up via a signup link (handles OAuth flow)
+  // Auto-subscribe user when they sign in/up via a signup link
   // This effect runs when both user and targetSubscription become available
   useEffect(() => {
     const applyAutoSubscription = async () => {
@@ -410,13 +194,10 @@ export default function NotifyApp() {
     applyAutoSubscription();
   }, [user, targetSubscription]);
 
-  if (loading || oauthProcessing) {
+  if (loading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-4">
         <Loader2 className="animate-spin text-[#004E7C] w-8 h-8" />
-        {oauthProcessing && (
-          <p className="text-slate-600 text-sm">Signing in with ArcGIS...</p>
-        )}
       </div>
     );
   }
@@ -462,8 +243,6 @@ export default function NotifyApp() {
               targetSubscription={targetSubscription}
               targetOrganization={targetOrganization}
               isEmbed={isEmbed}
-              oauthError={oauthError}
-              setOauthError={setOauthError}
             />
           ) : (
             <Dashboard
