@@ -180,10 +180,11 @@ export default function FeatureInfoPanel({
     const loadArcGIS = async () => {
       try {
         // Dynamically load modules
-        const [FeatureClass, GraphicClass, reactiveUtils] = await Promise.all([
+        const [FeatureClass, GraphicClass, reactiveUtils, projection] = await Promise.all([
           import('@arcgis/core/widgets/Feature').then(m => m.default).catch(() => window.esri?.widgets?.Feature),
           import('@arcgis/core/Graphic').then(m => m.default).catch(() => window.esri?.Graphic),
-          import('@arcgis/core/core/reactiveUtils').catch(() => window.esri?.core?.reactiveUtils)
+          import('@arcgis/core/core/reactiveUtils').catch(() => window.esri?.core?.reactiveUtils),
+          import('@arcgis/core/geometry/projection').then(m => m.default || m).catch(() => null)
         ]);
 
         if (!FeatureClass || !GraphicClass || !featureContainerRef.current) return;
@@ -210,6 +211,71 @@ export default function FeatureInfoPanel({
              else if (geometry.x !== undefined) geometry.type = 'point';
              else if (geometry.xmin !== undefined) geometry.type = 'extent';
              else if (geometry.points) geometry.type = 'multipoint';
+          }
+        }
+
+        // --- Fix for Arcade Spatial Reference Error ---
+        // When features come from search (REST API), geometry is typically in WGS84 (4326)
+        // but Arcade expressions expect geometry in the view's spatial reference (often Web Mercator)
+        // Project the geometry to match the view's spatial reference for Arcade expressions
+        const viewSR = view?.spatialReference;
+        const geomSR = geometry?.spatialReference;
+
+        if (geometry && viewSR && projection && geomSR) {
+          // Check if spatial references differ (compare WKIDs, handling common equivalents)
+          const viewWkid = viewSR.wkid || viewSR.latestWkid;
+          const geomWkid = geomSR.wkid || geomSR.latestWkid;
+
+          // Web Mercator WKIDs: 102100, 3857, 102113 are equivalent
+          const webMercatorWkids = [102100, 3857, 102113];
+          const viewIsWebMercator = webMercatorWkids.includes(viewWkid);
+          const geomIsWebMercator = webMercatorWkids.includes(geomWkid);
+
+          // Only project if spatial references are actually different
+          const needsProjection = viewWkid !== geomWkid &&
+                                  !(viewIsWebMercator && geomIsWebMercator);
+
+          if (needsProjection) {
+            try {
+              // Load the projection engine if not already loaded
+              if (!projection.isLoaded?.()) {
+                await projection.load?.();
+              }
+
+              // Create proper geometry objects for projection
+              const [Point, Polygon, Polyline, Extent, Multipoint] = await Promise.all([
+                import('@arcgis/core/geometry/Point').then(m => m.default).catch(() => null),
+                import('@arcgis/core/geometry/Polygon').then(m => m.default).catch(() => null),
+                import('@arcgis/core/geometry/Polyline').then(m => m.default).catch(() => null),
+                import('@arcgis/core/geometry/Extent').then(m => m.default).catch(() => null),
+                import('@arcgis/core/geometry/Multipoint').then(m => m.default).catch(() => null)
+              ]);
+
+              // Create proper ArcGIS geometry object from JSON
+              let sourceGeometry = null;
+              if (geometry.type === 'point' && Point) {
+                sourceGeometry = new Point(geometry);
+              } else if (geometry.type === 'polygon' && Polygon) {
+                sourceGeometry = new Polygon(geometry);
+              } else if (geometry.type === 'polyline' && Polyline) {
+                sourceGeometry = new Polyline(geometry);
+              } else if (geometry.type === 'extent' && Extent) {
+                sourceGeometry = new Extent(geometry);
+              } else if (geometry.type === 'multipoint' && Multipoint) {
+                sourceGeometry = new Multipoint(geometry);
+              }
+
+              if (sourceGeometry) {
+                // Project to view's spatial reference
+                const projectedGeometry = projection.project(sourceGeometry, viewSR);
+                if (projectedGeometry) {
+                  geometry = projectedGeometry;
+                }
+              }
+            } catch (projErr) {
+              console.warn('[FeatureInfoPanel] Geometry projection failed, using original:', projErr);
+              // Continue with original geometry if projection fails
+            }
           }
         }
 
