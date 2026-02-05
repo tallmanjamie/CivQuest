@@ -16,7 +16,8 @@ import {
   getDoc,
   updateDoc,
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  deleteField
 } from 'firebase/firestore';
 import { Loader2, LogOut, Settings } from 'lucide-react';
 import { ToastProvider } from '@shared/components/Toast';
@@ -39,11 +40,28 @@ import Dashboard from './components/Dashboard';
 const getQueryParams = () => {
   if (typeof window === 'undefined') return {};
   const params = new URLSearchParams(window.location.search);
-  return {
-    // Support both new 'organization' and legacy 'locality' params
-    organizationId: params.get('organization') || params.get('locality'),
-    notificationId: params.get('notification')
-  };
+
+  // First try URL params
+  let organizationId = params.get('organization') || params.get('locality');
+  let notificationId = params.get('notification');
+
+  // If not in URL, check sessionStorage (preserved during OAuth flow)
+  if (!organizationId && !notificationId) {
+    try {
+      const savedParams = sessionStorage.getItem('notify_signup_params');
+      if (savedParams) {
+        const parsed = JSON.parse(savedParams);
+        organizationId = parsed.organization;
+        notificationId = parsed.notification;
+        // Clear after retrieving to prevent stale params
+        sessionStorage.removeItem('notify_signup_params');
+      }
+    } catch (err) {
+      console.warn('Could not parse saved signup params:', err);
+    }
+  }
+
+  return { organizationId, notificationId };
 };
 
 export default function NotifyApp() {
@@ -294,6 +312,34 @@ export default function NotifyApp() {
       if (userDataUnsubscribe) userDataUnsubscribe();
     };
   }, []);
+
+  // Auto-subscribe user when they sign in/up via a signup link (handles OAuth flow)
+  // This effect runs when both user and targetSubscription become available
+  useEffect(() => {
+    const applyAutoSubscription = async () => {
+      if (!user || !targetSubscription) return;
+
+      try {
+        const userRef = doc(db, PATHS.user(user.uid));
+        const userSnap = await getDoc(userRef);
+        const existingSubscriptions = userSnap.exists() ? (userSnap.data().subscriptions || {}) : {};
+
+        // Only subscribe if not already subscribed
+        if (!existingSubscriptions[targetSubscription.key]) {
+          await setDoc(userRef, {
+            subscriptions: {
+              ...existingSubscriptions,
+              [targetSubscription.key]: true
+            }
+          }, { merge: true });
+        }
+      } catch (err) {
+        console.warn('Could not apply auto-subscription:', err);
+      }
+    };
+
+    applyAutoSubscription();
+  }, [user, targetSubscription]);
 
   if (loading || oauthProcessing) {
     return (

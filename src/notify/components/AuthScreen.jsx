@@ -56,6 +56,17 @@ export default function AuthScreen({
       console.warn('Could not fetch ESRI settings, using default client ID:', err);
     }
 
+    // Preserve URL params before OAuth redirect (they're lost during OAuth flow)
+    const urlParams = new URLSearchParams(window.location.search);
+    const orgParam = urlParams.get('organization') || urlParams.get('locality');
+    const notifParam = urlParams.get('notification');
+    if (orgParam || notifParam) {
+      sessionStorage.setItem('notify_signup_params', JSON.stringify({
+        organization: orgParam,
+        notification: notifParam
+      }));
+    }
+
     const redirectUri = getOAuthRedirectUri();
     initiateArcGISLogin(redirectUri, isLogin ? 'signin' : 'signup', esriClientId);
   };
@@ -99,7 +110,8 @@ export default function AuthScreen({
       // Check for invitation by email and apply subscriptions
       const inviteRef = doc(db, PATHS.invitation(email.toLowerCase()));
       const inviteSnap = await getDoc(inviteRef);
-      
+
+      let appliedInvitation = false;
       if (inviteSnap.exists()) {
         const inviteData = inviteSnap.data();
         const subscriptionsToApply = processInvitationSubscriptions(inviteData);
@@ -117,16 +129,29 @@ export default function AuthScreen({
             claimedAt: serverTimestamp(),
             claimedBy: userUid
           });
+          appliedInvitation = true;
         }
-      } else if (targetSubscription && userUid) {
-        // Fallback: URL-based subscription (for direct links)
-        await setDoc(doc(db, PATHS.user(userUid)), {
-          subscriptions: {
-            [targetSubscription.key]: true
-          },
-          email: email,
-          disabled: false
-        }, { merge: true });
+      }
+
+      // Auto-subscribe from signup link (for both sign-up AND sign-in)
+      // Only if no invitation was applied
+      if (!appliedInvitation && targetSubscription && userUid) {
+        // Check current subscriptions to see if already subscribed
+        const userRef = doc(db, PATHS.user(userUid));
+        const userSnap = await getDoc(userRef);
+        const existingSubscriptions = userSnap.exists() ? (userSnap.data().subscriptions || {}) : {};
+
+        // Only subscribe if not already subscribed
+        if (!existingSubscriptions[targetSubscription.key]) {
+          await setDoc(userRef, {
+            subscriptions: {
+              ...existingSubscriptions,
+              [targetSubscription.key]: true
+            },
+            email: email,
+            disabled: false
+          }, { merge: true });
+        }
       }
 
       toast.success(isLogin ? 'Signed in successfully!' : 'Account created!');

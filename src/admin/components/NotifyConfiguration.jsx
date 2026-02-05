@@ -35,7 +35,9 @@ import {
   Eye,
   X,
   Monitor,
-  Smartphone
+  Smartphone,
+  Link2,
+  Check
 } from 'lucide-react';
 import { PATHS } from '../../shared/services/paths';
 import { generateSampleContext } from './customTemplate/validation';
@@ -364,6 +366,7 @@ export default function NotifyConfiguration({
                 onDeleteNotification={(idx, name) => handleDeleteNotification(org.id, idx, name, org.notifications)}
                 onDuplicateNotification={(notif) => handleDuplicateNotification(org.id, notif, org.notifications, org)}
                 onAddNotification={() => handleAddNotification(org.id, org.notifications || [], org)}
+                addToast={addToast}
               />
             ))}
           </div>
@@ -458,12 +461,14 @@ export default function NotifyConfiguration({
                 <NotificationCard
                   key={notif.id || idx}
                   notification={notif}
+                  orgId={orgId}
                   accentColor={accentColor}
                   onEdit={() => handleEditNotification(orgId, idx, notif, notifications, orgData)}
                   onDelete={() => handleDeleteNotification(orgId, idx, notif.name, notifications)}
                   onDuplicate={() => handleDuplicateNotification(orgId, notif, notifications, orgData)}
                   onPreviewEmail={() => handlePreviewEmail(orgId, notif, orgData)}
                   onForceRun={() => handleForceRunBroadcast(orgId, notif.id, notif.name, notif, orgData)}
+                  addToast={addToast}
                 />
               ))}
             </div>
@@ -513,12 +518,41 @@ export default function NotifyConfiguration({
 }
 
 // --- Notification Card Component ---
-function NotificationCard({ notification, accentColor, onEdit, onDelete, onDuplicate, onPreviewEmail, onForceRun }) {
+function NotificationCard({ notification, orgId, accentColor, onEdit, onDelete, onDuplicate, onPreviewEmail, onForceRun, addToast }) {
+  const [linkCopied, setLinkCopied] = React.useState(false);
+
   const scheduleLabels = {
     monthly: 'Monthly',
     weekly: 'Weekly',
     daily: 'Daily',
     immediate: 'Immediate'
+  };
+
+  // Generate signup link for this notification
+  const getSignupLink = () => {
+    return `https://notify.civ.quest/?organization=${encodeURIComponent(orgId)}&notification=${encodeURIComponent(notification.id)}`;
+  };
+
+  // Copy signup link to clipboard
+  const handleCopyLink = async () => {
+    const link = getSignupLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      setLinkCopied(true);
+      addToast?.('Signup link copied to clipboard', 'success');
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (err) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = link;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setLinkCopied(true);
+      addToast?.('Signup link copied to clipboard', 'success');
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
   };
 
   return (
@@ -561,6 +595,17 @@ function NotificationCard({ notification, accentColor, onEdit, onDelete, onDupli
         </div>
         
         <div className="flex items-center gap-1 ml-4">
+          <button
+            onClick={handleCopyLink}
+            className={`p-2 rounded-lg transition-colors ${
+              linkCopied
+                ? 'text-emerald-600 bg-emerald-50'
+                : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+            }`}
+            title="Copy Signup Link"
+          >
+            {linkCopied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+          </button>
           <button
             onClick={onPreviewEmail}
             className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg"
@@ -616,10 +661,40 @@ function OrganizationNotifyCard({
   onEditNotification,
   onAddNotification,
   onDeleteNotification,
-  onDuplicateNotification
+  onDuplicateNotification,
+  addToast
 }) {
   const notifications = org.notifications || [];
   const notificationCount = notifications.length;
+  const [copiedNotifId, setCopiedNotifId] = React.useState(null);
+
+  // Generate signup link for a notification
+  const getSignupLink = (notifId) => {
+    return `https://notify.civ.quest/?organization=${encodeURIComponent(org.id)}&notification=${encodeURIComponent(notifId)}`;
+  };
+
+  // Copy signup link to clipboard
+  const handleCopyLink = async (e, notifId) => {
+    e.stopPropagation();
+    const link = getSignupLink(notifId);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedNotifId(notifId);
+      addToast?.('Signup link copied to clipboard', 'success');
+      setTimeout(() => setCopiedNotifId(null), 2000);
+    } catch (err) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = link;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedNotifId(notifId);
+      addToast?.('Signup link copied to clipboard', 'success');
+      setTimeout(() => setCopiedNotifId(null), 2000);
+    }
+  };
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -718,6 +793,17 @@ function OrganizationNotifyCard({
                         <p className="text-xs text-slate-400 truncate">{notif.description || notif.id}</p>
                       </div>
                       <div className="flex items-center gap-1 ml-2">
+                        <button
+                          onClick={(e) => handleCopyLink(e, notif.id)}
+                          className={`p-1.5 rounded transition-colors ${
+                            copiedNotifId === notif.id
+                              ? 'text-emerald-600 bg-white'
+                              : 'text-slate-400 hover:text-indigo-600 hover:bg-white'
+                          }`}
+                          title="Copy Signup Link"
+                        >
+                          {copiedNotifId === notif.id ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+                        </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); onPreviewEmail(notif); }}
                           className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-white rounded"
