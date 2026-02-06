@@ -19,7 +19,12 @@ import {
   FileArchive,
   FileSpreadsheet,
   Loader2,
-  ChevronDown
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  MoreVertical
 } from 'lucide-react';
 
 /**
@@ -192,6 +197,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   config,
   isExpanded = false,
   onToggle,
+  onMarkupCreated,
   className = '',
   justification = 'left'
 }, ref) {
@@ -206,7 +212,15 @@ const MarkupTool = forwardRef(function MarkupTool({
   const [editingMarkup, setEditingMarkup] = useState(null); // The graphic currently being edited
   const [isExporting, setIsExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  
+
+  // Folder state
+  const [folders, setFolders] = useState([]);
+  const [editingFolderId, setEditingFolderId] = useState(null);
+  const [editingFolderName, setEditingFolderName] = useState('');
+  const [markupMenuId, setMarkupMenuId] = useState(null); // Which markup's context menu is open
+  const [folderMenuId, setFolderMenuId] = useState(null); // Which folder's context menu is open
+  const [isFolderExporting, setIsFolderExporting] = useState(null); // folder id being exported
+
   const [settings, setSettings] = useState({
     pointType: 'circle',
     pointColor: COLORS[1],
@@ -239,10 +253,12 @@ const MarkupTool = forwardRef(function MarkupTool({
   const activeToolRef = useRef(null);
   const settingsRef = useRef(settings);
   const editingMarkupRef = useRef(null);
+  const onMarkupCreatedRef = useRef(onMarkupCreated);
 
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { editingMarkupRef.current = editingMarkup; }, [editingMarkup]);
+  useEffect(() => { onMarkupCreatedRef.current = onMarkupCreated; }, [onMarkupCreated]);
 
   // Helper to find color object from hex value
   const findColorByValue = (hexValue) => {
@@ -450,12 +466,18 @@ const MarkupTool = forwardRef(function MarkupTool({
         }
 
         setMarkups(prev => [...prev, graphic]);
-        
-        setTimeout(() => {
-          if (activeToolRef.current && sketchVMRef.current) {
-            sketchVMRef.current.create(activeToolRef.current === 'text' ? 'point' : activeToolRef.current);
-          }
-        }, 100);
+
+        // After creation: disable tool, close properties, notify parent
+        if (sketchVMRef.current) {
+          sketchVMRef.current.cancel();
+        }
+        setActiveTool(null);
+        setExpandedSettings(null);
+
+        // Notify parent so MapView can open the popup (desktop) or just finish (mobile)
+        if (onMarkupCreatedRef.current) {
+          onMarkupCreatedRef.current(graphic);
+        }
       }
     });
 
@@ -920,6 +942,104 @@ const MarkupTool = forwardRef(function MarkupTool({
     setMarkups(prev => [...prev]);
   }, []);
 
+  // === Folder Management ===
+
+  const createFolder = useCallback((name = 'New Folder') => {
+    const folder = {
+      id: `folder_${Date.now()}`,
+      name,
+      expanded: true,
+      visible: true
+    };
+    setFolders(prev => [...prev, folder]);
+    setEditingFolderId(folder.id);
+    setEditingFolderName(name);
+    return folder;
+  }, []);
+
+  const renameFolder = useCallback((folderId, newName) => {
+    setFolders(prev => prev.map(f => f.id === folderId ? { ...f, name: newName } : f));
+    setEditingFolderId(null);
+    setEditingFolderName('');
+  }, []);
+
+  const deleteFolder = useCallback((folderId) => {
+    // Move all markups in this folder to uncategorized
+    setMarkups(prev => {
+      prev.forEach(m => {
+        if (m.attributes?.folderId === folderId) {
+          m.attributes.folderId = null;
+        }
+      });
+      return [...prev];
+    });
+    setFolders(prev => prev.filter(f => f.id !== folderId));
+    setFolderMenuId(null);
+  }, []);
+
+  const toggleFolderExpanded = useCallback((folderId) => {
+    setFolders(prev => prev.map(f => f.id === folderId ? { ...f, expanded: !f.expanded } : f));
+  }, []);
+
+  const toggleFolderVisibility = useCallback((folderId) => {
+    setFolders(prev => {
+      const folder = prev.find(f => f.id === folderId);
+      if (!folder) return prev;
+      const newVisible = !folder.visible;
+
+      // Toggle all markups in this folder
+      const layer = layerRef.current;
+      markups.forEach(m => {
+        if (m.attributes?.folderId === folderId) {
+          m.visible = newVisible;
+          // Also toggle labels
+          if (layer && m.attributes?.id) {
+            const labels = layer.graphics.items.filter(g => g.attributes?.parentId === m.attributes.id && g.attributes?.isLabel);
+            labels.forEach(label => { label.visible = newVisible; });
+          }
+        }
+      });
+      setMarkups(prev => [...prev]);
+      return prev.map(f => f.id === folderId ? { ...f, visible: newVisible } : f);
+    });
+  }, [markups]);
+
+  const moveMarkupToFolder = useCallback((graphic, folderId) => {
+    if (!graphic?.attributes) return;
+    graphic.attributes.folderId = folderId;
+    setMarkups(prev => [...prev]);
+    setMarkupMenuId(null);
+  }, []);
+
+  const getMarkupsInFolder = useCallback((folderId) => {
+    return markups.filter(m => m.attributes?.folderId === folderId);
+  }, [markups]);
+
+  const exportFolderToShapefile = useCallback(async (folderId) => {
+    const folderMarkups = getMarkupsInFolder(folderId);
+    const folder = folders.find(f => f.id === folderId);
+    if (folderMarkups.length === 0) {
+      alert('No markups in this folder to export.');
+      return;
+    }
+
+    setIsFolderExporting(folderId);
+    setFolderMenuId(null);
+
+    try {
+      await exportMarkupsToShapefile({
+        markups: folderMarkups,
+        filename: folder?.name || 'folder-markups',
+        onProgress: (status) => console.log('[MarkupTool] Folder export:', status)
+      });
+    } catch (err) {
+      console.error('[MarkupTool] Folder export error:', err);
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setIsFolderExporting(null);
+    }
+  }, [getMarkupsInFolder, folders]);
+
   // Find markup by ID
   const findMarkupById = useCallback((markupId) => {
     return markups.find(m => m.attributes?.id === markupId);
@@ -945,6 +1065,110 @@ const MarkupTool = forwardRef(function MarkupTool({
     get editingMarkup() { return editingMarkup; },
     get markups() { return markups; }
   }), [editMarkupById, startEdit, cancelEdit, completeEdit, updateMarkupAttributes, updateMarkupLabel, findMarkupById, editingMarkup, markups]);
+
+  // Render a single markup row (used in both folder contents and uncategorized)
+  const renderMarkupRow = (m, isInFolder) => {
+    const tool = m.attributes?.tool;
+    const Icon = tool === 'polyline' ? Minus : tool === 'polygon' ? Square : tool === 'text' ? Type : Circle;
+    const isBeingEdited = editingMarkup && editingMarkup.attributes?.id === m.attributes?.id;
+    const markupId = m.attributes?.id;
+
+    return (
+      <div
+        key={markupId}
+        className={`group flex items-center gap-2 p-1.5 rounded-lg border transition-all
+          ${isBeingEdited
+            ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200'
+            : 'bg-white border-slate-100 hover:border-blue-200'}`}
+      >
+        <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${isBeingEdited ? 'bg-blue-100' : 'bg-slate-50'}`}>
+          <Icon className="w-3.5 h-3.5" style={{ color: m.attributes?.color }} fill={tool === 'polygon' ? m.attributes?.color : 'none'} opacity={tool === 'polygon' ? 0.4 : 1} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1 flex-wrap">
+            <p className="text-[11px] font-semibold text-slate-700 truncate">
+              {m.attributes?.name || (tool === 'text' ? (m.symbol?.text || 'Label') : (tool || 'Markup'))}
+            </p>
+            {isBeingEdited && (
+              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-blue-500 text-white uppercase tracking-tight animate-pulse">
+                Editing
+              </span>
+            )}
+          </div>
+        </div>
+        <div className={`flex items-center gap-0.5 transition-opacity ${isBeingEdited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <button onClick={() => zoomTo(m)} className="p-1 hover:bg-blue-50 rounded text-blue-600" title="Zoom to"><ZoomIn className="w-3 h-3" /></button>
+          <button
+            onClick={() => toggleVisibility(m)}
+            className={`p-1 rounded ${m.visible === false ? 'bg-slate-200 text-slate-400' : 'hover:bg-purple-50 text-purple-600'}`}
+            title={m.visible === false ? "Show" : "Hide"}
+          >
+            {m.visible === false ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+          </button>
+          {['feature-info-panel', 'nearby-search', 'nearby-search-popup'].includes(m.attributes?.savedFrom) ? (
+            <button disabled className="p-1 rounded bg-slate-100 text-slate-400 cursor-not-allowed" title="Locked">
+              <Lock className="w-3 h-3" />
+            </button>
+          ) : (
+            <button
+              onClick={() => isBeingEdited ? completeEdit() : startEdit(m)}
+              className={`p-1 rounded ${isBeingEdited ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'hover:bg-amber-50 text-amber-600'}`}
+              title={isBeingEdited ? "Done editing" : "Edit"}
+            >
+              {isBeingEdited ? <Check className="w-3 h-3" /> : <Edit3 className="w-3 h-3" />}
+            </button>
+          )}
+          {/* Move to folder / remove from folder menu */}
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); setMarkupMenuId(markupMenuId === markupId ? null : markupId); }}
+              className="p-1 hover:bg-slate-200 rounded text-slate-400"
+              title="More options"
+            >
+              <MoreVertical className="w-3 h-3" />
+            </button>
+            {markupMenuId === markupId && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setMarkupMenuId(null)} />
+                <div className="absolute right-0 top-full mt-0.5 w-40 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 max-h-48 overflow-y-auto">
+                  {isInFolder && (
+                    <button
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                      onClick={() => moveMarkupToFolder(m, null)}
+                    >
+                      <X className="w-3 h-3" /> Remove from folder
+                    </button>
+                  )}
+                  {folders.length > 0 && (
+                    <div className="border-t border-slate-100 mt-0.5 pt-0.5">
+                      <span className="px-3 py-1 text-[9px] uppercase font-bold text-slate-400 block">Move to</span>
+                      {folders.filter(f => f.id !== m.attributes?.folderId).map(f => (
+                        <button
+                          key={f.id}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                          onClick={() => moveMarkupToFolder(m, f.id)}
+                        >
+                          <Folder className="w-3 h-3 text-amber-500" /> {f.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="border-t border-slate-100 mt-0.5 pt-0.5">
+                    <button
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                      onClick={() => { deleteMarkup(m); setMarkupMenuId(null); }}
+                    >
+                      <Trash2 className="w-3 h-3" /> Delete
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const justifyClass = justification === 'center' ? 'justify-center' : justification === 'right' ? 'justify-end' : 'justify-start';
 
@@ -1173,77 +1397,139 @@ const MarkupTool = forwardRef(function MarkupTool({
         )}
       </div>
 
-      {/* Markup List */}
-      <div className="flex-1 overflow-y-auto p-2 bg-slate-50/30">
-        {markups.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-slate-300 p-8 text-center">
+      {/* Markup List with Folders */}
+      <div className="flex-1 overflow-y-auto bg-slate-50/30 flex flex-col">
+        {markups.length === 0 && folders.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-300 p-8 text-center">
             <Pencil className="w-8 h-8 mb-2 opacity-10" />
             <p className="text-xs font-medium">Select a tool above to start drawing on the map</p>
           </div>
         ) : (
-          <div className="space-y-1">
-            {markups.slice().reverse().map((m) => {
-              const tool = m.attributes?.tool;
-              const Icon = tool === 'polyline' ? Minus : tool === 'polygon' ? Square : tool === 'text' ? Type : Circle;
-              const isBeingEdited = editingMarkup && editingMarkup.attributes?.id === m.attributes?.id;
-
-              return (
-                <div
-                  key={m.attributes?.id}
-                  className={`group flex items-center gap-3 p-2 rounded-lg border transition-all shadow-sm
-                    ${isBeingEdited
-                      ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200'
-                      : 'bg-white border-slate-100 hover:border-blue-200'}`}
+          <>
+            {/* Folder actions bar */}
+            {(markups.length > 0 || folders.length > 0) && (
+              <div className="flex items-center justify-between px-2 pt-2 pb-1">
+                <span className="text-[9px] font-bold uppercase text-slate-400 tracking-wider">Markups</span>
+                <button
+                  onClick={() => createFolder()}
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                  title="Create folder"
                 >
-                  <div className={`w-8 h-8 rounded flex items-center justify-center ${isBeingEdited ? 'bg-blue-100' : 'bg-slate-50'}`}>
-                    <Icon className="w-4 h-4" style={{ color: m.attributes?.color }} fill={tool === 'polygon' ? m.attributes?.color : 'none'} opacity={tool === 'polygon' ? 0.4 : 1} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-xs font-bold text-slate-700 truncate">
-                        {m.attributes?.name || (tool === 'text' ? (m.symbol?.text || 'Label') : (tool || 'Markup'))}
-                      </p>
-                      {isBeingEdited && (
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500 text-white uppercase tracking-tight animate-pulse">
-                          Editing
-                        </span>
-                      )}
+                  <FolderPlus className="w-3 h-3" />
+                  <span>Folder</span>
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-0.5 px-2 pb-2">
+              {/* Render folders */}
+              {folders.map(folder => {
+                const folderMarkups = markups.filter(m => m.attributes?.folderId === folder.id);
+                const FolderIcon = folder.expanded ? FolderOpen : Folder;
+
+                return (
+                  <div key={folder.id}>
+                    {/* Folder header */}
+                    <div className="group flex items-center gap-1 py-1.5 px-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+                      <button
+                        onClick={() => toggleFolderExpanded(folder.id)}
+                        className="flex items-center gap-1 flex-1 min-w-0"
+                      >
+                        <ChevronRight className={`w-3 h-3 text-slate-400 transition-transform flex-shrink-0 ${folder.expanded ? 'rotate-90' : ''}`} />
+                        <FolderIcon className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                        {editingFolderId === folder.id ? (
+                          <input
+                            type="text"
+                            value={editingFolderName}
+                            onChange={(e) => setEditingFolderName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') renameFolder(folder.id, editingFolderName);
+                              if (e.key === 'Escape') { setEditingFolderId(null); setEditingFolderName(''); }
+                            }}
+                            onBlur={() => renameFolder(folder.id, editingFolderName)}
+                            className="flex-1 min-w-0 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <span className="text-xs font-semibold text-slate-700 truncate">{folder.name}</span>
+                        )}
+                        <span className="text-[9px] text-slate-400 flex-shrink-0">({folderMarkups.length})</span>
+                      </button>
+
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => toggleFolderVisibility(folder.id)}
+                          className={`p-1 rounded ${folder.visible ? 'hover:bg-purple-50 text-purple-500' : 'bg-slate-200 text-slate-400'}`}
+                          title={folder.visible ? "Hide all in folder" : "Show all in folder"}
+                        >
+                          {folder.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        </button>
+                        <div className="relative">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setFolderMenuId(folderMenuId === folder.id ? null : folder.id); }}
+                            className="p-1 hover:bg-slate-200 rounded text-slate-400"
+                          >
+                            <MoreVertical className="w-3 h-3" />
+                          </button>
+                          {folderMenuId === folder.id && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setFolderMenuId(null)} />
+                              <div className="absolute right-0 top-full mt-0.5 w-36 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
+                                <button
+                                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                                  onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); setFolderMenuId(null); }}
+                                >
+                                  <Edit3 className="w-3 h-3" /> Rename
+                                </button>
+                                {atlasConfig?.exportOptions?.mapMarkup?.shp !== false && (
+                                  <button
+                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                    onClick={() => exportFolderToShapefile(folder.id)}
+                                    disabled={folderMarkups.length === 0 || isFolderExporting === folder.id}
+                                  >
+                                    {isFolderExporting === folder.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileArchive className="w-3 h-3" />}
+                                    Export Shapefile
+                                  </button>
+                                )}
+                                <button
+                                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                                  onClick={() => deleteFolder(folder.id)}
+                                >
+                                  <Trash2 className="w-3 h-3" /> Delete Folder
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className={`flex items-center gap-1 transition-opacity ${isBeingEdited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                    <button onClick={() => zoomTo(m)} className="p-1.5 hover:bg-blue-50 rounded text-blue-600" title="Zoom to"><ZoomIn className="w-3.5 h-3.5" /></button>
-                    <button
-                      onClick={() => toggleVisibility(m)}
-                      className={`p-1.5 rounded ${m.visible === false ? 'bg-slate-200 text-slate-400' : 'hover:bg-purple-50 text-purple-600'}`}
-                      title={m.visible === false ? "Show markup" : "Hide markup"}
-                    >
-                      {m.visible === false ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                    {['feature-info-panel', 'nearby-search', 'nearby-search-popup'].includes(m.attributes?.savedFrom) ? (
-                      <button
-                        disabled
-                        className="p-1.5 rounded bg-slate-100 text-slate-400 cursor-not-allowed"
-                        title={m.attributes?.savedFrom === 'feature-info-panel' ? "Saved features cannot be edited" : "Nearby buffer markup cannot be edited"}
-                      >
-                        <Lock className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => isBeingEdited ? completeEdit() : startEdit(m)}
-                        className={`p-1.5 rounded ${isBeingEdited ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'hover:bg-amber-50 text-amber-600'}`}
-                        title={isBeingEdited ? "Done editing" : "Edit markup"}
-                      >
-                        {isBeingEdited ? <Check className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
-                      </button>
+
+                    {/* Folder contents */}
+                    {folder.expanded && (
+                      <div className="ml-4 space-y-0.5">
+                        {folderMarkups.length === 0 ? (
+                          <p className="text-[10px] text-slate-400 italic py-1 pl-2">Empty folder</p>
+                        ) : (
+                          folderMarkups.slice().reverse().map(m => renderMarkupRow(m, true))
+                        )}
+                      </div>
                     )}
-                    <button onClick={() => deleteMarkup(m)} className="p-1.5 hover:bg-red-50 rounded text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+
+              {/* Uncategorized markups (no folder) */}
+              {markups.filter(m => !m.attributes?.folderId).slice().reverse().map(m => renderMarkupRow(m, false))}
+            </div>
+          </>
         )}
       </div>
+
+      {/* Click-away handler for context menus */}
+      {(markupMenuId || folderMenuId) && (
+        <div className="fixed inset-0 z-30" onClick={() => { setMarkupMenuId(null); setFolderMenuId(null); }} />
+      )}
     </div>
   );
 });
