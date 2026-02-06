@@ -2225,6 +2225,8 @@ export default function MapEditor({
                   mapExportTemplates={enabledExportTemplates}
                   selectedTemplateId={mapConfig.featureExportTemplateId}
                   onChange={setFeatureExportTemplate}
+                  scaleRatio={mapConfig.customFeatureInfo?.export?.scaleRatio || 1.0}
+                  onScaleRatioChange={(value) => updateFeatureInfoExportSetting('scaleRatio', value)}
                   accentColor={accentColor}
                 />
               </div>
