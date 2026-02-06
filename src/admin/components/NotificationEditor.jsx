@@ -619,10 +619,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     }
 
     const whereClause = buildWhereClause();
-    if (whereClause === '1=1' && formData.source?.queryConfig?.mode !== 'none') {
-      setQueryValidationResult({ type: 'warning', message: 'Query is empty - will return all records' });
-      return;
-    }
+    const isEmptyQuery = whereClause === '1=1' && formData.source?.queryConfig?.mode !== 'none';
 
     setIsQueryValidating(true);
     setQueryValidationResult(null);
@@ -664,15 +661,20 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       }
 
       const count = data.count ?? data.features?.length ?? 0;
-      
-      if (count === 0) {
-        setQueryValidationResult({ 
-          type: 'warning', 
-          message: 'Query returned 0 records. Check your filter values.' 
+
+      if (isEmptyQuery) {
+        setQueryValidationResult({
+          type: 'warning',
+          message: `Query is empty — showing all ${count.toLocaleString()} record${count !== 1 ? 's' : ''}. Add filter rules to narrow results.`
+        });
+      } else if (count === 0) {
+        setQueryValidationResult({
+          type: 'warning',
+          message: 'Query returned 0 records. Check your filter values.'
         });
       } else {
-        setQueryValidationResult({ 
-          type: 'success', 
+        setQueryValidationResult({
+          type: 'success',
           message: `Query matches ${count.toLocaleString()} record${count !== 1 ? 's' : ''}`
         });
       }
