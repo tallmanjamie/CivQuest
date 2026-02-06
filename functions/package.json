@@ -3,7 +3,7 @@
   "description": "Cloud Functions for CivQuest",
   "main": "index.js",
   "engines": {
-    "node": "18"
+    "node": "20"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0",
