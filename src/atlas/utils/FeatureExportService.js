@@ -1438,8 +1438,29 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
       // Additional settle time to ensure all tiles are rendered
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Take screenshot
+      // Calculate the screen coordinates of the extent corners
+      // This ensures we capture exactly the right area, matching MapExportTool approach
+      const topLeft = mapView.toScreen(new Point({
+        x: extent.xmin,
+        y: extent.ymax,
+        spatialReference: mapView.spatialReference
+      }));
+      const bottomRight = mapView.toScreen(new Point({
+        x: extent.xmax,
+        y: extent.ymin,
+        spatialReference: mapView.spatialReference
+      }));
+
+      const screenArea = {
+        x: Math.round(topLeft.x),
+        y: Math.round(topLeft.y),
+        width: Math.round(bottomRight.x - topLeft.x),
+        height: Math.round(bottomRight.y - topLeft.y)
+      };
+
+      // Take screenshot with area parameter to capture exactly the feature extent
       const screenshot = await mapView.takeScreenshot({
+        area: screenArea,
         width: mapWidthPx,
         height: mapHeightPx,
         format: 'png'
