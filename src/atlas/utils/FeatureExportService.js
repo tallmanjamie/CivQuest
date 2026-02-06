@@ -1452,26 +1452,38 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
         spatialReference: mapView.spatialReference
       }));
 
-      const screenArea = {
-        x: Math.round(topLeft.x),
-        y: Math.round(topLeft.y),
-        width: Math.round(bottomRight.x - topLeft.x),
-        height: Math.round(bottomRight.y - topLeft.y)
-      };
+      const screenWidth = Math.round(bottomRight.x - topLeft.x);
+      const screenHeight = Math.round(bottomRight.y - topLeft.y);
 
-      // Take screenshot with area parameter to capture exactly the feature extent
-      const screenshot = await mapView.takeScreenshot({
-        area: screenArea,
+      // Build screenshot options - only use area if screen coordinates are valid
+      const screenshotOptions = {
         width: mapWidthPx,
         height: mapHeightPx,
         format: 'png'
-      });
+      };
 
-      // Restore original view
-      await mapView.goTo(originalExtent, { animate: false });
+      if (screenWidth > 0 && screenHeight > 0 && isFinite(topLeft.x) && isFinite(topLeft.y)) {
+        screenshotOptions.area = {
+          x: Math.round(topLeft.x),
+          y: Math.round(topLeft.y),
+          width: screenWidth,
+          height: screenHeight
+        };
+      }
+
+      // Take screenshot (falls back to full view capture if area was invalid)
+      const screenshot = await mapView.takeScreenshot(screenshotOptions);
 
       return screenshot.dataUrl;
     } finally {
+      // Always restore original view extent, even if screenshot failed
+      try {
+        await mapView.goTo(originalExtent, { animate: false });
+      } catch (e) {
+        // Last resort: try setting extent directly
+        try { mapView.extent = originalExtent; } catch (_) { /* ignore */ }
+      }
+
       // Restore hidden overlay layers
       hiddenLayers.forEach(layer => {
         layer.visible = true;
