@@ -10,7 +10,13 @@ admin.initializeApp();
  * Accepts a list of UIDs and returns those that have been deleted from Auth.
  * Only callable by super admins.
  */
-exports.verifyUsers = onCall(async (request) => {
+exports.verifyUsers = onCall({
+  cors: [
+    'https://admin.civ.quest',
+    'https://civquest-notify.web.app',
+    'https://civquest-notify.firebaseapp.com'
+  ]
+}, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Authentication required');
   }
