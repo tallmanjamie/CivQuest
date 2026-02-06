@@ -213,6 +213,20 @@ export default function UserManagementPanel({
   };
 
   /**
+   * Extract org ID from a subscription key (format: "orgId_notifId").
+   * Org IDs may contain underscores, so we match against known organizations
+   * rather than naively splitting on '_'.
+   */
+  const extractOrgIdFromKey = (subscriptionKey) => {
+    for (const org of organizations) {
+      if (subscriptionKey.startsWith(org.id + '_')) {
+        return org.id;
+      }
+    }
+    return null;
+  };
+
+  /**
    * Check if an organization can add more subscribers
    */
   const canOrgAddSubscriber = (targetOrgId) => {
@@ -247,16 +261,16 @@ export default function UserManagementPanel({
     // Get orgs user currently has active subs to
     Object.entries(currentSubs || {}).forEach(([key, value]) => {
       if (value === true) {
-        const orgId = key.split('_')[0];
-        currentOrgSubs.add(orgId);
+        const orgId = extractOrgIdFromKey(key);
+        if (orgId) currentOrgSubs.add(orgId);
       }
     });
-    
+
     // Get orgs user will have active subs to after changes
     Object.entries(newSubs || {}).forEach(([key, value]) => {
       if (value === true) {
-        const orgId = key.split('_')[0];
-        newOrgSubs.add(orgId);
+        const orgId = extractOrgIdFromKey(key);
+        if (orgId) newOrgSubs.add(orgId);
       }
     });
     
@@ -409,7 +423,7 @@ export default function UserManagementPanel({
     const affectedOrgs = new Set();
 
     allKeys.forEach(key => {
-      const orgId = key.split('_')[0];
+      const orgId = extractOrgIdFromKey(key);
       if (orgId) affectedOrgs.add(orgId);
     });
 

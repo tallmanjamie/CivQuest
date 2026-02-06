@@ -52,16 +52,21 @@ export async function updateUserSubscriptions(uid, subscriptions) {
 /**
  * Toggle a single subscription
  * Also maintains the org-specific notifySubscribers subcollection for org admin access
+ *
+ * @param {string} uid - User ID
+ * @param {string} subscriptionKey - Subscription key in format "orgId_notificationId"
+ * @param {boolean} enabled - Whether to enable or disable the subscription
+ * @param {string|null} userEmail - User's email address
+ * @param {string|null} orgId - Organization ID. Must be provided because org IDs may contain
+ *   underscores, making it impossible to reliably parse from the subscription key alone.
  */
-export async function toggleSubscription(uid, subscriptionKey, enabled, userEmail = null) {
+export async function toggleSubscription(uid, subscriptionKey, enabled, userEmail = null, orgId = null) {
   const docRef = doc(db, PATHS.user(uid));
   await updateDoc(docRef, {
     [`subscriptions.${subscriptionKey}`]: enabled
   });
 
   // Update org-specific notifySubscribers subcollection
-  // Extract orgId from key format: "{orgId}_{notificationId}"
-  const orgId = subscriptionKey.split('_')[0];
   if (orgId) {
     try {
       await updateNotifySubscriber(uid, orgId, subscriptionKey, enabled, userEmail);

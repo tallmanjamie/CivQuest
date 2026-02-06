@@ -33,6 +33,17 @@ export default function SubscriptionsTab({
     return hasAnySubscription;
   }, [targetOrganization, hasAnySubscription]);
 
+  // Extract org ID from a subscription key (format: "orgId_notifId").
+  // Org IDs may contain underscores, so we match against known organizations.
+  const extractOrgIdFromKey = (subscriptionKey) => {
+    for (const org of availableSubscriptions) {
+      if (subscriptionKey.startsWith(org.organizationId + '_')) {
+        return org.organizationId;
+      }
+    }
+    return null;
+  };
+
   const toggleSubscription = async (subKey) => {
     const userRef = doc(db, PATHS.user(user.uid));
     const currentStatus = userSubscriptions ? userSubscriptions[subKey] : false;
@@ -46,7 +57,7 @@ export default function SubscriptionsTab({
       }, { merge: true });
 
       // Also update org-specific notifySubscribers subcollection for org admin access
-      const orgId = subKey.split('_')[0];
+      const orgId = extractOrgIdFromKey(subKey);
       if (orgId) {
         try {
           await syncNotifySubscriber(user.uid, user.email, orgId, subKey, newValue, userSubscriptions);
