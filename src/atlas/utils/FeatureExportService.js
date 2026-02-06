@@ -1398,8 +1398,9 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
     // Save current view state
     const originalExtent = mapView.extent.clone();
 
-    // Hide overlay layers (highlight, results, pushpins, etc.) to get a clean map screenshot
-    const overlayLayerIds = ['atlas-highlight-layer', 'atlas-results-layer', 'atlas-pushpin-layer', 'atlas-nearby-buffer-layer', 'export-area-layer'];
+    // Hide overlay layers (results, pushpins, etc.) to get a clean map screenshot
+    // Note: atlas-highlight-layer is intentionally kept visible so the feature remains highlighted in the export
+    const overlayLayerIds = ['atlas-results-layer', 'atlas-pushpin-layer', 'atlas-nearby-buffer-layer', 'export-area-layer'];
     const hiddenLayers = [];
     mapView.map.allLayers.forEach(layer => {
       if (overlayLayerIds.includes(layer.id) && layer.visible) {
