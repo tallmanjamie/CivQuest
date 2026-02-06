@@ -1960,6 +1960,24 @@ const MapView = forwardRef(function MapView(props, ref) {
     markupToolRef.current.updateMarkupLabel(markup, showLabel, labelText);
   }, []);
 
+  /**
+   * Handle markup created - opens popup on desktop, just closes tool on mobile
+   */
+  const handleMarkupCreated = useCallback((graphic) => {
+    if (!graphic) return;
+
+    // On desktop, open the markup feature popup for the newly created markup
+    if (!isMobile) {
+      setShowFeaturePanel(false);
+      setSelectedFeature(null);
+      setIsMarkupFeature(false);
+      setSelectedMarkup(graphic);
+      setShowMarkupPopup(true);
+      setIsEditingMarkup(false);
+    }
+    // On mobile, the tool/properties are already closed by MarkupTool itself
+  }, [isMobile]);
+
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     renderResults,
@@ -2153,6 +2171,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                   mapId={mapId}
                   isExpanded={true}
                   onToggle={() => setShowMarkupTool(false)}
+                  onMarkupCreated={handleMarkupCreated}
                   justification={mapToolsJustification}
                 />
               )}
@@ -2234,6 +2253,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                     setShowMapExport(false);
                   }
                 }}
+                onMarkupCreated={handleMarkupCreated}
                 justification={mapToolsJustification}
               />
 
