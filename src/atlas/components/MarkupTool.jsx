@@ -24,7 +24,6 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
-  MoreVertical,
   GripVertical
 } from 'lucide-react';
 
@@ -39,6 +38,8 @@ import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
 import * as geometryEngine from '@arcgis/core/geometry/geometryEngine';
+import * as geometryJsonUtils from '@arcgis/core/geometry/support/jsonUtils';
+import * as symbolJsonUtils from '@arcgis/core/symbols/support/jsonUtils';
 
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
@@ -227,7 +228,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   const [editingFolderId, setEditingFolderId] = useState(null);
   const [editingFolderName, setEditingFolderName] = useState('');
   const [markupMenuId, setMarkupMenuId] = useState(null); // Which markup's context menu is open
-  const [folderMenuId, setFolderMenuId] = useState(null); // Which folder's context menu is open
+  // folderMenuId removed - folder actions are now inline buttons
   const [isFolderExporting, setIsFolderExporting] = useState(null); // folder id being exported
   const [draggedMarkup, setDraggedMarkup] = useState(null); // markup being dragged
   const [dragOverFolderId, setDragOverFolderId] = useState(null); // folder being dragged over
@@ -274,7 +275,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { editingMarkupRef.current = editingMarkup; }, [editingMarkup]);
   useEffect(() => { onMarkupCreatedRef.current = onMarkupCreated; }, [onMarkupCreated]);
-  const initialLoadDone = useRef(false);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   // Helper to find color object from hex value
   const findColorByValue = (hexValue) => {
@@ -598,9 +599,24 @@ const MarkupTool = forwardRef(function MarkupTool({
           const loadedMarkups = [];
           markupData.forEach(item => {
             if (!item.geometry || !item.attributes) return;
+            // Use proper fromJSON deserialization for geometry and symbol
+            // toJSON() produces REST API format (e.g. "esriSMS") which autocasting doesn't handle
+            let geometry, symbol;
+            try {
+              geometry = geometryJsonUtils.fromJSON(item.geometry);
+            } catch (e) {
+              console.warn('[MarkupTool] Failed to deserialize geometry, using raw:', e);
+              geometry = item.geometry;
+            }
+            try {
+              symbol = item.symbol ? symbolJsonUtils.fromJSON(item.symbol) : item.symbol;
+            } catch (e) {
+              console.warn('[MarkupTool] Failed to deserialize symbol, using raw:', e);
+              symbol = item.symbol;
+            }
             const graphic = new Graphic({
-              geometry: item.geometry,
-              symbol: item.symbol,
+              geometry,
+              symbol,
               attributes: item.attributes
             });
             if (item.visible === false) graphic.visible = false;
@@ -649,7 +665,7 @@ const MarkupTool = forwardRef(function MarkupTool({
         console.error('[MarkupTool] Failed to load folders from localStorage:', e);
       }
 
-      initialLoadDone.current = true;
+      setInitialLoadDone(true);
     }
 
     // Watch for graphics added directly to the layer (e.g., from "Save to Markup" in FeatureInfoPanel or nearby buffer)
@@ -690,7 +706,7 @@ const MarkupTool = forwardRef(function MarkupTool({
 
   // Save markups to localStorage when they change (org-scoped)
   useEffect(() => {
-    if (!initialLoadDone.current || !orgId) return;
+    if (!initialLoadDone || !orgId) return;
     try {
       const data = markups.map(m => ({
         geometry: m.geometry?.toJSON?.() || null,
@@ -702,17 +718,17 @@ const MarkupTool = forwardRef(function MarkupTool({
     } catch (e) {
       console.error('[MarkupTool] Failed to save markups:', e);
     }
-  }, [markups, orgId]);
+  }, [markups, orgId, initialLoadDone]);
 
   // Save folders to localStorage when they change (org-scoped)
   useEffect(() => {
-    if (!initialLoadDone.current || !orgId) return;
+    if (!initialLoadDone || !orgId) return;
     try {
       localStorage.setItem(`atlas_markup_folders_${orgId}`, JSON.stringify(folders));
     } catch (e) {
       console.error('[MarkupTool] Failed to save folders:', e);
     }
-  }, [folders, orgId]);
+  }, [folders, orgId, initialLoadDone]);
 
   const startTool = (tool) => {
     if (!sketchVMRef.current) return;
@@ -1086,7 +1102,6 @@ const MarkupTool = forwardRef(function MarkupTool({
       return [...prev];
     });
     setFolders(prev => prev.filter(f => f.id !== folderId));
-    setFolderMenuId(null);
   }, []);
 
   const toggleFolderExpanded = useCallback((folderId) => {
@@ -1259,7 +1274,6 @@ const MarkupTool = forwardRef(function MarkupTool({
     }
 
     setIsFolderExporting(folderId);
-    setFolderMenuId(null);
 
     try {
       await exportMarkupsToShapefile({
@@ -1700,45 +1714,32 @@ const MarkupTool = forwardRef(function MarkupTool({
                     >
                       {folder.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                     </button>
-                    <div className="relative">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingFolderId(folder.id); setEditingFolderName(folder.name); }}
+                      className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600"
+                      title="Rename folder"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                    </button>
+                    {atlasConfig?.exportOptions?.mapMarkup?.shp !== false && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); setFolderMenuId(folderMenuId === folder.id ? null : folder.id); }}
-                        className="p-1 hover:bg-slate-200 rounded text-slate-400"
+                        onClick={(e) => { e.stopPropagation(); exportFolderToShapefile(folder.id); }}
+                        className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                        title="Export Shapefile"
+                        disabled={folderMarkups.length === 0 || isFolderExporting === folder.id}
                       >
-                        <MoreVertical className="w-3 h-3" />
+                        {isFolderExporting === folder.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
                       </button>
-                      {folderMenuId === folder.id && (
-                        <>
-                          <div className="fixed inset-0 z-40" onClick={() => setFolderMenuId(null)} />
-                          <div className="absolute right-0 top-full mt-0.5 w-36 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
-                            <button
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
-                              onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); setFolderMenuId(null); }}
-                            >
-                              <Edit3 className="w-3 h-3" /> Rename
-                            </button>
-                            {atlasConfig?.exportOptions?.mapMarkup?.shp !== false && (
-                              <button
-                                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                                onClick={() => exportFolderToShapefile(folder.id)}
-                                disabled={folderMarkups.length === 0 || isFolderExporting === folder.id}
-                              >
-                                {isFolderExporting === folder.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileArchive className="w-3 h-3" />}
-                                Export Shapefile
-                              </button>
-                            )}
-                            {!isDefaultFolder && (
-                              <button
-                                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
-                                onClick={() => deleteFolder(folder.id)}
-                              >
-                                <Trash2 className="w-3 h-3" /> Delete Folder
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    )}
+                    {!isDefaultFolder && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteFolder(folder.id); }}
+                        className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500"
+                        title="Delete folder"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1782,9 +1783,6 @@ const MarkupTool = forwardRef(function MarkupTool({
       </div>
 
       {/* Click-away handler for context menus */}
-      {folderMenuId && (
-        <div className="fixed inset-0 z-30" onClick={() => { setFolderMenuId(null); }} />
-      )}
     </div>
   );
 });
