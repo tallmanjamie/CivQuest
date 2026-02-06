@@ -85,6 +85,7 @@ import IntegrationsManagement from './components/IntegrationsManagement';
 import GlobalExportTemplateLibrary from './components/GlobalExportTemplateLibrary';
 import AISettingsEditor from './components/AISettingsEditor';
 import ESRISettingsEditor from './components/ESRISettingsEditor';
+import FirebaseCleanup from './components/FirebaseCleanup';
 
 // Import shared services
 import { PATHS } from '../shared/services/paths';
@@ -760,6 +761,7 @@ function Sidebar({
     { id: 'orgadmins', label: 'Admins', icon: UserPlus },
     { id: 'ai', label: 'AI', icon: Sparkles },
     { id: 'esri', label: 'ESRI', icon: Globe },
+    { id: 'cleanup', label: 'Data Cleanup', icon: Trash2 },
   ];
 
   // Use Atlas theme color for org_admin when available, otherwise fall back to defaults
@@ -1358,6 +1360,15 @@ function SuperAdminDashboard({ user }) {
               addToast={addToast}
               confirm={confirm}
               adminEmail={user.email}
+              accentColor="#004E7C"
+            />
+          );
+        case 'cleanup':
+          return (
+            <FirebaseCleanup
+              db={db}
+              addToast={addToast}
+              confirm={confirm}
               accentColor="#004E7C"
             />
           );
