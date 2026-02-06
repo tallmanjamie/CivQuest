@@ -315,15 +315,27 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
    * Handle selecting a service from ServiceFinder
    */
   const handleServiceSelected = (serviceData) => {
-    // Update the endpoint
-    handleSourceChange('endpoint', serviceData.url);
-    
+    // Update the endpoint and credentials from ServiceFinder
+    // ServiceFinder returns { url, username, password } when authenticated
+    setFormData(prev => ({
+      ...prev,
+      source: {
+        ...prev.source,
+        endpoint: serviceData.url,
+        // Carry over credentials from ServiceFinder if provided, otherwise keep existing
+        username: serviceData.username || prev.source?.username || '',
+        password: serviceData.password || prev.source?.password || ''
+      }
+    }));
+
     // Close the modal
     setShowServiceFinder(false);
-    
-    // Auto-validate with the new endpoint
+
+    // Auto-validate with the new endpoint and credentials
+    const username = serviceData.username || formData.source?.username;
+    const password = serviceData.password || formData.source?.password;
     setTimeout(() => {
-      validateAndFetchFields(serviceData.url, formData.source?.username, formData.source?.password);
+      validateAndFetchFields(serviceData.url, username, password);
     }, 100);
   };
 
@@ -693,17 +705,25 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     <div className="fixed inset-0 bg-black/30 flex justify-end z-50">
       {/* Service Finder Modal */}
       {showServiceFinder && (
-          <ServiceFinder 
+          <ServiceFinder
+            isOpen={true}
             onClose={() => setShowServiceFinder(false)}
-            onServiceSelected={handleServiceSelected}
+            onSelect={handleServiceSelected}
           />
       )}
 
       {/* Spatial Filter Modal */}
       {showSpatialFilter && (
           <SpatialFilter
-            initialFilter={formData.source?.spatialFilter}
-            endpoint={formData.source?.endpoint}
+            isOpen={true}
+            initialGeometry={formData.source?.spatialFilter}
+            serviceUrl={formData.source?.endpoint}
+            credentials={
+              formData.source?.username && formData.source?.password
+                ? { username: formData.source.username, password: formData.source.password }
+                : null
+            }
+            proxyUrl={ARCGIS_PROXY_URL}
             onClose={() => setShowSpatialFilter(false)}
             onSave={handleSpatialFilterSave}
           />
