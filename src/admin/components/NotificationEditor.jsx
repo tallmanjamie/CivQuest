@@ -610,6 +610,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
 
   /**
    * Test the generated query against the endpoint
+   * Reports the number of display fields configured and the record count
    */
   const validateQuery = async () => {
     const endpoint = formData.source?.endpoint;
@@ -621,6 +622,11 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     const whereClause = buildWhereClause();
     const isEmptyQuery = whereClause === '1=1' && formData.source?.queryConfig?.mode !== 'none';
 
+    // Count configured display fields
+    const displayFields = formData.source?.displayFields || [];
+    const fieldCount = displayFields.length;
+    const fieldNames = displayFields.map(f => typeof f === 'string' ? f : f.field);
+
     setIsQueryValidating(true);
     setQueryValidationResult(null);
 
@@ -628,19 +634,22 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       // Build query URL
       const baseUrl = endpoint.replace(/\/$/, '');
 
-      // Use query endpoint for the query
+      // Use query endpoint for the query, include outFields to validate field names
+      const queryBody = {
+        serviceUrl: baseUrl,
+        where: whereClause,
+        returnCountOnly: true,
+        f: 'json',
+        ...(fieldNames.length > 0 ? { outFields: fieldNames.join(',') } : {}),
+        ...(formData.source?.username && formData.source?.password
+          ? { username: formData.source.username, password: formData.source.password }
+          : {})
+      };
+
       const res = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serviceUrl: baseUrl,
-          where: whereClause,
-          returnCountOnly: true,
-          f: 'json',
-          ...(formData.source?.username && formData.source?.password
-            ? { username: formData.source.username, password: formData.source.password }
-            : {})
-        })
+        body: JSON.stringify(queryBody)
       });
 
       if (!res.ok) {
@@ -661,21 +670,27 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       }
 
       const count = data.count ?? data.features?.length ?? 0;
+      const fieldText = fieldCount === 1 ? '1 field' : `${fieldCount} fields`;
+      const recordText = count === 1 ? '1 record' : `${count.toLocaleString()} records`;
 
       if (isEmptyQuery) {
         setQueryValidationResult({
           type: 'warning',
-          message: `Query is empty — showing all ${count.toLocaleString()} record${count !== 1 ? 's' : ''}. Add filter rules to narrow results.`
+          message: `Query is empty — showing all ${recordText} across ${fieldText}. Add filter rules to narrow results.`
         });
       } else if (count === 0) {
         setQueryValidationResult({
           type: 'warning',
-          message: 'Query returned 0 records. Check your filter values.'
+          message: fieldCount === 0
+            ? 'Query returned 0 records. Check your filter values.'
+            : `Query returned 0 records across ${fieldText}. Check your filter values.`
         });
       } else {
         setQueryValidationResult({
           type: 'success',
-          message: `Query matches ${count.toLocaleString()} record${count !== 1 ? 's' : ''}`
+          message: fieldCount === 0
+            ? `Query matches ${recordText} (no display fields selected)`
+            : `Query matches ${recordText} across ${fieldText}`
         });
       }
 
