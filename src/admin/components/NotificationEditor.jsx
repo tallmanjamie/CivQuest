@@ -21,6 +21,7 @@ import {
   Save,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   Check,
   Play,
   Search,
@@ -379,6 +380,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
 
       // Fetch record count
       let recordCount = null;
+      let recordCountFailed = false;
       try {
         const countRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
           method: 'POST',
@@ -393,15 +395,24 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
         if (countRes.ok) {
           const countData = await countRes.json();
           recordCount = countData.count ?? null;
+          if (recordCount === null) {
+            recordCountFailed = true;
+          }
+        } else {
+          recordCountFailed = true;
         }
       } catch (e) {
         // Record count is supplementary; don't fail the whole validation
+        recordCountFailed = true;
       }
 
       const successMessage = getPlainEnglishMessage('success', '', fields.length, recordCount);
       setValidationResult({
         type: 'success',
-        message: successMessage
+        message: successMessage,
+        warning: recordCountFailed
+          ? 'Could not retrieve the record count from this service. The notification may not work correctly if the service does not support queries.'
+          : null
       });
 
     } catch (err) {
@@ -1098,16 +1109,24 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
 
                     {/* Validation result */}
                     {validationResult && (
-                        <div className={`p-2 rounded text-xs flex items-center gap-2 ${
-                            validationResult.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' :
-                            'bg-red-50 text-red-700 border border-red-200'
-                        }`}>
-                            {validationResult.type === 'success' ? (
-                                <Check className="w-3.5 h-3.5" />
-                            ) : (
-                                <AlertCircle className="w-3.5 h-3.5" />
+                        <div className="space-y-1.5">
+                            <div className={`p-2 rounded text-xs flex items-center gap-2 ${
+                                validationResult.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' :
+                                'bg-red-50 text-red-700 border border-red-200'
+                            }`}>
+                                {validationResult.type === 'success' ? (
+                                    <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                                ) : (
+                                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                                )}
+                                {validationResult.message}
+                            </div>
+                            {validationResult.warning && (
+                                <div className="p-2 rounded text-xs flex items-start gap-2 bg-amber-50 text-amber-700 border border-amber-200">
+                                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                                    <span>{validationResult.warning}</span>
+                                </div>
                             )}
-                            {validationResult.message}
                         </div>
                     )}
 
