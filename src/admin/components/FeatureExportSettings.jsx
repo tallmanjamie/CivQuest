@@ -41,8 +41,6 @@ const PAGE_SIZES = {
  * @param {array} mapExportTemplates - Map export templates for reference display
  * @param {string} selectedTemplateId - Currently selected template ID for this map (or null)
  * @param {function} onChange - Called with updated template ID (or null to clear)
- * @param {number} [scaleRatio] - Scale ratio for PDF export (default 1.0)
- * @param {function} [onScaleRatioChange] - Called with updated scale ratio value
  * @param {string} [accentColor] - Theme accent color
  */
 export default function FeatureExportSettings({
@@ -50,8 +48,6 @@ export default function FeatureExportSettings({
   mapExportTemplates = [],
   selectedTemplateId = null,
   onChange,
-  scaleRatio = 1.0,
-  onScaleRatioChange,
   accentColor = '#004E7C'
 }) {
   // Filter to only enabled templates
@@ -250,30 +246,6 @@ export default function FeatureExportSettings({
                 )}
               </div>
             </div>
-
-            {/* Scale Ratio */}
-            {onScaleRatioChange && (
-              <div className="mt-2 pt-2 border-t border-blue-200">
-                <label className="block text-xs text-slate-500 mb-1">Scale Ratio</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    max="2"
-                    value={scaleRatio}
-                    onChange={(e) => onScaleRatioChange(parseFloat(e.target.value) || 1.0)}
-                    className="w-24 px-2 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 bg-white"
-                  />
-                  <span className="text-xs text-slate-400">
-                    {scaleRatio === 1.0 ? '100% (default)' : `${Math.round(scaleRatio * 100)}%`}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-slate-400">
-                  Adjusts text and table sizing in the exported PDF (e.g., 0.8 = 80%, 1.2 = 120%)
-                </p>
-              </div>
-            )}
           </div>
         </div>
       )}
