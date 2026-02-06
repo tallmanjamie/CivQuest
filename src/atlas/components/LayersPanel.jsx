@@ -531,7 +531,7 @@ export default function LayersPanel({
     return (
       <div key={key} className="layer-item-wrapper">
         <div
-          className={`layer-item flex items-start gap-2 py-1.5 px-2 rounded transition
+          className={`layer-item flex items-center gap-2 py-1.5 px-2 rounded transition
                      ${isVisible ? 'bg-white' : 'bg-slate-50'}
                      ${!inScale ? 'opacity-60' : ''}
                      hover:bg-slate-100 group`}
@@ -564,45 +564,45 @@ export default function LayersPanel({
             </button>
           )}
 
-          {/* Layer Title */}
+          {/* Layer Title and Controls */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
               <span className="text-xs truncate text-slate-700">
                 {layerData.title}
               </span>
-              
-              {/* Legend Toggle Button */}
-              {layerData.hasLegend && !isGroup && (
-                <button
-                  onClick={() => toggleLegend(layerData.id)}
-                  className={`p-1 rounded transition flex-shrink-0
-                             ${showLegend
-                               ? 'bg-slate-200 text-slate-700'
-                               : isVisible
-                                 ? 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-600'
-                                 : 'bg-slate-50 text-slate-300'}`}
-                  title={showLegend ? 'Hide Legend' : 'Show Legend'}
-                >
-                  <List className="w-3.5 h-3.5" />
-                </button>
+
+              {/* Inline controls - only visible when layer is on */}
+              {isVisible && !isGroup && (
+                <>
+                  {/* Compact Opacity Slider */}
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value={opacity}
+                    onChange={(e) => updateLayerOpacity(layerData, parseFloat(e.target.value))}
+                    className="layer-opacity-slider flex-shrink-0 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                    style={{ '--thumb-color': colors.bg500, width: '48px' }}
+                    title={`Opacity: ${Math.round(opacity * 100)}%`}
+                  />
+
+                  {/* Legend Toggle Button */}
+                  {layerData.hasLegend && (
+                    <button
+                      onClick={() => toggleLegend(layerData.id)}
+                      className={`p-0.5 rounded transition flex-shrink-0
+                                 ${showLegend
+                                   ? 'bg-slate-200 text-slate-700'
+                                   : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600'}`}
+                      title={showLegend ? 'Hide Legend' : 'Show Legend'}
+                    >
+                      <List className="w-3 h-3" />
+                    </button>
+                  )}
+                </>
               )}
             </div>
-            
-            {/* Opacity slider on hover */}
-            {isVisible && !isGroup && (
-              <div className="mt-1 opacity-0 group-hover:opacity-100 transition">
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={opacity}
-                  onChange={(e) => updateLayerOpacity(layerData, parseFloat(e.target.value))}
-                  className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                  style={{ '--thumb-color': colors.bg500 }}
-                />
-              </div>
-            )}
           </div>
 
           {/* Group Expand/Collapse */}
@@ -791,7 +791,7 @@ export default function LayersPanel({
 
       {/* Styles */}
       <style>{`
-        .layer-item input[type="range"]::-webkit-slider-thumb {
+        .layer-opacity-slider::-webkit-slider-thumb {
           -webkit-appearance: none;
           width: 8px;
           height: 8px;
@@ -799,7 +799,7 @@ export default function LayersPanel({
           background: var(--thumb-color, #0ea5e9);
           cursor: pointer;
         }
-        .layer-item input[type="range"]::-moz-range-thumb {
+        .layer-opacity-slider::-moz-range-thumb {
           width: 8px;
           height: 8px;
           border-radius: 50%;
