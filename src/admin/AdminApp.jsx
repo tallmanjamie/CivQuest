@@ -105,7 +105,8 @@ import {
   clearOAuthParams,
   verifyOAuthState,
   completeArcGISOAuth,
-  generateDeterministicPassword
+  generateDeterministicPassword,
+  getOAuthMode
 } from '../shared/services/arcgis-auth';
 import { getESRISettings } from '../shared/services/systemConfig';
 
@@ -279,19 +280,34 @@ function AdminApp({ loginMode = 'org_admin' }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      
+
       if (currentUser) {
         try {
-          const adminDoc = await getDoc(doc(db, PATHS.admins, currentUser.uid));
+          let adminDoc = await getDoc(doc(db, PATHS.admins, currentUser.uid));
+
+          // If admin doc not found and a signup is in progress, wait and retry
+          // This handles the race condition where onAuthStateChanged fires
+          // before the signup flow finishes creating Firestore documents
+          if (!adminDoc.exists() && sessionStorage.getItem('civquest_signup_pending')) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            adminDoc = await getDoc(doc(db, PATHS.admins, currentUser.uid));
+          }
+
           if (adminDoc.exists()) {
             const adminData = adminDoc.data();
-            
+
+            // Check for new account flag from signup flow
+            if (sessionStorage.getItem('civquest_new_account')) {
+              sessionStorage.removeItem('civquest_new_account');
+              setIsNewAccount(true);
+            }
+
             if (adminData.role === 'super_admin') {
               setAdminRole('super_admin');
               setLoading(false);
               return;
             }
-            
+
             if (adminData.role === 'org_admin') {
               setAdminRole('org_admin');
               setOrgAdminData(adminData);
@@ -305,7 +321,7 @@ function AdminApp({ loginMode = 'org_admin' }) {
 
         setAccessError("You don't have admin privileges.");
       }
-      
+
       setLoading(false);
     });
     return () => unsubscribe();
@@ -390,6 +406,8 @@ function AdminLogin({ loginMode = 'org_admin' }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [arcgisLoading, setArcgisLoading] = useState(false);
+  const [view, setView] = useState('login'); // 'login' | 'signup'
+  const [signupInProgress, setSignupInProgress] = useState(false);
 
   // Handle ArcGIS OAuth callback on mount (only for org_admin mode)
   useEffect(() => {
@@ -415,50 +433,175 @@ function AdminLogin({ loginMode = 'org_admin' }) {
         return;
       }
 
+      // Determine if this is a signup or signin flow
+      const oauthMode = getOAuthMode();
+      const isSignup = oauthMode === 'signup';
+
+      if (isSignup) {
+        setView('signup');
+        setSignupInProgress(true);
+      }
+
       setArcgisLoading(true);
       setError(null);
 
       try {
         const redirectUri = getOAuthRedirectUri();
         const oauthResult = await completeArcGISOAuth(code, redirectUri);
-
-        const { user: arcgisUser } = oauthResult;
+        const { user: arcgisUser, org: arcgisOrg } = oauthResult;
 
         // Use the ArcGIS email, or construct one from username if email not available
         const userEmail = arcgisUser.email || `${arcgisUser.username}@arcgis.local`;
 
-        // Generate a deterministic password for this ArcGIS user
-        const deterministicPassword = await generateDeterministicPassword(
-          arcgisUser.username,
-          arcgisUser.email || arcgisUser.orgId || arcgisUser.username
-        );
+        if (isSignup) {
+          // --- SIGNUP FLOW ---
 
-        // Try to sign in first (existing user)
-        try {
-          await signInWithEmailAndPassword(auth, userEmail, deterministicPassword);
-        } catch (signInError) {
-          // If user doesn't exist, create them
-          if (signInError.code === 'auth/user-not-found' || signInError.code === 'auth/invalid-credential') {
-            try {
-              const cred = await createUserWithEmailAndPassword(auth, userEmail, deterministicPassword);
+          // Verify the user belongs to an ArcGIS organization
+          if (!arcgisUser.orgId || !arcgisOrg) {
+            throw new Error(
+              'Your ArcGIS account must belong to an organization to sign up. Personal accounts cannot create an organization.'
+            );
+          }
 
-              // Create user document
-              await setDoc(doc(db, PATHS.user(cred.user.uid)), {
-                email: userEmail.toLowerCase(),
-                displayName: arcgisUser.fullName || arcgisUser.username,
-                arcgisUsername: arcgisUser.username,
-                arcgisOrgId: arcgisUser.orgId || null,
-                createdAt: serverTimestamp(),
-                createdVia: 'arcgis_oauth_admin',
-                subscriptions: {},
-                disabled: false,
-                suspended: false
-              }, { merge: true });
-            } catch (createError) {
-              throw createError;
+          // Check if an org with this ArcGIS orgId already exists in CivQuest
+          const orgQuery = query(
+            collection(db, PATHS.organizations),
+            where('arcgisOrgId', '==', arcgisUser.orgId)
+          );
+          const existingOrgs = await getDocs(orgQuery);
+
+          if (!existingOrgs.empty) {
+            throw new Error(
+              'Your ArcGIS organization already has a CivQuest account. Please contact your organization administrator for access, or sign in if you already have an account.'
+            );
+          }
+
+          // Check if this email is already registered as an admin
+          const adminQuery = query(
+            collection(db, PATHS.admins),
+            where('email', '==', userEmail.toLowerCase())
+          );
+          const existingAdmins = await getDocs(adminQuery);
+
+          if (!existingAdmins.empty) {
+            throw new Error(
+              'An admin account with this email already exists. Please sign in instead.'
+            );
+          }
+
+          // Generate deterministic password
+          const deterministicPassword = await generateDeterministicPassword(
+            arcgisUser.username,
+            arcgisUser.email || arcgisUser.orgId || arcgisUser.username
+          );
+
+          // Generate a URL-friendly org ID from the ArcGIS org
+          const orgName = arcgisOrg.name || 'New Organization';
+          let orgId = (arcgisOrg.urlKey || orgName)
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '')
+            .substring(0, 50);
+
+          // Ensure org ID uniqueness
+          const existingOrgDoc = await getDoc(doc(db, PATHS.organization(orgId)));
+          if (existingOrgDoc.exists()) {
+            orgId = `${orgId}-${Date.now().toString(36)}`;
+          }
+
+          // Signal to AdminApp that signup is in progress (for race condition handling)
+          sessionStorage.setItem('civquest_signup_pending', 'true');
+
+          // Create Firebase auth account
+          let cred;
+          try {
+            cred = await createUserWithEmailAndPassword(auth, userEmail, deterministicPassword);
+          } catch (createError) {
+            sessionStorage.removeItem('civquest_signup_pending');
+            if (createError.code === 'auth/email-already-in-use') {
+              throw new Error(
+                'An account with this email already exists. Please sign in instead.'
+              );
             }
-          } else {
-            throw signInError;
+            throw createError;
+          }
+
+          // Create all Firestore documents in parallel
+          await Promise.all([
+            // User document
+            setDoc(doc(db, PATHS.user(cred.user.uid)), {
+              email: userEmail.toLowerCase(),
+              displayName: arcgisUser.fullName || arcgisUser.username,
+              arcgisUsername: arcgisUser.username,
+              arcgisOrgId: arcgisUser.orgId,
+              createdAt: serverTimestamp(),
+              createdVia: 'arcgis_oauth_signup',
+              subscriptions: {},
+              disabled: false,
+              suspended: false
+            }),
+            // Organization document
+            setDoc(doc(db, PATHS.organization(orgId)), {
+              name: orgName,
+              arcgisOrgId: arcgisUser.orgId,
+              arcgisOrgName: arcgisOrg.name,
+              arcgisUrlKey: arcgisOrg.urlKey || null,
+              notifications: [],
+              createdAt: serverTimestamp(),
+              createdVia: 'arcgis_signup',
+              createdBy: cred.user.uid
+            }),
+            // Admin document
+            setDoc(doc(db, PATHS.admin(cred.user.uid)), {
+              email: userEmail.toLowerCase(),
+              role: 'org_admin',
+              organizationId: orgId,
+              createdAt: serverTimestamp()
+            })
+          ]);
+
+          // Signup complete - clear pending flag and set new account flag
+          sessionStorage.removeItem('civquest_signup_pending');
+          sessionStorage.setItem('civquest_new_account', 'true');
+
+        } else {
+          // --- SIGNIN FLOW (existing behavior) ---
+
+          // Generate a deterministic password for this ArcGIS user
+          const deterministicPassword = await generateDeterministicPassword(
+            arcgisUser.username,
+            arcgisUser.email || arcgisUser.orgId || arcgisUser.username
+          );
+
+          // Try to sign in first (existing user)
+          try {
+            await signInWithEmailAndPassword(auth, userEmail, deterministicPassword);
+          } catch (signInError) {
+            // If user doesn't exist, create them
+            if (signInError.code === 'auth/user-not-found' || signInError.code === 'auth/invalid-credential') {
+              try {
+                const cred = await createUserWithEmailAndPassword(auth, userEmail, deterministicPassword);
+
+                // Create user document
+                await setDoc(doc(db, PATHS.user(cred.user.uid)), {
+                  email: userEmail.toLowerCase(),
+                  displayName: arcgisUser.fullName || arcgisUser.username,
+                  arcgisUsername: arcgisUser.username,
+                  arcgisOrgId: arcgisUser.orgId || null,
+                  createdAt: serverTimestamp(),
+                  createdVia: 'arcgis_oauth_admin',
+                  subscriptions: {},
+                  disabled: false,
+                  suspended: false
+                }, { merge: true });
+              } catch (createError) {
+                throw createError;
+              }
+            } else {
+              throw signInError;
+            }
           }
         }
 
@@ -467,10 +610,12 @@ function AdminLogin({ loginMode = 'org_admin' }) {
 
       } catch (err) {
         console.error('ArcGIS OAuth error:', err);
-        setError(err.message || 'Failed to sign in with ArcGIS. Please try again.');
+        setError(err.message || 'Failed to complete ArcGIS authentication. Please try again.');
         clearOAuthParams();
+        sessionStorage.removeItem('civquest_signup_pending');
       } finally {
         setArcgisLoading(false);
+        setSignupInProgress(false);
       }
     };
 
@@ -505,6 +650,19 @@ function AdminLogin({ loginMode = 'org_admin' }) {
     initiateArcGISLogin(redirectUri, 'signin', esriClientId);
   };
 
+  const handleArcGISSignup = async () => {
+    let esriClientId = null;
+    try {
+      const esriSettings = await getESRISettings();
+      esriClientId = esriSettings?.clientId || null;
+    } catch (err) {
+      console.warn('Could not fetch ESRI settings, using default client ID:', err);
+    }
+
+    const redirectUri = getOAuthRedirectUri();
+    initiateArcGISLogin(redirectUri, 'signup', esriClientId);
+  };
+
   // Show loading state while processing OAuth callback
   if (arcgisLoading) {
     return (
@@ -516,8 +674,14 @@ function AdminLogin({ loginMode = 'org_admin' }) {
             className="w-16 h-16 rounded-xl shadow-lg mx-auto mb-6 object-contain"
           />
           <Loader2 className="w-10 h-10 animate-spin text-[#0079C1] mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-slate-800">Signing in with ArcGIS...</h2>
-          <p className="text-slate-500 mt-2">Please wait while we verify your account.</p>
+          <h2 className="text-lg font-semibold text-slate-800">
+            {signupInProgress ? 'Creating your account...' : 'Signing in with ArcGIS...'}
+          </h2>
+          <p className="text-slate-500 mt-2">
+            {signupInProgress
+              ? 'Setting up your organization. This may take a moment.'
+              : 'Please wait while we verify your account.'}
+          </p>
         </div>
       </div>
     );
@@ -583,6 +747,80 @@ function AdminLogin({ loginMode = 'org_admin' }) {
             >
               Organization Admin Login
             </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Org Admin - Signup view
+  if (loginMode === 'org_admin' && view === 'signup') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-sky-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md border border-slate-100">
+          {/* CivQuest Logo */}
+          <div className="flex flex-col items-center mb-8">
+            <img
+              src="https://geoplan.nyc3.digitaloceanspaces.com/CivQuest/CVG_Logo_Medium.jpg"
+              alt="CivQuest"
+              className="w-20 h-20 rounded-xl shadow-lg mb-4 object-contain"
+            />
+            <h1 className="text-2xl font-bold text-slate-800">Create Your Account</h1>
+            <p className="text-sm text-slate-500 mt-1">Sign up to manage your organization on CivQuest</p>
+          </div>
+
+          {/* ArcGIS Sign Up Button */}
+          <div className="mb-6">
+            <button
+              type="button"
+              onClick={handleArcGISSignup}
+              disabled={loading || arcgisLoading}
+              className="w-full flex items-center justify-center gap-3 px-4 py-4 bg-[#0079C1] text-white rounded-xl font-medium hover:bg-[#006699] transition-all hover:shadow-lg disabled:opacity-50"
+            >
+              <Globe className="w-5 h-5" />
+              Sign up with ArcGIS
+            </button>
+          </div>
+
+          {/* Info box */}
+          <div className="bg-sky-50 rounded-xl p-4 mb-6">
+            <h3 className="text-sm font-medium text-sky-800 mb-2">What happens when you sign up:</h3>
+            <ul className="text-xs text-sky-700 space-y-1.5">
+              <li className="flex items-start gap-2">
+                <span className="shrink-0 w-1 h-1 rounded-full bg-sky-500 mt-1.5"></span>
+                Your name and email are imported from your ArcGIS account
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="shrink-0 w-1 h-1 rounded-full bg-sky-500 mt-1.5"></span>
+                A new CivQuest organization is created based on your ArcGIS organization
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="shrink-0 w-1 h-1 rounded-full bg-sky-500 mt-1.5"></span>
+                You become the administrator of that organization
+              </li>
+            </ul>
+          </div>
+
+          {error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+            <p className="text-sm text-slate-600 mb-4">
+              Already have an account?{' '}
+              <button
+                onClick={() => { setView('login'); setError(null); }}
+                className="text-[#0079C1] hover:underline font-medium"
+              >
+                Sign in
+              </button>
+            </p>
+            <p className="text-xs text-slate-400">
+              Powered by <a href="https://www.civicvanguard.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 hover:underline">Civic Vanguard</a>
+            </p>
           </div>
         </div>
       </div>
@@ -674,6 +912,15 @@ function AdminLogin({ loginMode = 'org_admin' }) {
 
         {/* Footer */}
         <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+          <p className="text-sm text-slate-600 mb-4">
+            Don't have an account?{' '}
+            <button
+              onClick={() => { setView('signup'); setError(null); }}
+              className="text-[#0079C1] hover:underline font-medium"
+            >
+              Sign up
+            </button>
+          </p>
           <p className="text-xs text-slate-400">
             Powered by <a href="https://www.civicvanguard.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 hover:underline">Civic Vanguard</a>
           </p>
