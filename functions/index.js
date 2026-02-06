@@ -14,7 +14,8 @@ exports.verifyUsers = onCall({
   cors: [
     'https://admin.civ.quest',
     'https://civquest-notify.web.app',
-    'https://civquest-notify.firebaseapp.com'
+    'https://civquest-notify.firebaseapp.com',
+    'http://localhost:5173'
   ]
 }, async (request) => {
   if (!request.auth) {
