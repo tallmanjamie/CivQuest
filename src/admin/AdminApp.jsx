@@ -106,7 +106,9 @@ import {
   verifyOAuthState,
   completeArcGISOAuth,
   generateDeterministicPassword,
-  getOAuthMode
+  getOAuthMode,
+  storeOAuthApp,
+  clearOAuthApp
 } from '../shared/services/arcgis-auth';
 import { getESRISettings } from '../shared/services/systemConfig';
 
@@ -607,11 +609,13 @@ function AdminLogin({ loginMode = 'org_admin' }) {
 
         // Clear OAuth params from URL
         clearOAuthParams();
+        clearOAuthApp();
 
       } catch (err) {
         console.error('ArcGIS OAuth error:', err);
         setError(err.message || 'Failed to complete ArcGIS authentication. Please try again.');
         clearOAuthParams();
+        clearOAuthApp();
         sessionStorage.removeItem('civquest_signup_pending');
       } finally {
         setArcgisLoading(false);
@@ -646,6 +650,9 @@ function AdminLogin({ loginMode = 'org_admin' }) {
       console.warn('Could not fetch ESRI settings, using default client ID:', err);
     }
 
+    // Store origin app so OAuth callback routes back to admin
+    storeOAuthApp('admin');
+
     const redirectUri = getOAuthRedirectUri();
     initiateArcGISLogin(redirectUri, 'signin', esriClientId);
   };
@@ -658,6 +665,9 @@ function AdminLogin({ loginMode = 'org_admin' }) {
     } catch (err) {
       console.warn('Could not fetch ESRI settings, using default client ID:', err);
     }
+
+    // Store origin app so OAuth callback routes back to admin
+    storeOAuthApp('admin');
 
     const redirectUri = getOAuthRedirectUri();
     initiateArcGISLogin(redirectUri, 'signup', esriClientId);
@@ -827,7 +837,7 @@ function AdminLogin({ loginMode = 'org_admin' }) {
     );
   }
 
-  // Org Admin Login - ESRI/ArcGIS or Email/Password
+  // Org Admin Login - ArcGIS only
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-sky-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md border border-slate-100">
@@ -857,52 +867,6 @@ function AdminLogin({ loginMode = 'org_admin' }) {
             Use your ArcGIS Online account to access the admin portal
           </p>
         </div>
-
-        {/* Divider */}
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-slate-200"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-white text-slate-500">or sign in with email</span>
-          </div>
-        </div>
-
-        {/* Email/Password Form */}
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0079C1] focus:border-transparent transition-all"
-              placeholder="admin@example.com"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0079C1] focus:border-transparent transition-all"
-              placeholder="Enter your password"
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || arcgisLoading}
-            className="w-full py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-            Sign In
-          </button>
-        </form>
 
         {error && (
           <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
