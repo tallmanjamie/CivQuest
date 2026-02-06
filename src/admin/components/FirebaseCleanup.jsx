@@ -13,6 +13,7 @@ import {
   Bell,
   Map,
   Users,
+  UserX,
   UserPlus,
   History,
   Clock,
@@ -33,6 +34,7 @@ const ICON_MAP = {
   Bell,
   Map,
   Users,
+  UserX,
   Shield,
   UserPlus,
   History,
@@ -51,6 +53,12 @@ const SEVERITY_COLORS = {
  */
 function formatIssue(issue) {
   switch (issue.type) {
+    case 'orphaned_user_document':
+      return {
+        primary: issue.email,
+        secondary: `UID: ${issue.userId}`,
+        detail: issue.reason
+      };
     case 'orphaned_subscription':
       return {
         primary: issue.email,
@@ -309,6 +317,8 @@ export default function FirebaseCleanup({ db, addToast, confirm, accentColor = '
 
   const scanSteps = [
     { key: 'index', label: 'Loading organization & user index' },
+    { key: 'authVerify', label: 'Verifying users against Firebase Auth' },
+    { key: 'userDocuments', label: 'Scanning orphaned user documents' },
     { key: 'subscriptions', label: 'Scanning subscriptions' },
     { key: 'atlasAccess', label: 'Scanning Atlas access' },
     { key: 'notifySubscribers', label: 'Scanning notify subscribers' },

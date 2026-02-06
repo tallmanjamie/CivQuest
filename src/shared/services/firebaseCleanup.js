@@ -14,6 +14,7 @@ import {
   deleteField,
   writeBatch
 } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 /**
  * Build a map of all valid organizations and their notification IDs.
@@ -41,13 +42,44 @@ async function loadOrganizationIndex() {
 }
 
 /**
- * Build a set of all valid user UIDs from the users collection.
+ * Build a set of all valid user UIDs from the users collection,
+ * along with basic user data for display in scan results.
  */
 async function loadUserIndex() {
   const snapshot = await getDocs(collection(db, PATHS.users));
   const userIds = new Set();
-  snapshot.docs.forEach(docSnap => userIds.add(docSnap.id));
-  return userIds;
+  const userData = new Map();
+  snapshot.docs.forEach(docSnap => {
+    userIds.add(docSnap.id);
+    userData.set(docSnap.id, {
+      email: docSnap.data().email || 'unknown'
+    });
+  });
+  return { userIds, userData };
+}
+
+/**
+ * Verify which user UIDs still exist in Firebase Authentication.
+ * Calls the verifyUsers Cloud Function which uses the Admin SDK.
+ * Returns a Set of UIDs that have been deleted from Auth.
+ */
+async function getDeletedUserIds(userIds) {
+  const functions = getFunctions();
+  const verifyUsers = httpsCallable(functions, 'verifyUsers');
+  const uids = Array.from(userIds);
+
+  try {
+    const result = await verifyUsers({ uids });
+    return new Set(result.data.deletedUids);
+  } catch (err) {
+    if (err.code === 'functions/not-found' || err.code === 'functions/unavailable') {
+      throw new Error(
+        'The verifyUsers Cloud Function is not deployed. ' +
+        'Deploy it with: cd functions && npm install && firebase deploy --only functions'
+      );
+    }
+    throw err;
+  }
 }
 
 // ─── SCAN FUNCTIONS ───────────────────────────────────────────────────────────
@@ -152,6 +184,24 @@ export async function scanOrphanedNotifySubscribers(orgIndex, userIds) {
     });
   }
 
+  return issues;
+}
+
+/**
+ * Identify Firestore user documents for users deleted from Firebase Authentication.
+ * Uses pre-computed data from the Auth verification step (not async).
+ */
+export function scanOrphanedUserDocuments(deletedUserIds, userData) {
+  const issues = [];
+  for (const uid of deletedUserIds) {
+    const data = userData.get(uid) || {};
+    issues.push({
+      type: 'orphaned_user_document',
+      userId: uid,
+      email: data.email || 'unknown',
+      reason: 'User deleted from Firebase Authentication'
+    });
+  }
   return issues;
 }
 
@@ -323,6 +373,7 @@ export async function scanLegacyData() {
  */
 export async function runFullScan(onProgress = () => {}) {
   const results = {
+    orphanedUserDocuments: [],
     orphanedSubscriptions: [],
     orphanedAtlasAccess: [],
     orphanedNotifySubscribers: [],
@@ -335,8 +386,19 @@ export async function runFullScan(onProgress = () => {}) {
 
   onProgress('index', 'loading');
   const orgIndex = await loadOrganizationIndex();
-  const userIds = await loadUserIndex();
+  const { userIds, userData } = await loadUserIndex();
   onProgress('index', 'done');
+
+  // Verify users against Firebase Authentication
+  onProgress('authVerify', 'scanning');
+  const deletedUserIds = await getDeletedUserIds(userIds);
+  const validUserIds = new Set([...userIds].filter(id => !deletedUserIds.has(id)));
+  onProgress('authVerify', 'done');
+
+  // Scan for orphaned user documents (Firestore docs for deleted Auth users)
+  onProgress('userDocuments', 'scanning');
+  results.orphanedUserDocuments = scanOrphanedUserDocuments(deletedUserIds, userData);
+  onProgress('userDocuments', 'done');
 
   onProgress('subscriptions', 'scanning');
   results.orphanedSubscriptions = await scanOrphanedSubscriptions(orgIndex);
@@ -346,8 +408,9 @@ export async function runFullScan(onProgress = () => {}) {
   results.orphanedAtlasAccess = await scanOrphanedAtlasAccess(orgIndex);
   onProgress('atlasAccess', 'done');
 
+  // Use Auth-verified user IDs so deleted Auth users are correctly detected
   onProgress('notifySubscribers', 'scanning');
-  results.orphanedNotifySubscribers = await scanOrphanedNotifySubscribers(orgIndex, userIds);
+  results.orphanedNotifySubscribers = await scanOrphanedNotifySubscribers(orgIndex, validUserIds);
   onProgress('notifySubscribers', 'done');
 
   onProgress('admins', 'scanning');
@@ -436,6 +499,34 @@ export async function cleanOrphanedNotifySubscribers(issues) {
   for (const issue of issues) {
     const docRef = doc(db, PATHS.notifySubscriber(issue.orgId, issue.subscriberId));
     batch.delete(docRef);
+    batchCount++;
+    cleaned++;
+
+    if (batchCount >= batchSize) {
+      await batch.commit();
+      batch = writeBatch(db);
+      batchCount = 0;
+    }
+  }
+
+  if (batchCount > 0) {
+    await batch.commit();
+  }
+
+  return cleaned;
+}
+
+/**
+ * Remove Firestore user documents for users deleted from Firebase Authentication.
+ */
+export async function cleanOrphanedUserDocuments(issues) {
+  let cleaned = 0;
+  const batchSize = 400;
+  let batch = writeBatch(db);
+  let batchCount = 0;
+
+  for (const issue of issues) {
+    batch.delete(doc(db, PATHS.user(issue.userId)));
     batchCount++;
     cleaned++;
 
@@ -559,6 +650,8 @@ export async function cleanLegacyCollection(path) {
  */
 export async function cleanCategory(category, issues) {
   switch (category) {
+    case 'orphanedUserDocuments':
+      return cleanOrphanedUserDocuments(issues);
     case 'orphanedSubscriptions':
       return cleanOrphanedSubscriptions(issues);
     case 'orphanedAtlasAccess':
@@ -589,6 +682,12 @@ export async function cleanCategory(category, issues) {
  * Category metadata for display purposes.
  */
 export const CLEANUP_CATEGORIES = {
+  orphanedUserDocuments: {
+    label: 'Orphaned User Documents',
+    description: 'Firestore user records for accounts deleted from Firebase Authentication',
+    icon: 'UserX',
+    severity: 'high'
+  },
   orphanedSubscriptions: {
     label: 'Orphaned Subscriptions',
     description: 'User subscription keys referencing deleted organizations or notifications',
