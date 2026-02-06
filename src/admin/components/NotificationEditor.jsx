@@ -393,6 +393,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       // Fetch record count
       let recordCount = null;
       let recordCountFailed = false;
+      let recordCountAuthError = false;
       try {
         const countRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
           method: 'POST',
@@ -406,11 +407,22 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
         });
         if (countRes.ok) {
           const countData = await countRes.json();
-          recordCount = countData.count ?? null;
-          if (recordCount === null) {
+          if (countData.error) {
+            const code = countData.error.code;
+            if (code === 401 || code === 403 || code === 498 || code === 499) {
+              recordCountAuthError = true;
+            }
             recordCountFailed = true;
+          } else {
+            recordCount = countData.count ?? null;
+            if (recordCount === null) {
+              recordCountFailed = true;
+            }
           }
         } else {
+          if (countRes.status === 401 || countRes.status === 403) {
+            recordCountAuthError = true;
+          }
           recordCountFailed = true;
         }
       } catch (e) {
@@ -419,12 +431,20 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       }
 
       const successMessage = getPlainEnglishMessage('success', '', fields.length, recordCount);
+      let countWarning = null;
+      if (recordCountFailed) {
+        if (recordCountAuthError && !username && !password) {
+          countWarning = 'This service requires authentication to query data. Enter your ArcGIS username and password above, then test again.';
+        } else if (recordCountAuthError) {
+          countWarning = 'Access denied when querying this service. Check that your username and password are correct and that you have permission to query this layer.';
+        } else {
+          countWarning = 'Could not retrieve the record count from this service. The notification may not work correctly if the service does not support queries.';
+        }
+      }
       setValidationResult({
         type: 'success',
         message: successMessage,
-        warning: recordCountFailed
-          ? 'Could not retrieve the record count from this service. The notification may not work correctly if the service does not support queries.'
-          : null
+        warning: countWarning
       });
 
     } catch (err) {
@@ -627,12 +647,19 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       });
 
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          throw new Error('auth_denied');
+        }
         throw new Error('Query failed');
       }
 
       const data = await res.json();
-      
+
       if (data.error) {
+        const code = data.error.code;
+        if (code === 401 || code === 403 || code === 498 || code === 499) {
+          throw new Error('auth_denied');
+        }
         throw new Error(data.error.message || 'Invalid query');
       }
 
@@ -652,12 +679,18 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
 
     } catch (err) {
       console.error('Query validation error:', err);
-      setQueryValidationResult({ 
-        type: 'error', 
-        message: err.message.includes('Invalid') 
-          ? 'Invalid query syntax. Check field names and values.' 
-          : 'Failed to validate query'
-      });
+      let message;
+      if (err.message === 'auth_denied') {
+        const hasCreds = formData.source?.username && formData.source?.password;
+        message = hasCreds
+          ? 'Access denied. Check that your username and password are correct and that you have permission to query this layer.'
+          : 'This service requires authentication. Enter your ArcGIS username and password in the Data Source section above.';
+      } else if (err.message.includes('Invalid')) {
+        message = 'Invalid query syntax. Check field names and values.';
+      } else {
+        message = 'Failed to validate query';
+      }
+      setQueryValidationResult({ type: 'error', message });
     } finally {
       setIsQueryValidating(false);
     }
