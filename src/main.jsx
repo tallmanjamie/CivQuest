@@ -53,6 +53,25 @@ const getRouteInfo = () => {
 const getAppComponent = () => {
   const { subdomain, path, params } = getRouteInfo();
 
+  // OAuth callback fallback: when on localhost at root path with ?code= param,
+  // check sessionStorage to route to the correct app that initiated the OAuth flow.
+  // This handles cases where the ArcGIS redirect URI doesn't include the app path.
+  if (
+    (window.location.hostname.includes('localhost') || window.location.hostname === '127.0.0.1') &&
+    path === '/' &&
+    params.has('code') &&
+    params.has('state')
+  ) {
+    try {
+      const oauthApp = sessionStorage.getItem('civquest_oauth_app');
+      if (oauthApp === 'admin') {
+        return () => <AdminApp loginMode="org_admin" />;
+      }
+    } catch (e) {
+      // sessionStorage not available, continue with normal routing
+    }
+  }
+
   // Path-based routing (development and production)
   // Super admin portal - separate access point with email/password login
   if (path.startsWith('/super-admin')) {

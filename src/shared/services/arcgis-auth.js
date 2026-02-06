@@ -22,16 +22,19 @@ const OAUTH_CLIENT_ID_KEY = 'arcgis_oauth_client_id';
 
 /**
  * Gets the OAuth redirect URI based on current location
+ * Includes the current pathname so OAuth callbacks route to the correct app
+ * (important for local dev where apps are path-routed: /admin, /atlas, etc.)
  * @returns {string} The redirect URI for OAuth callbacks
  */
 export function getOAuthRedirectUri() {
   if (typeof window === 'undefined') return '';
-  
-  const { protocol, hostname, port } = window.location;
+
+  const { protocol, hostname, port, pathname } = window.location;
   const portSuffix = port && port !== '80' && port !== '443' ? `:${port}` : '';
-  
-  // Return base URL without path - OAuth will redirect back to root
-  return `${protocol}//${hostname}${portSuffix}/`;
+
+  // Include pathname so callback returns to the correct app in dev
+  // In production (subdomain routing), pathname is typically '/'
+  return `${protocol}//${hostname}${portSuffix}${pathname}`;
 }
 
 /**
@@ -266,6 +269,37 @@ export function getStoredOAuthClientId() {
   const clientId = sessionStorage.getItem(OAUTH_CLIENT_ID_KEY);
   sessionStorage.removeItem(OAUTH_CLIENT_ID_KEY);
   return clientId;
+}
+
+/**
+ * Stores which CivQuest app initiated the OAuth flow (for routing on callback)
+ * @param {string} app - The app name ('admin', 'atlas', etc.)
+ */
+export function storeOAuthApp(app) {
+  if (typeof sessionStorage !== 'undefined' && app) {
+    sessionStorage.setItem('civquest_oauth_app', app);
+  }
+}
+
+/**
+ * Gets and clears the stored OAuth app origin
+ * @returns {string|null} The app name or null
+ */
+export function getOAuthApp() {
+  if (typeof sessionStorage === 'undefined') return null;
+
+  const app = sessionStorage.getItem('civquest_oauth_app');
+  // Don't clear here - let the consuming code clear it after successful handling
+  return app;
+}
+
+/**
+ * Clears the stored OAuth app origin
+ */
+export function clearOAuthApp() {
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem('civquest_oauth_app');
+  }
 }
 
 /**
@@ -525,6 +559,9 @@ export default {
   getOAuthMode,
   storeOAuthClientId,
   getStoredOAuthClientId,
+  storeOAuthApp,
+  getOAuthApp,
+  clearOAuthApp,
   initiateArcGISLogin,
   generateSecurePassword,
   generateDeterministicPassword,
