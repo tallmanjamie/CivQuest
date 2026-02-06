@@ -231,6 +231,8 @@ const MarkupTool = forwardRef(function MarkupTool({
   const [isFolderExporting, setIsFolderExporting] = useState(null); // folder id being exported
   const [draggedMarkup, setDraggedMarkup] = useState(null); // markup being dragged
   const [dragOverFolderId, setDragOverFolderId] = useState(null); // folder being dragged over
+  const [dragOverMarkupId, setDragOverMarkupId] = useState(null); // markup being dragged over (for reordering)
+  const [dropPosition, setDropPosition] = useState(null); // 'before' | 'after' relative to display order
   const [renamingMarkupId, setRenamingMarkupId] = useState(null); // markup being renamed inline
   const [renamingMarkupName, setRenamingMarkupName] = useState('');
 
@@ -1146,12 +1148,16 @@ const MarkupTool = forwardRef(function MarkupTool({
   const handleDragEnd = useCallback(() => {
     setDraggedMarkup(null);
     setDragOverFolderId(null);
+    setDragOverMarkupId(null);
+    setDropPosition(null);
   }, []);
 
   const handleFolderDragOver = useCallback((e, folderId) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     setDragOverFolderId(folderId);
+    setDragOverMarkupId(null);
+    setDropPosition(null);
   }, []);
 
   const handleFolderDragLeave = useCallback(() => {
@@ -1166,6 +1172,79 @@ const MarkupTool = forwardRef(function MarkupTool({
     setDraggedMarkup(null);
     setDragOverFolderId(null);
   }, [draggedMarkup, moveMarkupToFolder]);
+
+  // Drag-over handler for individual markup rows (reordering)
+  const handleMarkupDragOver = useCallback((e, markupId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const position = e.clientY < midY ? 'before' : 'after';
+
+    setDragOverMarkupId(markupId);
+    setDropPosition(position);
+    setDragOverFolderId(null);
+  }, []);
+
+  // Drop handler for reordering within/across folders
+  const handleMarkupDrop = useCallback((e, targetMarkupId, targetFolderId) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!draggedMarkup || !targetMarkupId) {
+      setDraggedMarkup(null);
+      setDragOverMarkupId(null);
+      setDropPosition(null);
+      setDragOverFolderId(null);
+      return;
+    }
+
+    const draggedId = draggedMarkup.attributes?.id;
+    if (draggedId === targetMarkupId) {
+      setDraggedMarkup(null);
+      setDragOverMarkupId(null);
+      setDropPosition(null);
+      setDragOverFolderId(null);
+      return;
+    }
+
+    setMarkups(prev => {
+      const newMarkups = [...prev];
+
+      // Find and remove dragged item
+      const draggedIndex = newMarkups.findIndex(m => m.attributes?.id === draggedId);
+      if (draggedIndex === -1) return prev;
+      const [draggedItem] = newMarkups.splice(draggedIndex, 1);
+
+      // Update folder assignment
+      draggedItem.attributes.folderId = targetFolderId;
+
+      // Find target position (after removing dragged item)
+      const targetIndex = newMarkups.findIndex(m => m.attributes?.id === targetMarkupId);
+      if (targetIndex === -1) {
+        newMarkups.push(draggedItem);
+        return newMarkups;
+      }
+
+      // Display is reversed (newest first), so:
+      // 'before' in display (above target) → insert AFTER target in array
+      // 'after' in display (below target) → insert AT target index in array
+      if (dropPosition === 'before') {
+        newMarkups.splice(targetIndex + 1, 0, draggedItem);
+      } else {
+        newMarkups.splice(targetIndex, 0, draggedItem);
+      }
+
+      return newMarkups;
+    });
+
+    setDraggedMarkup(null);
+    setDragOverMarkupId(null);
+    setDropPosition(null);
+    setDragOverFolderId(null);
+  }, [draggedMarkup, dropPosition]);
 
   const getMarkupsInFolder = useCallback((folderId) => {
     return markups.filter(m => m.attributes?.folderId === folderId);
@@ -1223,12 +1302,13 @@ const MarkupTool = forwardRef(function MarkupTool({
   }), [editMarkupById, startEdit, cancelEdit, completeEdit, updateMarkupAttributes, updateMarkupLabel, findMarkupById, editingMarkup, markups]);
 
   // Render a single markup row (used in both folder contents and uncategorized)
-  const renderMarkupRow = (m, isInFolder) => {
+  const renderMarkupRow = (m, isInFolder, folderId) => {
     const tool = m.attributes?.tool;
     const Icon = tool === 'polyline' ? Minus : tool === 'polygon' ? Square : tool === 'text' ? Type : Circle;
     const isBeingEdited = editingMarkup && editingMarkup.attributes?.id === m.attributes?.id;
     const markupId = m.attributes?.id;
     const isDragging = draggedMarkup?.attributes?.id === markupId;
+    const isReorderTarget = dragOverMarkupId === markupId && draggedMarkup && draggedMarkup.attributes?.id !== markupId;
 
     return (
       <div
@@ -1236,12 +1316,24 @@ const MarkupTool = forwardRef(function MarkupTool({
         draggable
         onDragStart={(e) => handleDragStart(e, m)}
         onDragEnd={handleDragEnd}
-        className={`group flex items-center gap-1.5 p-1.5 rounded-lg border transition-all cursor-grab active:cursor-grabbing
+        onDragOver={(e) => handleMarkupDragOver(e, markupId)}
+        onDrop={(e) => handleMarkupDrop(e, markupId, folderId)}
+        className={`relative group flex items-center gap-1.5 p-1.5 rounded-lg border transition-all cursor-grab active:cursor-grabbing
           ${isDragging ? 'opacity-40 border-dashed border-blue-300 bg-blue-50/50' : ''}
           ${isBeingEdited
             ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200'
             : 'bg-white border-slate-100 hover:border-blue-200'}`}
       >
+        {isReorderTarget && dropPosition === 'before' && (
+          <div className="absolute -top-[3px] left-1 right-1 h-[2px] bg-blue-500 rounded-full z-10 pointer-events-none">
+            <div className="absolute -left-[3px] -top-[3px] w-2 h-2 rounded-full bg-blue-500" />
+          </div>
+        )}
+        {isReorderTarget && dropPosition === 'after' && (
+          <div className="absolute -bottom-[3px] left-1 right-1 h-[2px] bg-blue-500 rounded-full z-10 pointer-events-none">
+            <div className="absolute -left-[3px] -top-[3px] w-2 h-2 rounded-full bg-blue-500" />
+          </div>
+        )}
         <div className="flex-shrink-0 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab">
           <GripVertical className="w-3 h-3" />
         </div>
@@ -1658,7 +1750,7 @@ const MarkupTool = forwardRef(function MarkupTool({
                         {isDropTarget ? 'Drop here' : 'Empty folder'}
                       </p>
                     ) : (
-                      folderMarkups.slice().reverse().map(m => renderMarkupRow(m, true))
+                      folderMarkups.slice().reverse().map(m => renderMarkupRow(m, true, folder.id))
                     )}
                   </div>
                 )}
@@ -1675,7 +1767,7 @@ const MarkupTool = forwardRef(function MarkupTool({
               onDrop={(e) => handleFolderDrop(e, null)}
             >
               <span className="text-[9px] font-bold uppercase text-slate-400 tracking-wider px-1">Uncategorized</span>
-              {markups.filter(m => !m.attributes?.folderId).slice().reverse().map(m => renderMarkupRow(m, false))}
+              {markups.filter(m => !m.attributes?.folderId).slice().reverse().map(m => renderMarkupRow(m, false, null))}
             </div>
           )}
 
