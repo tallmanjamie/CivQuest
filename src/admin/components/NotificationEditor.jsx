@@ -274,12 +274,14 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
   /**
    * Convert technical error messages to plain English
    */
-  const getPlainEnglishMessage = (type, rawMessage, fieldCount = 0) => {
+  const getPlainEnglishMessage = (type, rawMessage, fieldCount = 0, recordCount = null) => {
     if (type === 'success') {
-      if (fieldCount === 1) {
-        return `Found 1 field`;
+      const fieldText = fieldCount === 1 ? '1 field' : `${fieldCount} fields`;
+      if (recordCount !== null) {
+        const recordText = recordCount === 1 ? '1 record' : `${recordCount.toLocaleString()} records`;
+        return `Found ${fieldText} and ${recordText}`;
       }
-      return `Found ${fieldCount} fields`;
+      return `Found ${fieldText}`;
     }
     
     // Error messages - convert to plain English
@@ -374,10 +376,31 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
         f.type === 'esriFieldTypeTimestampOffset'
       ).map(f => ({ name: f.name, alias: f.alias || f.name }));
       setAvailableDateFields(dateFields);
-      
-      const successMessage = getPlainEnglishMessage('success', '', fields.length);
-      setValidationResult({ 
-        type: 'success', 
+
+      // Fetch record count
+      let recordCount = null;
+      try {
+        const countRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serviceUrl: endpoint.replace(/\/$/, ''),
+            where: '1=1',
+            returnCountOnly: true,
+            ...(username && password ? { username, password } : {})
+          })
+        });
+        if (countRes.ok) {
+          const countData = await countRes.json();
+          recordCount = countData.count ?? null;
+        }
+      } catch (e) {
+        // Record count is supplementary; don't fail the whole validation
+      }
+
+      const successMessage = getPlainEnglishMessage('success', '', fields.length, recordCount);
+      setValidationResult({
+        type: 'success',
         message: successMessage
       });
 
