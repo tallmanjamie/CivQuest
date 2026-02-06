@@ -1327,33 +1327,42 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
 
   try {
     // Import required modules
-    const [Extent, Point, Polygon, Polyline] = await Promise.all([
+    const [Extent, Point, Polygon, Polyline, Graphic, SimpleFillSymbol, SimpleLineSymbol, SimpleMarkerSymbol] = await Promise.all([
       import('@arcgis/core/geometry/Extent').then(m => m.default),
       import('@arcgis/core/geometry/Point').then(m => m.default),
       import('@arcgis/core/geometry/Polygon').then(m => m.default),
-      import('@arcgis/core/geometry/Polyline').then(m => m.default)
+      import('@arcgis/core/geometry/Polyline').then(m => m.default),
+      import('@arcgis/core/Graphic').then(m => m.default),
+      import('@arcgis/core/symbols/SimpleFillSymbol').then(m => m.default),
+      import('@arcgis/core/symbols/SimpleLineSymbol').then(m => m.default),
+      import('@arcgis/core/symbols/SimpleMarkerSymbol').then(m => m.default)
     ]);
 
     // Get the geometry
     let geometry = feature.geometry;
 
     // Ensure geometry has proper type
+    // Default to WGS84 (4326) for coordinates without a spatial reference,
+    // since feature coordinates from queries are typically in WGS84 (longitude/latitude).
+    // Using mapView.spatialReference (Web Mercator) would misinterpret WGS84 values
+    // as projected coordinates, causing the map to zoom to the wrong location.
     if (geometry && typeof geometry === 'object' && !geometry.declaredClass) {
+      const geomSR = geometry.spatialReference || { wkid: 4326 };
       if (geometry.rings) {
         geometry = new Polygon({
           rings: geometry.rings,
-          spatialReference: geometry.spatialReference || mapView.spatialReference
+          spatialReference: geomSR
         });
       } else if (geometry.paths) {
         geometry = new Polyline({
           paths: geometry.paths,
-          spatialReference: geometry.spatialReference || mapView.spatialReference
+          spatialReference: geomSR
         });
       } else if (geometry.x !== undefined) {
         geometry = new Point({
           x: geometry.x,
           y: geometry.y,
-          spatialReference: geometry.spatialReference || mapView.spatialReference
+          spatialReference: geomSR
         });
       }
     }
@@ -1364,13 +1373,16 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
       extent = geometry.extent.clone().expand(1.5);
     } else if (geometry.x !== undefined) {
       // Point geometry - create extent around it
-      const bufferSize = 500; // meters
+      // Use appropriate buffer based on spatial reference:
+      // WGS84 (4326) uses degrees (~0.005 deg ≈ 500m), projected SRs use meters
+      const isGeographic = geometry.spatialReference?.wkid === 4326 || geometry.spatialReference?.wkid === 4269;
+      const bufferSize = isGeographic ? 0.005 : 500;
       extent = new Extent({
         xmin: geometry.x - bufferSize,
         ymin: geometry.y - bufferSize,
         xmax: geometry.x + bufferSize,
         ymax: geometry.y + bufferSize,
-        spatialReference: mapView.spatialReference
+        spatialReference: geometry.spatialReference
       });
     }
 
@@ -1409,6 +1421,38 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
       }
     });
 
+    // Ensure the feature is highlighted on the highlight layer for the screenshot.
+    // The highlight may already exist from the feature selection, but we add one
+    // to guarantee it's visible (e.g., if the user scrolled away or the highlight was cleared).
+    const highlightLayer = mapView.map.allLayers.find(l => l.id === 'atlas-highlight-layer');
+    let addedHighlightGraphic = null;
+    if (highlightLayer) {
+      let highlightSymbol;
+      const geomType = geometry.type || (geometry.rings ? 'polygon' : geometry.paths ? 'polyline' : 'point');
+      if (geomType === 'polygon') {
+        highlightSymbol = new SimpleFillSymbol({
+          color: [255, 255, 0, 0.3],
+          style: 'solid',
+          outline: { color: [255, 200, 0], width: 3 }
+        });
+      } else if (geomType === 'polyline') {
+        highlightSymbol = new SimpleLineSymbol({
+          color: [255, 200, 0],
+          width: 4,
+          style: 'solid'
+        });
+      } else {
+        highlightSymbol = new SimpleMarkerSymbol({
+          color: [255, 200, 0],
+          size: 16,
+          style: 'circle',
+          outline: { color: [255, 255, 255], width: 3 }
+        });
+      }
+      addedHighlightGraphic = new Graphic({ geometry, symbol: highlightSymbol });
+      highlightLayer.add(addedHighlightGraphic);
+    }
+
     try {
       // Zoom to feature extent
       await mapView.goTo(extent, { animate: false });
@@ -1439,16 +1483,18 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
       // Additional settle time to ensure all tiles are rendered
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Calculate the screen coordinates of the extent corners
-      // This ensures we capture exactly the right area, matching MapExportTool approach
+      // Use mapView.extent (in view's spatial reference) for screen coordinate conversion.
+      // The original extent may be in a different SR (e.g., WGS84), and goTo may have
+      // adjusted the extent to fit the view aspect ratio.
+      const viewExtent = mapView.extent;
       const topLeft = mapView.toScreen(new Point({
-        x: extent.xmin,
-        y: extent.ymax,
+        x: viewExtent.xmin,
+        y: viewExtent.ymax,
         spatialReference: mapView.spatialReference
       }));
       const bottomRight = mapView.toScreen(new Point({
-        x: extent.xmax,
-        y: extent.ymin,
+        x: viewExtent.xmax,
+        y: viewExtent.ymin,
         spatialReference: mapView.spatialReference
       }));
 
@@ -1482,6 +1528,11 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
       } catch (e) {
         // Last resort: try setting extent directly
         try { mapView.extent = originalExtent; } catch (_) { /* ignore */ }
+      }
+
+      // Remove the highlight graphic we added for the screenshot
+      if (addedHighlightGraphic && highlightLayer) {
+        highlightLayer.remove(addedHighlightGraphic);
       }
 
       // Restore hidden overlay layers
