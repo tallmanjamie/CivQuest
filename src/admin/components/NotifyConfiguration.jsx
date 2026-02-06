@@ -873,6 +873,31 @@ function OrganizationNotifyCard({
 const ARCGIS_PROXY_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
 
 /**
+ * Build a WHERE clause from a notification's queryConfig.
+ * This mirrors the logic in NotificationEditor's buildWhereClause()
+ * so that record counts and email generation use the same filters
+ * that the "Test Query" button validates against.
+ */
+function buildWhereClauseFromConfig(queryConfig) {
+  if (!queryConfig || queryConfig.mode === 'none') return '1=1';
+  if (queryConfig.mode === 'advanced') return queryConfig.advancedWhere || '1=1';
+
+  const rules = queryConfig.rules || [];
+  if (rules.length === 0) return '1=1';
+
+  const clauses = rules
+    .filter(r => r.field && r.value !== undefined && r.value !== '')
+    .map(r => {
+      const isNumeric = !isNaN(r.value) && r.value.trim() !== '';
+      const formattedValue = isNumeric ? r.value : `'${r.value.replace(/'/g, "''")}'`;
+      return `${r.field} ${r.operator} ${formattedValue}`;
+    });
+
+  if (clauses.length === 0) return '1=1';
+  return clauses.join(` ${queryConfig.logic || 'AND'} `);
+}
+
+/**
  * Generate complete email HTML for a broadcast
  * This function fetches real data and generates the fully-rendered email HTML
  * @param {object} notification - The notification configuration
@@ -965,6 +990,14 @@ async function generateBroadcastEmailHtml(notification, orgData) {
       whereClause = whereClause === '1=1'
         ? source.definitionQuery
         : `(${whereClause}) AND (${source.definitionQuery})`;
+    }
+
+    // Add queryConfig filters (simple/advanced filters from the notification editor)
+    const queryConfigWhere = buildWhereClauseFromConfig(source?.queryConfig);
+    if (queryConfigWhere && queryConfigWhere !== '1=1') {
+      whereClause = whereClause === '1=1'
+        ? queryConfigWhere
+        : `(${whereClause}) AND (${queryConfigWhere})`;
     }
 
     // Get the fields to query
@@ -1536,6 +1569,14 @@ function EmailPreviewModal({ notification, orgData, onClose, accentColor = '#004
           whereClause = whereClause === '1=1'
             ? source.definitionQuery
             : `(${whereClause}) AND (${source.definitionQuery})`;
+        }
+
+        // Add queryConfig filters (simple/advanced filters from the notification editor)
+        const queryConfigWhere = buildWhereClauseFromConfig(source?.queryConfig);
+        if (queryConfigWhere && queryConfigWhere !== '1=1') {
+          whereClause = whereClause === '1=1'
+            ? queryConfigWhere
+            : `(${whereClause}) AND (${queryConfigWhere})`;
         }
 
         // Get the fields to query
