@@ -230,6 +230,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   const [markupMenuId, setMarkupMenuId] = useState(null); // Which markup's context menu is open
   // folderMenuId removed - folder actions are now inline buttons
   const [isFolderExporting, setIsFolderExporting] = useState(null); // folder id being exported
+  const [selectedFolderId, setSelectedFolderId] = useState(DEFAULT_FOLDER_ID); // which folder receives new markups
   const [draggedMarkup, setDraggedMarkup] = useState(null); // markup being dragged
   const [dragOverFolderId, setDragOverFolderId] = useState(null); // folder being dragged over
   const [dragOverMarkupId, setDragOverMarkupId] = useState(null); // markup being dragged over (for reordering)
@@ -271,10 +272,13 @@ const MarkupTool = forwardRef(function MarkupTool({
   const editingMarkupRef = useRef(null);
   const onMarkupCreatedRef = useRef(onMarkupCreated);
 
+  const selectedFolderIdRef = useRef(selectedFolderId);
+
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { editingMarkupRef.current = editingMarkup; }, [editingMarkup]);
   useEffect(() => { onMarkupCreatedRef.current = onMarkupCreated; }, [onMarkupCreated]);
+  useEffect(() => { selectedFolderIdRef.current = selectedFolderId; }, [selectedFolderId]);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   // Helper to find color object from hex value
@@ -459,7 +463,7 @@ const MarkupTool = forwardRef(function MarkupTool({
           showLabel,
           isMarkup: true,
           timestamp: Date.now(),
-          folderId: DEFAULT_FOLDER_ID
+          folderId: selectedFolderIdRef.current
         };
 
         if (showLabel && metricText) {
@@ -679,9 +683,9 @@ const MarkupTool = forwardRef(function MarkupTool({
                                    savedFrom === 'nearby-search' ||
                                    savedFrom === 'nearby-search-popup';
           if (graphic.attributes?.isMarkup && isExternalMarkup) {
-            // Assign to default folder if not already in a folder
+            // Assign to selected folder if not already in a folder
             if (!graphic.attributes.folderId) {
-              graphic.attributes.folderId = DEFAULT_FOLDER_ID;
+              graphic.attributes.folderId = selectedFolderIdRef.current;
             }
             setMarkups(prev => {
               const exists = prev.some(m => m.attributes?.id === graphic.attributes?.id);
@@ -1102,6 +1106,8 @@ const MarkupTool = forwardRef(function MarkupTool({
       return [...prev];
     });
     setFolders(prev => prev.filter(f => f.id !== folderId));
+    // If the deleted folder was selected, fall back to default
+    setSelectedFolderId(prev => prev === folderId ? DEFAULT_FOLDER_ID : prev);
   }, []);
 
   const toggleFolderExpanded = useCallback((folderId) => {
@@ -1669,6 +1675,7 @@ const MarkupTool = forwardRef(function MarkupTool({
             const FolderIcon = folder.expanded ? FolderOpen : Folder;
             const isDropTarget = draggedMarkup && dragOverFolderId === folder.id && draggedMarkup.attributes?.folderId !== folder.id;
             const isDefaultFolder = folder.id === DEFAULT_FOLDER_ID;
+            const isSelected = selectedFolderId === folder.id;
 
             return (
               <div
@@ -1678,14 +1685,27 @@ const MarkupTool = forwardRef(function MarkupTool({
                 onDrop={(e) => handleFolderDrop(e, folder.id)}
               >
                 {/* Folder header */}
-                <div className={`group flex items-center gap-1 py-1.5 px-1.5 rounded-lg transition-colors
-                  ${isDropTarget ? 'bg-blue-100 ring-2 ring-blue-300 ring-inset' : 'hover:bg-slate-100'}`}>
+                <div
+                  className={`group flex items-center gap-1 py-1.5 px-1.5 rounded-lg transition-colors
+                    ${isDropTarget ? 'bg-blue-100 ring-2 ring-blue-300 ring-inset' : isSelected ? 'ring-1 ring-inset' : 'hover:bg-slate-100'}`}
+                  style={isSelected && !isDropTarget ? { backgroundColor: colors.bg50, ringColor: colors.border200, '--tw-ring-color': colors.border200 } : undefined}
+                >
                   <button
-                    onClick={() => toggleFolderExpanded(folder.id)}
-                    className="flex items-center gap-1 flex-1 min-w-0"
+                    onClick={(e) => { e.stopPropagation(); toggleFolderExpanded(folder.id); }}
+                    className="flex-shrink-0 p-0.5 rounded hover:bg-slate-200/50"
+                    title={folder.expanded ? "Collapse folder" : "Expand folder"}
                   >
-                    <ChevronRight className={`w-3 h-3 text-slate-400 transition-transform flex-shrink-0 ${folder.expanded ? 'rotate-90' : ''}`} />
-                    <FolderIcon className={`w-3.5 h-3.5 flex-shrink-0 ${isDropTarget ? 'text-blue-500' : 'text-amber-500'}`} />
+                    <ChevronRight className={`w-3 h-3 text-slate-400 transition-transform ${folder.expanded ? 'rotate-90' : ''}`} />
+                  </button>
+                  <button
+                    onClick={() => setSelectedFolderId(folder.id)}
+                    className="flex items-center gap-1 flex-1 min-w-0"
+                    title="Select folder for new markups"
+                  >
+                    <FolderIcon
+                      className={`w-3.5 h-3.5 flex-shrink-0 ${isDropTarget ? 'text-blue-500' : !isSelected ? 'text-amber-500' : ''}`}
+                      style={isSelected && !isDropTarget ? { color: colors.text500 } : undefined}
+                    />
                     {editingFolderId === folder.id ? (
                       <input
                         type="text"
@@ -1701,7 +1721,10 @@ const MarkupTool = forwardRef(function MarkupTool({
                         onClick={(e) => e.stopPropagation()}
                       />
                     ) : (
-                      <span className="text-xs font-semibold text-slate-700 truncate">{folder.name}</span>
+                      <span
+                        className={`text-xs font-semibold truncate ${!isSelected ? 'text-slate-700' : ''}`}
+                        style={isSelected ? { color: colors.text700 } : undefined}
+                      >{folder.name}</span>
                     )}
                     <span className="text-[9px] text-slate-400 flex-shrink-0">({folderMarkups.length})</span>
                   </button>
