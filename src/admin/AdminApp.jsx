@@ -478,19 +478,6 @@ function AdminLogin({ loginMode = 'org_admin' }) {
             );
           }
 
-          // Check if this email is already registered as an admin
-          const adminQuery = query(
-            collection(db, PATHS.admins),
-            where('email', '==', userEmail.toLowerCase())
-          );
-          const existingAdmins = await getDocs(adminQuery);
-
-          if (!existingAdmins.empty) {
-            throw new Error(
-              'An admin account with this email already exists. Please sign in instead.'
-            );
-          }
-
           // Generate deterministic password
           const deterministicPassword = await generateDeterministicPassword(
             arcgisUser.username,
@@ -528,6 +515,23 @@ function AdminLogin({ loginMode = 'org_admin' }) {
               );
             }
             throw createError;
+          }
+
+          // Check if this email is already registered as an admin
+          // (done after auth creation so the user is authenticated for the query)
+          const adminQuery = query(
+            collection(db, PATHS.admins),
+            where('email', '==', userEmail.toLowerCase())
+          );
+          const existingAdmins = await getDocs(adminQuery);
+
+          if (!existingAdmins.empty) {
+            // Clean up the auth account we just created
+            await cred.user.delete();
+            sessionStorage.removeItem('civquest_signup_pending');
+            throw new Error(
+              'An admin account with this email already exists. Please sign in instead.'
+            );
           }
 
           // Create all Firestore documents in parallel
