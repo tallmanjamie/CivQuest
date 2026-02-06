@@ -210,7 +210,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   className = '',
   justification = 'left'
 }, ref) {
-  const { config: atlasConfig } = useAtlas();
+  const { config: atlasConfig, orgId } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
@@ -231,6 +231,8 @@ const MarkupTool = forwardRef(function MarkupTool({
   const [isFolderExporting, setIsFolderExporting] = useState(null); // folder id being exported
   const [draggedMarkup, setDraggedMarkup] = useState(null); // markup being dragged
   const [dragOverFolderId, setDragOverFolderId] = useState(null); // folder being dragged over
+  const [renamingMarkupId, setRenamingMarkupId] = useState(null); // markup being renamed inline
+  const [renamingMarkupName, setRenamingMarkupName] = useState('');
 
   const [settings, setSettings] = useState({
     pointType: 'circle',
@@ -270,6 +272,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { editingMarkupRef.current = editingMarkup; }, [editingMarkup]);
   useEffect(() => { onMarkupCreatedRef.current = onMarkupCreated; }, [onMarkupCreated]);
+  const initialLoadDone = useRef(false);
 
   // Helper to find color object from hex value
   const findColorByValue = (hexValue) => {
@@ -584,6 +587,69 @@ const MarkupTool = forwardRef(function MarkupTool({
 
     sketchVMRef.current = sketchVM;
 
+    // Load saved markups from localStorage (org-scoped)
+    if (orgId) {
+      try {
+        const savedMarkups = localStorage.getItem(`atlas_markups_${orgId}`);
+        if (savedMarkups) {
+          const markupData = JSON.parse(savedMarkups);
+          const loadedMarkups = [];
+          markupData.forEach(item => {
+            if (!item.geometry || !item.attributes) return;
+            const graphic = new Graphic({
+              geometry: item.geometry,
+              symbol: item.symbol,
+              attributes: item.attributes
+            });
+            if (item.visible === false) graphic.visible = false;
+            layer.add(graphic);
+            loadedMarkups.push(graphic);
+
+            // Recreate labels for markups that had labels enabled
+            if (graphic.attributes?.showLabel && graphic.attributes?.metric) {
+              const geom = graphic.geometry;
+              const labelPoint = geom.type === 'point' ? geom :
+                                 geom.type === 'polygon' ? geom.centroid :
+                                 geom.extent?.center || geom;
+              const labelGraphic = new Graphic({
+                geometry: labelPoint,
+                symbol: {
+                  type: 'text',
+                  color: [40, 40, 40, 1],
+                  text: graphic.attributes.metric,
+                  haloColor: [255, 255, 255, 0.9],
+                  haloSize: 1.5,
+                  font: { size: 10, weight: 'bold' },
+                  yoffset: geom.type === 'point' ? 12 : 0
+                },
+                attributes: { parentId: graphic.attributes.id, isLabel: true }
+              });
+              layer.add(labelGraphic);
+            }
+          });
+          if (loadedMarkups.length > 0) {
+            setMarkups(loadedMarkups);
+          }
+        }
+      } catch (e) {
+        console.error('[MarkupTool] Failed to load markups from localStorage:', e);
+      }
+
+      try {
+        const savedFolders = localStorage.getItem(`atlas_markup_folders_${orgId}`);
+        if (savedFolders) {
+          const parsed = JSON.parse(savedFolders);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setFolders(parsed);
+          }
+        }
+      } catch (e) {
+        console.error('[MarkupTool] Failed to load folders from localStorage:', e);
+      }
+
+      initialLoadDone.current = true;
+    }
+
     // Watch for graphics added directly to the layer (e.g., from "Save to Markup" in FeatureInfoPanel or nearby buffer)
     const layerChangeHandle = layer.graphics.on('change', (event) => {
       if (event.added && event.added.length > 0) {
@@ -618,7 +684,33 @@ const MarkupTool = forwardRef(function MarkupTool({
         view.map.remove(layerRef.current);
       }
     };
-  }, [view, graphicsLayer]);
+  }, [view, graphicsLayer, orgId]);
+
+  // Save markups to localStorage when they change (org-scoped)
+  useEffect(() => {
+    if (!initialLoadDone.current || !orgId) return;
+    try {
+      const data = markups.map(m => ({
+        geometry: m.geometry?.toJSON?.() || null,
+        symbol: m.symbol?.toJSON?.() || m.symbol,
+        attributes: { ...m.attributes },
+        visible: m.visible !== false
+      }));
+      localStorage.setItem(`atlas_markups_${orgId}`, JSON.stringify(data));
+    } catch (e) {
+      console.error('[MarkupTool] Failed to save markups:', e);
+    }
+  }, [markups, orgId]);
+
+  // Save folders to localStorage when they change (org-scoped)
+  useEffect(() => {
+    if (!initialLoadDone.current || !orgId) return;
+    try {
+      localStorage.setItem(`atlas_markup_folders_${orgId}`, JSON.stringify(folders));
+    } catch (e) {
+      console.error('[MarkupTool] Failed to save folders:', e);
+    }
+  }, [folders, orgId]);
 
   const startTool = (tool) => {
     if (!sketchVMRef.current) return;
@@ -1029,6 +1121,21 @@ const MarkupTool = forwardRef(function MarkupTool({
     setMarkupMenuId(null);
   }, []);
 
+  // Markup inline rename
+  const startRenameMarkup = useCallback((markup) => {
+    setRenamingMarkupId(markup.attributes?.id);
+    setRenamingMarkupName(markup.attributes?.name || '');
+  }, []);
+
+  const finishRenameMarkup = useCallback((markup) => {
+    if (markup && renamingMarkupName.trim()) {
+      markup.attributes.name = renamingMarkupName.trim();
+      setMarkups(prev => [...prev]);
+    }
+    setRenamingMarkupId(null);
+    setRenamingMarkupName('');
+  }, [renamingMarkupName]);
+
   // Drag-and-drop handlers
   const handleDragStart = useCallback((e, graphic) => {
     setDraggedMarkup(graphic);
@@ -1143,9 +1250,29 @@ const MarkupTool = forwardRef(function MarkupTool({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 flex-wrap">
-            <p className="text-[11px] font-semibold text-slate-700 truncate">
-              {m.attributes?.name || (tool === 'text' ? (m.symbol?.text || 'Label') : (tool || 'Markup'))}
-            </p>
+            {renamingMarkupId === markupId ? (
+              <input
+                type="text"
+                value={renamingMarkupName}
+                onChange={(e) => setRenamingMarkupName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') finishRenameMarkup(m);
+                  if (e.key === 'Escape') { setRenamingMarkupId(null); setRenamingMarkupName(''); }
+                }}
+                onBlur={() => finishRenameMarkup(m)}
+                className="text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 rounded px-1 py-0.5 w-full min-w-0 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <p
+                className="text-[11px] font-semibold text-slate-700 truncate cursor-pointer hover:text-blue-600"
+                onClick={() => startRenameMarkup(m)}
+                title="Click to rename"
+              >
+                {m.attributes?.name || (tool === 'text' ? (m.symbol?.text || 'Label') : (tool || 'Markup'))}
+              </p>
+            )}
             {isBeingEdited && (
               <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-blue-500 text-white uppercase tracking-tight animate-pulse">
                 Editing
@@ -1182,45 +1309,6 @@ const MarkupTool = forwardRef(function MarkupTool({
           >
             <Trash2 className="w-3 h-3" />
           </button>
-          {/* Move to folder menu */}
-          {folders.length > 1 && (
-            <div className="relative">
-              <button
-                onClick={(e) => { e.stopPropagation(); setMarkupMenuId(markupMenuId === markupId ? null : markupId); }}
-                className="p-1 hover:bg-slate-200 rounded text-slate-400"
-                title="Move to folder"
-              >
-                <MoreVertical className="w-3 h-3" />
-              </button>
-              {markupMenuId === markupId && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setMarkupMenuId(null)} />
-                  <div className="absolute right-0 top-full mt-0.5 w-40 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 max-h-48 overflow-y-auto">
-                    {isInFolder && (
-                      <button
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
-                        onClick={() => moveMarkupToFolder(m, null)}
-                      >
-                        <X className="w-3 h-3" /> Remove from folder
-                      </button>
-                    )}
-                    <div className={isInFolder ? "border-t border-slate-100 mt-0.5 pt-0.5" : ""}>
-                      <span className="px-3 py-1 text-[9px] uppercase font-bold text-slate-400 block">Move to</span>
-                      {folders.filter(f => f.id !== m.attributes?.folderId).map(f => (
-                        <button
-                          key={f.id}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
-                          onClick={() => moveMarkupToFolder(m, f.id)}
-                        >
-                          <Folder className="w-3 h-3 text-amber-500" /> {f.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
         </div>
       </div>
     );
@@ -1602,8 +1690,8 @@ const MarkupTool = forwardRef(function MarkupTool({
       </div>
 
       {/* Click-away handler for context menus */}
-      {(markupMenuId || folderMenuId) && (
-        <div className="fixed inset-0 z-30" onClick={() => { setMarkupMenuId(null); setFolderMenuId(null); }} />
+      {folderMenuId && (
+        <div className="fixed inset-0 z-30" onClick={() => { setFolderMenuId(null); }} />
       )}
     </div>
   );
