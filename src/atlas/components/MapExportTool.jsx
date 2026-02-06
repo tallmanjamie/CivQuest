@@ -495,6 +495,13 @@ export default function MapExportTool({
     }
   }, [scaleMode]);
 
+  // Hide export area when the export tool is collapsed/closed
+  useEffect(() => {
+    if (!isExpanded) {
+      setShowExportArea(false);
+    }
+  }, [isExpanded]);
+
   // Get effective scale (feet per inch)
   const effectiveScale = useMemo(() => {
     if (scaleMode === 'custom') {
@@ -838,7 +845,7 @@ export default function MapExportTool({
     setIsExporting(true);
     setExportError(null);
     setExportSuccess(false);
-    setExportProgress('Preparing export...');
+    setExportProgress('Generating Export');
 
     try {
       console.group('🖨️ MapExportTool - Starting Export');
@@ -864,12 +871,10 @@ export default function MapExportTool({
       console.log('Map element:', mapElement.width, '%', mapElement.height, '% →', mapWidthPx, 'x', mapHeightPx, 'px');
 
       // Step 1: Capture map screenshot
-      setExportProgress('Capturing map screenshot...');
       const mapImage = await captureMapScreenshot(mapWidthPx, mapHeightPx);
       console.log('🖨️ Map screenshot captured:', mapImage.width, 'x', mapImage.height);
 
       // Step 2: Create canvas for layout composition
-      setExportProgress('Composing layout...');
       const canvas = document.createElement('canvas');
       canvas.width = pageWidthPx;
       canvas.height = pageHeightPx;
@@ -997,7 +1002,6 @@ export default function MapExportTool({
       }
 
       // Step 4: Generate output
-      setExportProgress('Generating file...');
       const filename = `${mapTitle.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().slice(0, 10)}`;
 
       if (outputFormat === 'pdf') {

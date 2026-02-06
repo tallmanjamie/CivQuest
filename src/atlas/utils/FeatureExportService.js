@@ -1398,35 +1398,63 @@ async function captureFeatureMapScreenshot(mapView, feature, template, exportTem
     // Save current view state
     const originalExtent = mapView.extent.clone();
 
-    // Zoom to feature extent
-    await mapView.goTo(extent, { animate: false });
-
-    // Wait for tiles to load
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    if (mapView.updating) {
-      await new Promise(resolve => {
-        const handle = mapView.watch('updating', (updating) => {
-          if (!updating) {
-            handle.remove();
-            resolve();
-          }
-        });
-        setTimeout(() => { handle.remove(); resolve(); }, 5000);
-      });
-    }
-
-    // Take screenshot
-    const screenshot = await mapView.takeScreenshot({
-      width: mapWidthPx,
-      height: mapHeightPx,
-      format: 'png'
+    // Hide overlay layers (highlight, results, pushpins, etc.) to get a clean map screenshot
+    const overlayLayerIds = ['atlas-highlight-layer', 'atlas-results-layer', 'atlas-pushpin-layer', 'atlas-nearby-buffer-layer', 'export-area-layer'];
+    const hiddenLayers = [];
+    mapView.map.allLayers.forEach(layer => {
+      if (overlayLayerIds.includes(layer.id) && layer.visible) {
+        layer.visible = false;
+        hiddenLayers.push(layer);
+      }
     });
 
-    // Restore original view
-    await mapView.goTo(originalExtent, { animate: false });
+    try {
+      // Zoom to feature extent
+      await mapView.goTo(extent, { animate: false });
 
-    return screenshot.dataUrl;
+      // Wait for the basemap layer view to be ready
+      try {
+        await mapView.whenLayerView(mapView.map.basemap?.baseLayers?.getItemAt(0));
+      } catch (e) {
+        // Ignore - basemap might not have standard layers
+      }
+
+      // Wait for tiles to load
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Wait for any pending updates
+      if (mapView.updating) {
+        await new Promise(resolve => {
+          const handle = mapView.watch('updating', (updating) => {
+            if (!updating) {
+              handle.remove();
+              resolve();
+            }
+          });
+          setTimeout(() => { handle.remove(); resolve(); }, 8000);
+        });
+      }
+
+      // Additional settle time to ensure all tiles are rendered
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Take screenshot
+      const screenshot = await mapView.takeScreenshot({
+        width: mapWidthPx,
+        height: mapHeightPx,
+        format: 'png'
+      });
+
+      // Restore original view
+      await mapView.goTo(originalExtent, { animate: false });
+
+      return screenshot.dataUrl;
+    } finally {
+      // Restore hidden overlay layers
+      hiddenLayers.forEach(layer => {
+        layer.visible = true;
+      });
+    }
   } catch (err) {
     console.error('[FeatureExport] Error capturing map screenshot:', err);
     return null;
@@ -1450,7 +1478,7 @@ export async function exportFeatureToPDF({
     throw new Error('No feature provided for export');
   }
 
-  onProgress('Preparing export...');
+  onProgress('Generating Export');
 
   // Get feature export template if configured
   let template = null;
@@ -1496,7 +1524,6 @@ export async function exportFeatureToPDF({
   // Get evaluated popup content if using popup elements
   let popupContent = [];
   if (usePopupElements) {
-    onProgress('Processing...');
     try {
       popupContent = await getEvaluatedPopupContent(feature, sourceLayer, customFeatureInfo, mapView);
       console.log('[FeatureExport] Got popup content:', popupContent.length, 'sections');
@@ -1530,7 +1557,6 @@ export async function exportFeatureToPDF({
   let logoUrl = atlasConfig?.ui?.logoLeft || null;
 
   // Calculate layout for attribute data with page breaks
-  onProgress('Calculating layout...');
 
   // Find elements that repeat per page (title, date, pageNumber, logo)
   const headerElements = template.elements.filter(e =>
@@ -1599,7 +1625,7 @@ export async function exportFeatureToPDF({
 
   // Draw each page
   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-    onProgress(`Generating page ${pageNum} of ${totalPages}...`);
+    onProgress('Generating Export');
 
     if (pageNum > 1) {
       pdf.addPage([pageDims.width, pageDims.height], orientation);
@@ -1670,7 +1696,7 @@ export async function exportFeatureToPDF({
     );
 
     if (mapExportTemplate) {
-      onProgress('Generating map page...');
+      onProgress('Generating Export');
 
       try {
         const mapScreenshot = await captureFeatureMapScreenshot(
@@ -1702,11 +1728,10 @@ export async function exportFeatureToPDF({
   }
 
   // Save PDF
-  onProgress('Saving PDF...');
   const filename = `${featureTitle.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
   pdf.save(filename);
 
-  onProgress('Export complete!');
+  onProgress('');
   return { success: true, filename };
 }
 
@@ -1739,7 +1764,7 @@ async function drawElement(pdf, element, pageDims, context = {}) {
       const rgb = hexToRgb(textColor);
       pdf.setTextColor(rgb.r, rgb.g, rgb.b);
 
-      const text = element.content?.text || featureTitle;
+      const text = featureTitle || element.content?.text || 'Feature Details';
       const align = element.content?.align || 'center';
       let textX = x + width / 2;
       if (align === 'left') textX = x + 0.1;
