@@ -288,6 +288,15 @@ export default function MapEditor({
         scaleRatio: 1.0,
         elements: []
       },
+      // Display mapping - optional one-to-many attribute join for popup display
+      // When enabled, the feature info popup shows data from a related feature layer
+      // joined by primary/foreign key, while geometry remains from the search result
+      displayMapping: {
+        enabled: false,
+        featureLayerId: '',     // Layer to query for display data (e.g., parcel units table)
+        primaryKeyField: '',    // Field on the search/click layer (e.g., PARCELID on parcels)
+        foreignKeyField: '',    // Field on the feature layer (e.g., PARCELID on parcel_units)
+      },
       ...data?.customFeatureInfo
     },
     ...data,
@@ -320,6 +329,11 @@ export default function MapEditor({
   const [webMapLayersLoading, setWebMapLayersLoading] = useState(false);
   const [webMapLayersError, setWebMapLayersError] = useState(null);
   const [lastFetchedWebMap, setLastFetchedWebMap] = useState('');
+
+  // Display mapping layer fields state
+  const [displayMappingFields, setDisplayMappingFields] = useState([]);
+  const [displayMappingFieldsLoading, setDisplayMappingFieldsLoading] = useState(false);
+  const [lastFetchedDisplayLayerUrl, setLastFetchedDisplayLayerUrl] = useState('');
 
   // Fetch fields from feature service endpoint
   const fetchServiceFields = useCallback(async (endpointUrl) => {
@@ -542,6 +556,61 @@ export default function MapEditor({
     return selectedLayer?.popupElements || [];
   }, [mapConfig.customFeatureInfo?.layerId, webMapLayers]);
 
+  // Get popup elements for the display mapping feature layer
+  const displayMappingPopupElements = useMemo(() => {
+    const featureLayerId = mapConfig.customFeatureInfo?.displayMapping?.featureLayerId;
+    if (!featureLayerId || webMapLayers.length === 0) return [];
+    const layer = webMapLayers.find(l => l.id === featureLayerId);
+    return layer?.popupElements || [];
+  }, [mapConfig.customFeatureInfo?.displayMapping?.featureLayerId, webMapLayers]);
+
+  // Fetch fields for the display mapping layer when it changes
+  const fetchDisplayMappingFields = useCallback(async (layerUrl) => {
+    if (!layerUrl || !layerUrl.trim()) {
+      setDisplayMappingFields([]);
+      return;
+    }
+    if (layerUrl === lastFetchedDisplayLayerUrl && displayMappingFields.length > 0) return;
+
+    setDisplayMappingFieldsLoading(true);
+    try {
+      const fetchUrl = layerUrl.includes('?') ? `${layerUrl}&f=json` : `${layerUrl}?f=json`;
+      let json;
+      let response = await fetch(fetchUrl);
+      if (response.ok) {
+        json = await response.json();
+      } else {
+        const proxyResponse = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: layerUrl })
+        });
+        if (proxyResponse.ok) json = await proxyResponse.json();
+      }
+      if (json?.fields && Array.isArray(json.fields)) {
+        setDisplayMappingFields([...json.fields].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+        setLastFetchedDisplayLayerUrl(layerUrl);
+      } else {
+        setDisplayMappingFields([]);
+      }
+    } catch (err) {
+      console.warn('Error fetching display mapping layer fields:', err);
+      setDisplayMappingFields([]);
+    } finally {
+      setDisplayMappingFieldsLoading(false);
+    }
+  }, [lastFetchedDisplayLayerUrl, displayMappingFields.length]);
+
+  // Auto-fetch display mapping layer fields when selection changes
+  useEffect(() => {
+    const featureLayerId = mapConfig.customFeatureInfo?.displayMapping?.featureLayerId;
+    if (!featureLayerId || webMapLayers.length === 0) return;
+    const layer = webMapLayers.find(l => l.id === featureLayerId);
+    if (layer?.url && layer.url !== lastFetchedDisplayLayerUrl) {
+      fetchDisplayMappingFields(layer.url);
+    }
+  }, [mapConfig.customFeatureInfo?.displayMapping?.featureLayerId, webMapLayers, lastFetchedDisplayLayerUrl, fetchDisplayMappingFields]);
+
   // Update field
   const updateField = (field, value) => {
     // Prevent setting access to public if license doesn't allow
@@ -763,6 +832,17 @@ export default function MapEditor({
     setMapConfig(prev => ({
       ...prev,
       customFeatureInfo: { ...prev.customFeatureInfo, [field]: value }
+    }));
+  };
+
+  // Display Mapping management (nested under customFeatureInfo)
+  const updateDisplayMapping = (field, value) => {
+    setMapConfig(prev => ({
+      ...prev,
+      customFeatureInfo: {
+        ...prev.customFeatureInfo,
+        displayMapping: { ...prev.customFeatureInfo?.displayMapping, [field]: value }
+      }
     }));
   };
 
@@ -2702,6 +2782,157 @@ export default function MapEditor({
                 <p className="mt-1 text-xs text-slate-400">
                   The layer for features that should display custom tabs
                 </p>
+              </div>
+
+              {/* Display Mapping Configuration */}
+              <div className="pt-4 border-t border-slate-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Link2 className="w-5 h-5 text-slate-400" />
+                    <h4 className="text-sm font-medium text-slate-700">Display Mapping (Related Table)</h4>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={mapConfig.customFeatureInfo?.displayMapping?.enabled || false}
+                      onChange={(e) => updateDisplayMapping('enabled', e.target.checked)}
+                      className="rounded border-slate-300 text-sky-500 focus:ring-sky-500"
+                    />
+                    <span className="text-sm text-slate-600">Enable</span>
+                  </label>
+                </div>
+
+                <p className="text-sm text-slate-500 mb-4">
+                  When enabled, clicking a search result will display data from a related feature layer
+                  joined by a primary/foreign key. The map geometry remains from the search result,
+                  but the popup tabs show data from the related table (one-to-many).
+                </p>
+
+                {mapConfig.customFeatureInfo?.displayMapping?.enabled && (
+                  <div className="space-y-4 pl-2 border-l-2 border-sky-200">
+                    {/* Feature Layer Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Feature Layer (display data source)
+                      </label>
+                      {webMapLayersLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading layers from WebMap...
+                        </div>
+                      ) : webMapLayers.length > 0 ? (
+                        <select
+                          value={mapConfig.customFeatureInfo?.displayMapping?.featureLayerId || ''}
+                          onChange={(e) => updateDisplayMapping('featureLayerId', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                        >
+                          <option value="">-- Select a layer --</option>
+                          {webMapLayers.map(layer => (
+                            <option key={layer.id} value={layer.id}>
+                              {'\u00A0\u00A0'.repeat(layer.depth || 0)}{layer.title} ({layer.id})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={mapConfig.customFeatureInfo?.displayMapping?.featureLayerId || ''}
+                          onChange={(e) => updateDisplayMapping('featureLayerId', e.target.value)}
+                          placeholder="Layer ID for display data"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                        />
+                      )}
+                      <p className="mt-1 text-xs text-slate-400">
+                        The layer containing the related records to display (e.g., parcel units table)
+                      </p>
+                    </div>
+
+                    {/* Primary Key Field */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Primary Key (search layer field)
+                      </label>
+                      {availableFields.length > 0 ? (
+                        <select
+                          value={mapConfig.customFeatureInfo?.displayMapping?.primaryKeyField || ''}
+                          onChange={(e) => updateDisplayMapping('primaryKeyField', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                        >
+                          <option value="">-- Select field --</option>
+                          {availableFields.map(f => (
+                            <option key={f.name} value={f.name}>
+                              {f.name} ({f.alias || f.type})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={mapConfig.customFeatureInfo?.displayMapping?.primaryKeyField || ''}
+                          onChange={(e) => updateDisplayMapping('primaryKeyField', e.target.value)}
+                          placeholder="e.g., PARCELID"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                        />
+                      )}
+                      <p className="mt-1 text-xs text-slate-400">
+                        The field on the search/source layer that identifies the record (e.g., PARCELID on parcels)
+                      </p>
+                    </div>
+
+                    {/* Foreign Key Field */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Foreign Key (feature layer field)
+                      </label>
+                      {displayMappingFieldsLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading fields from feature layer...
+                        </div>
+                      ) : displayMappingFields.length > 0 ? (
+                        <select
+                          value={mapConfig.customFeatureInfo?.displayMapping?.foreignKeyField || ''}
+                          onChange={(e) => updateDisplayMapping('foreignKeyField', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                        >
+                          <option value="">-- Select field --</option>
+                          {displayMappingFields.map(f => (
+                            <option key={f.name} value={f.name}>
+                              {f.name} ({f.alias || f.type})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={mapConfig.customFeatureInfo?.displayMapping?.foreignKeyField || ''}
+                          onChange={(e) => updateDisplayMapping('foreignKeyField', e.target.value)}
+                          placeholder="e.g., PARCELID"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                        />
+                      )}
+                      <p className="mt-1 text-xs text-slate-400">
+                        The field on the feature layer that matches the primary key (e.g., PARCELID on parcel_units)
+                      </p>
+                    </div>
+
+                    {/* Info box */}
+                    <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
+                      <div className="flex items-start gap-2">
+                        <Info className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
+                        <div className="text-xs text-sky-700">
+                          <p className="font-medium mb-1">How it works</p>
+                          <p>
+                            When a user clicks a search result, the system queries the feature layer
+                            where <span className="font-mono bg-sky-100 px-1 rounded">{mapConfig.customFeatureInfo?.displayMapping?.foreignKeyField || 'foreignKey'}</span> matches
+                            the search result's <span className="font-mono bg-sky-100 px-1 rounded">{mapConfig.customFeatureInfo?.displayMapping?.primaryKeyField || 'primaryKey'}</span> value.
+                            The popup tabs display data from the matched records, while the map highlights the original search geometry.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Tabs Configuration */}
