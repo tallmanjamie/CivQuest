@@ -280,6 +280,17 @@ export default function MapEditor({
       excludedFields: [],         // [{ field, replacement }] - fields to redact
       ...data?.dataExclusion
     },
+    // Search Source Join - query attributes from one source and join to another layer for spatial display
+    // Supports M:1 or 1:1 relationships: attribute data in source, spatial data in target
+    searchSourceJoin: {
+      enabled: false,
+      sourceEndpoint: '',       // Feature service URL for attribute-only search source
+      sourceLayerId: '',        // WebMap layer ID (if using webmap item as source)
+      joinKeySource: '',        // Key field on the source (attribute) layer
+      joinKeyTarget: '',        // Key field on the target (spatial) layer
+      targetLayerId: '',        // WebMap layer ID for spatial display target
+      ...data?.searchSourceJoin
+    },
     // Custom feature info - per-map configuration for feature popup tabs
     customFeatureInfo: {
       layerId: '',
@@ -334,6 +345,14 @@ export default function MapEditor({
   const [displayMappingFields, setDisplayMappingFields] = useState([]);
   const [displayMappingFieldsLoading, setDisplayMappingFieldsLoading] = useState(false);
   const [lastFetchedDisplayLayerUrl, setLastFetchedDisplayLayerUrl] = useState('');
+
+  // Search source join fields state
+  const [sourceJoinFields, setSourceJoinFields] = useState([]);
+  const [sourceJoinFieldsLoading, setSourceJoinFieldsLoading] = useState(false);
+  const [lastFetchedSourceJoinUrl, setLastFetchedSourceJoinUrl] = useState('');
+  const [targetJoinFields, setTargetJoinFields] = useState([]);
+  const [targetJoinFieldsLoading, setTargetJoinFieldsLoading] = useState(false);
+  const [lastFetchedTargetJoinUrl, setLastFetchedTargetJoinUrl] = useState('');
 
   // Fetch fields from feature service endpoint
   const fetchServiceFields = useCallback(async (endpointUrl) => {
@@ -845,6 +864,118 @@ export default function MapEditor({
       }
     }));
   };
+
+  // Search Source Join management
+  const updateSearchSourceJoin = (field, value) => {
+    setMapConfig(prev => ({
+      ...prev,
+      searchSourceJoin: { ...prev.searchSourceJoin, [field]: value }
+    }));
+  };
+
+  // Fetch fields for the search source join source layer
+  const fetchSourceJoinFields = useCallback(async (layerUrl) => {
+    if (!layerUrl || !layerUrl.trim()) {
+      setSourceJoinFields([]);
+      return;
+    }
+    if (layerUrl === lastFetchedSourceJoinUrl && sourceJoinFields.length > 0) return;
+
+    setSourceJoinFieldsLoading(true);
+    try {
+      const fetchUrl = layerUrl.includes('?') ? `${layerUrl}&f=json` : `${layerUrl}?f=json`;
+      let json;
+      let response = await fetch(fetchUrl);
+      if (response.ok) {
+        json = await response.json();
+      } else {
+        const proxyResponse = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: layerUrl })
+        });
+        if (proxyResponse.ok) json = await proxyResponse.json();
+      }
+      if (json?.fields && Array.isArray(json.fields)) {
+        setSourceJoinFields([...json.fields].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+        setLastFetchedSourceJoinUrl(layerUrl);
+      } else {
+        setSourceJoinFields([]);
+      }
+    } catch (err) {
+      console.warn('Error fetching source join layer fields:', err);
+      setSourceJoinFields([]);
+    } finally {
+      setSourceJoinFieldsLoading(false);
+    }
+  }, [lastFetchedSourceJoinUrl, sourceJoinFields.length]);
+
+  // Fetch fields for the search source join target layer
+  const fetchTargetJoinFields = useCallback(async (layerUrl) => {
+    if (!layerUrl || !layerUrl.trim()) {
+      setTargetJoinFields([]);
+      return;
+    }
+    if (layerUrl === lastFetchedTargetJoinUrl && targetJoinFields.length > 0) return;
+
+    setTargetJoinFieldsLoading(true);
+    try {
+      const fetchUrl = layerUrl.includes('?') ? `${layerUrl}&f=json` : `${layerUrl}?f=json`;
+      let json;
+      let response = await fetch(fetchUrl);
+      if (response.ok) {
+        json = await response.json();
+      } else {
+        const proxyResponse = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: layerUrl })
+        });
+        if (proxyResponse.ok) json = await proxyResponse.json();
+      }
+      if (json?.fields && Array.isArray(json.fields)) {
+        setTargetJoinFields([...json.fields].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+        setLastFetchedTargetJoinUrl(layerUrl);
+      } else {
+        setTargetJoinFields([]);
+      }
+    } catch (err) {
+      console.warn('Error fetching target join layer fields:', err);
+      setTargetJoinFields([]);
+    } finally {
+      setTargetJoinFieldsLoading(false);
+    }
+  }, [lastFetchedTargetJoinUrl, targetJoinFields.length]);
+
+  // Auto-fetch source join fields when source endpoint or layer changes
+  useEffect(() => {
+    const ssj = mapConfig.searchSourceJoin;
+    if (!ssj?.enabled) return;
+
+    // If using a direct endpoint
+    if (ssj.sourceEndpoint && !ssj.sourceLayerId) {
+      if (ssj.sourceEndpoint !== lastFetchedSourceJoinUrl) {
+        fetchSourceJoinFields(ssj.sourceEndpoint);
+      }
+    }
+    // If using a webmap layer
+    if (ssj.sourceLayerId && webMapLayers.length > 0) {
+      const layer = webMapLayers.find(l => l.id === ssj.sourceLayerId);
+      if (layer?.url && layer.url !== lastFetchedSourceJoinUrl) {
+        fetchSourceJoinFields(layer.url);
+      }
+    }
+  }, [mapConfig.searchSourceJoin?.enabled, mapConfig.searchSourceJoin?.sourceEndpoint, mapConfig.searchSourceJoin?.sourceLayerId, webMapLayers, lastFetchedSourceJoinUrl, fetchSourceJoinFields]);
+
+  // Auto-fetch target join fields when target layer changes
+  useEffect(() => {
+    const ssj = mapConfig.searchSourceJoin;
+    if (!ssj?.enabled || !ssj?.targetLayerId || webMapLayers.length === 0) return;
+    const layer = webMapLayers.find(l => l.id === ssj.targetLayerId);
+    if (layer?.url && layer.url !== lastFetchedTargetJoinUrl) {
+      fetchTargetJoinFields(layer.url);
+    }
+  }, [mapConfig.searchSourceJoin?.enabled, mapConfig.searchSourceJoin?.targetLayerId, webMapLayers, lastFetchedTargetJoinUrl, fetchTargetJoinFields]);
 
   // Tab management for custom feature info
   const addFeatureInfoTab = () => {
@@ -1941,6 +2072,278 @@ export default function MapEditor({
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Search Source Join */}
+              <div className="pt-4 border-t border-slate-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Link2 className="w-5 h-5 text-slate-400" />
+                    <h4 className="text-sm font-medium text-slate-700">Search Source Join</h4>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={mapConfig.searchSourceJoin?.enabled || false}
+                      onChange={(e) => updateSearchSourceJoin('enabled', e.target.checked)}
+                      className="rounded border-slate-300 text-sky-500 focus:ring-sky-500"
+                    />
+                    <span className="text-sm text-slate-600">Enable</span>
+                  </label>
+                </div>
+
+                <p className="text-sm text-slate-500 mb-4">
+                  When enabled, searches query attributes from a separate source (table or feature service)
+                  and join results to a spatial layer for map display. This supports M:1 or 1:1 relationships,
+                  allowing attribute data to be stored separately from spatial data.
+                </p>
+
+                {mapConfig.searchSourceJoin?.enabled && (
+                  <div className="space-y-4 pl-2 border-l-2 border-sky-200">
+                    {/* Source Type Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Attribute Source
+                      </label>
+                      <div className="flex gap-2 mb-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateSearchSourceJoin('sourceLayerId', '');
+                            // Keep sourceEndpoint as-is for manual entry
+                          }}
+                          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            !mapConfig.searchSourceJoin?.sourceLayerId && mapConfig.searchSourceJoin?.sourceEndpoint
+                              ? 'border-sky-500 bg-sky-50 text-sky-700'
+                              : !mapConfig.searchSourceJoin?.sourceLayerId
+                              ? 'border-sky-500 bg-sky-50 text-sky-700'
+                              : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <Link2 className="w-4 h-4" />
+                          Feature Service URL
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateSearchSourceJoin('sourceEndpoint', '');
+                            // Switch to webmap layer mode
+                          }}
+                          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            mapConfig.searchSourceJoin?.sourceLayerId
+                              ? 'border-sky-500 bg-sky-50 text-sky-700'
+                              : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <Globe className="w-4 h-4" />
+                          WebMap Layer
+                        </button>
+                      </div>
+
+                      {mapConfig.searchSourceJoin?.sourceLayerId || (!mapConfig.searchSourceJoin?.sourceEndpoint && webMapLayers.length > 0 && !mapConfig.searchSourceJoin?.sourceLayerId) ? (
+                        // WebMap Layer picker for source
+                        <div>
+                          {webMapLayersLoading ? (
+                            <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Loading layers from WebMap...
+                            </div>
+                          ) : webMapLayers.length > 0 ? (
+                            <select
+                              value={mapConfig.searchSourceJoin?.sourceLayerId || ''}
+                              onChange={(e) => {
+                                const layerId = e.target.value;
+                                const selectedLayer = webMapLayers.find(l => l.id === layerId);
+                                updateSearchSourceJoin('sourceLayerId', layerId);
+                                if (selectedLayer?.url) {
+                                  updateSearchSourceJoin('sourceEndpoint', selectedLayer.url);
+                                  fetchSourceJoinFields(selectedLayer.url);
+                                }
+                              }}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                            >
+                              <option value="">-- Select source layer --</option>
+                              {webMapLayers.filter(l => l.url).map(layer => (
+                                <option key={layer.id} value={layer.id}>
+                                  {'\u00A0\u00A0'.repeat(layer.depth || 0)}{layer.title} ({layer.type})
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={mapConfig.searchSourceJoin?.sourceLayerId || ''}
+                              onChange={(e) => updateSearchSourceJoin('sourceLayerId', e.target.value)}
+                              placeholder="Layer ID for attribute source"
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                            />
+                          )}
+                          <p className="mt-1 text-xs text-slate-400">
+                            WebMap layer containing attribute data to search against
+                          </p>
+                        </div>
+                      ) : (
+                        // Feature Service URL for source
+                        <div>
+                          <input
+                            type="url"
+                            value={mapConfig.searchSourceJoin?.sourceEndpoint || ''}
+                            onChange={(e) => {
+                              updateSearchSourceJoin('sourceEndpoint', e.target.value);
+                              if (e.target.value) fetchSourceJoinFields(e.target.value);
+                            }}
+                            placeholder="https://services.arcgis.com/.../FeatureServer/0"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                          />
+                          <p className="mt-1 text-xs text-slate-400">
+                            Feature service endpoint containing attribute data to search against
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Source Join Key */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Source Join Key (attribute layer field)
+                      </label>
+                      {sourceJoinFieldsLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading fields from source layer...
+                        </div>
+                      ) : sourceJoinFields.length > 0 ? (
+                        <select
+                          value={mapConfig.searchSourceJoin?.joinKeySource || ''}
+                          onChange={(e) => updateSearchSourceJoin('joinKeySource', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                        >
+                          <option value="">-- Select field --</option>
+                          {sourceJoinFields.map(f => (
+                            <option key={f.name} value={f.name}>
+                              {f.name} ({f.alias || f.type})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={mapConfig.searchSourceJoin?.joinKeySource || ''}
+                          onChange={(e) => updateSearchSourceJoin('joinKeySource', e.target.value)}
+                          placeholder="e.g., PARCELID"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                        />
+                      )}
+                      <p className="mt-1 text-xs text-slate-400">
+                        The key field on the attribute source used to join to the spatial target
+                      </p>
+                    </div>
+
+                    {/* Target Layer */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Spatial Target Layer (for map display)
+                      </label>
+                      {webMapLayersLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading layers from WebMap...
+                        </div>
+                      ) : webMapLayers.length > 0 ? (
+                        <select
+                          value={mapConfig.searchSourceJoin?.targetLayerId || ''}
+                          onChange={(e) => {
+                            updateSearchSourceJoin('targetLayerId', e.target.value);
+                            const selectedLayer = webMapLayers.find(l => l.id === e.target.value);
+                            if (selectedLayer?.url) {
+                              fetchTargetJoinFields(selectedLayer.url);
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                        >
+                          <option value="">-- Select target layer --</option>
+                          {webMapLayers.filter(l => l.url).map(layer => (
+                            <option key={layer.id} value={layer.id}>
+                              {'\u00A0\u00A0'.repeat(layer.depth || 0)}{layer.title} ({layer.type})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={mapConfig.searchSourceJoin?.targetLayerId || ''}
+                          onChange={(e) => updateSearchSourceJoin('targetLayerId', e.target.value)}
+                          placeholder="Layer ID for spatial display"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                        />
+                      )}
+                      <p className="mt-1 text-xs text-slate-400">
+                        The WebMap layer containing spatial features to display on the map
+                      </p>
+                    </div>
+
+                    {/* Target Join Key */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Target Join Key (spatial layer field)
+                      </label>
+                      {targetJoinFieldsLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading fields from target layer...
+                        </div>
+                      ) : targetJoinFields.length > 0 ? (
+                        <select
+                          value={mapConfig.searchSourceJoin?.joinKeyTarget || ''}
+                          onChange={(e) => updateSearchSourceJoin('joinKeyTarget', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                        >
+                          <option value="">-- Select field --</option>
+                          {targetJoinFields.map(f => (
+                            <option key={f.name} value={f.name}>
+                              {f.name} ({f.alias || f.type})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={mapConfig.searchSourceJoin?.joinKeyTarget || ''}
+                          onChange={(e) => updateSearchSourceJoin('joinKeyTarget', e.target.value)}
+                          placeholder="e.g., PARCELID"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                        />
+                      )}
+                      <p className="mt-1 text-xs text-slate-400">
+                        The key field on the spatial target that matches the source join key
+                      </p>
+                    </div>
+
+                    {/* Info box */}
+                    <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
+                      <div className="flex items-start gap-2">
+                        <Info className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
+                        <div className="text-xs text-sky-700">
+                          <p className="font-medium mb-1">How Search Source Join works</p>
+                          <p className="mb-2">
+                            Searches and autocomplete query the <strong>attribute source</strong> layer.
+                            Results are then joined to the <strong>spatial target</strong> layer using the configured key fields.
+                          </p>
+                          <p className="mb-2">
+                            <strong>Chat &amp; Table:</strong> Show attribute data from the source layer.{' '}
+                            <strong>Map:</strong> Displays spatial features from the target layer, linked via
+                            {' '}<span className="font-mono bg-sky-100 px-1 rounded">{mapConfig.searchSourceJoin?.joinKeySource || 'sourceKey'}</span>
+                            {' '}={' '}
+                            <span className="font-mono bg-sky-100 px-1 rounded">{mapConfig.searchSourceJoin?.joinKeyTarget || 'targetKey'}</span>.
+                          </p>
+                          <p>
+                            Supports <strong>M:1</strong> (many attribute rows to one spatial feature) and <strong>1:1</strong> relationships.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

@@ -544,11 +544,16 @@ const ChatView = forwardRef(function ChatView(props, ref) {
   }, [activeMap?.endpoint, config?.data?.endpoint]);
 
   const lookupParcelById = useCallback(async (parcelId) => {
-    const endpoint = activeMap?.endpoint || config?.data?.endpoint;
+    // When source join is enabled, look up parcel from the source endpoint
+    const ssj = activeMap?.searchSourceJoin;
+    const endpoint = (ssj?.enabled && ssj?.sourceEndpoint)
+      ? ssj.sourceEndpoint
+      : (activeMap?.endpoint || config?.data?.endpoint);
     if (!endpoint) throw new Error('No endpoint configured');
 
     const { parcelField } = getFieldNames();
-    console.log('[ChatView] Looking up parcel by ID:', parcelId, 'field:', parcelField);
+    console.log('[ChatView] Looking up parcel by ID:', parcelId, 'field:', parcelField,
+      ssj?.enabled ? '(source join - querying source endpoint)' : '');
 
     const params = new URLSearchParams({
       f: 'json',
@@ -560,10 +565,14 @@ const ChatView = forwardRef(function ChatView(props, ref) {
 
     const response = await fetch(`${endpoint}/query?${params}`);
     return response.json();
-  }, [activeMap?.endpoint, config?.data?.endpoint, getFieldNames]);
+  }, [activeMap?.endpoint, activeMap?.searchSourceJoin, config?.data?.endpoint, getFieldNames]);
 
   const executeSqlQuery = useCallback(async (queryParams) => {
-    const endpoint = activeMap?.endpoint || config?.data?.endpoint;
+    // When source join is enabled, query the source endpoint for attribute data
+    const ssj = activeMap?.searchSourceJoin;
+    const endpoint = (ssj?.enabled && ssj?.sourceEndpoint)
+      ? ssj.sourceEndpoint
+      : (activeMap?.endpoint || config?.data?.endpoint);
     if (!endpoint) throw new Error('No endpoint configured');
 
     // Enforce maxRecordCount from organization's Atlas configuration
@@ -573,7 +582,8 @@ const ChatView = forwardRef(function ChatView(props, ref) {
       ? Math.min(Number(queryParams.limit), maxRecordCount)
       : maxRecordCount;
 
-    console.log('[ChatView] Executing SQL query:', queryParams, 'with limit:', effectiveLimit);
+    console.log('[ChatView] Executing SQL query:', queryParams, 'with limit:', effectiveLimit,
+      ssj?.enabled ? '(source join - querying source endpoint)' : '');
 
     const params = new URLSearchParams({
       f: 'json',
@@ -588,7 +598,7 @@ const ChatView = forwardRef(function ChatView(props, ref) {
 
     const response = await fetch(`${endpoint}/query?${params}`);
     return response.json();
-  }, [activeMap?.endpoint, config?.data?.endpoint, config?.data?.maxRecordCount]);
+  }, [activeMap?.endpoint, activeMap?.searchSourceJoin, config?.data?.endpoint, config?.data?.maxRecordCount]);
 
   /**
    * Handle help queries using documentation
@@ -949,9 +959,90 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
         }
       }
 
-      const rawFeatures = results?.features || [];
+      let rawFeatures = results?.features || [];
 
       if (results?.error) throw new Error(results.error.message || 'Query failed');
+
+      // Search Source Join: join attribute results to spatial target layer
+      const sourceJoin = activeMap?.searchSourceJoin;
+      if (sourceJoin?.enabled && sourceJoin?.joinKeySource && sourceJoin?.joinKeyTarget && rawFeatures.length > 0) {
+        console.log('[ChatView] Performing source join to spatial target');
+
+        const joinValues = [...new Set(
+          rawFeatures.map(f => f.attributes?.[sourceJoin.joinKeySource]).filter(v => v !== undefined && v !== null)
+        )];
+
+        if (joinValues.length > 0) {
+          const escapedValues = joinValues.map(v =>
+            typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : v
+          );
+
+          let targetFeatures = [];
+          const targetLayer = mapViewRef?.current?.map?.allLayers?.find(l => l.id === sourceJoin.targetLayerId);
+
+          if (targetLayer?.queryFeatures) {
+            const query = targetLayer.createQuery();
+            query.where = `${sourceJoin.joinKeyTarget} IN (${escapedValues.join(',')})`;
+            query.outFields = ['*'];
+            query.returnGeometry = true;
+            const targetResult = await targetLayer.queryFeatures(query);
+            targetFeatures = targetResult.features.map(f => ({
+              geometry: f.geometry?.toJSON?.() || f.geometry,
+              attributes: f.attributes
+            }));
+          } else if (targetLayer?.url) {
+            const targetParams = new URLSearchParams({
+              f: 'json',
+              where: `${sourceJoin.joinKeyTarget} IN (${escapedValues.join(',')})`,
+              outFields: '*',
+              returnGeometry: 'true',
+              outSR: '4326'
+            });
+            const targetResponse = await fetch(`${targetLayer.url}/query?${targetParams}`);
+            const targetData = await targetResponse.json();
+            if (!targetData.error) {
+              const targetSR = targetData.spatialReference || { wkid: 4326 };
+              targetFeatures = (targetData.features || []).map(f => {
+                if (f.geometry && !f.geometry.spatialReference) {
+                  f.geometry.spatialReference = targetSR;
+                }
+                return f;
+              });
+            }
+          }
+
+          // Build lookup map
+          const targetMap = new Map();
+          targetFeatures.forEach(tf => {
+            const key = String(tf.attributes?.[sourceJoin.joinKeyTarget] ?? '');
+            if (!targetMap.has(key)) targetMap.set(key, []);
+            targetMap.get(key).push(tf);
+          });
+
+          // Join source attributes with target geometry
+          rawFeatures = rawFeatures.map(sourceFeature => {
+            const sourceKeyVal = String(sourceFeature.attributes?.[sourceJoin.joinKeySource] ?? '');
+            const matchingTargets = targetMap.get(sourceKeyVal);
+            const targetFeature = matchingTargets?.[0];
+
+            return {
+              geometry: targetFeature?.geometry || sourceFeature.geometry || null,
+              attributes: { ...sourceFeature.attributes },
+              _sourceJoin: {
+                enabled: true,
+                sourceAttributes: sourceFeature.attributes,
+                targetAttributes: targetFeature?.attributes || null,
+                targetGeometry: targetFeature?.geometry || null,
+                joinKeySource: sourceJoin.joinKeySource,
+                joinKeyTarget: sourceJoin.joinKeyTarget,
+                hasMatch: !!targetFeature
+              }
+            };
+          });
+
+          console.log(`[ChatView] Source join: ${rawFeatures.filter(f => f._sourceJoin?.hasMatch).length}/${rawFeatures.length} matched`);
+        }
+      }
 
       // Apply data exclusion rules to redact fields for matching records
       const features = applyDataExclusions(rawFeatures, activeMap);

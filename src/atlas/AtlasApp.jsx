@@ -240,7 +240,12 @@ function SearchToolbar({
    * Fetch suggestions from the feature service
    */
   const fetchSuggestions = useCallback(async (input, autocompleteField) => {
-    if (!activeMap?.endpoint || !autocompleteField?.field) return [];
+    // When source join is enabled, query autocomplete from the source endpoint
+    const ssj = activeMap?.searchSourceJoin;
+    const suggestEndpoint = (ssj?.enabled && ssj?.sourceEndpoint)
+      ? ssj.sourceEndpoint
+      : activeMap?.endpoint;
+    if (!suggestEndpoint || !autocompleteField?.field) return [];
 
     try {
       const searchValue = input.toUpperCase();
@@ -258,7 +263,7 @@ function SearchToolbar({
         orderByFields: autocompleteField.field
       });
 
-      const response = await fetch(`${activeMap.endpoint}/query?${params}`);
+      const response = await fetch(`${suggestEndpoint}/query?${params}`);
       const data = await response.json();
 
       if (data.features && data.features.length > 0) {
@@ -276,7 +281,7 @@ function SearchToolbar({
     }
 
     return [];
-  }, [activeMap?.endpoint, config?.data?.autocompleteMaxResults]);
+  }, [activeMap?.endpoint, activeMap?.searchSourceJoin, config?.data?.autocompleteMaxResults]);
 
   /**
    * Fetch geocoding suggestions from the geocoder's suggest endpoint
