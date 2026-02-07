@@ -1,6 +1,6 @@
 // src/admin/components/MapEditor.jsx
 // Modal for editing individual Atlas map configurations
-// Handles webmap settings, endpoint, columns, search fields, geocoder, export templates, layer visibility, and data exclusion
+// Handles webmap settings, data source selection, endpoint, columns, search fields, geocoder, export templates, layer visibility, and data exclusion
 //
 // LICENSE ENFORCEMENT: Enforces public/private visibility based on organization license
 // - Professional: Private only (no public maps allowed)
@@ -217,6 +217,7 @@ export default function MapEditor({
       itemId: ''
     },
     endpoint: '',
+    dataSourceType: 'featureService', // 'featureService' or 'webmapItem'
     autocomplete: [],
     searchFields: [],
     tableColumns: [],
@@ -531,6 +532,15 @@ export default function MapEditor({
         [field]: value
       }
     }));
+
+    // Clear error when field is updated (for webMap fields validated at top level)
+    if (errors[field]) {
+      setErrors(prev => {
+        const updated = { ...prev };
+        delete updated[field];
+        return updated;
+      });
+    }
   };
 
   // Toggle mode
@@ -1100,19 +1110,27 @@ export default function MapEditor({
   const handleSave = () => {
     const newErrors = {};
     
+    if (!mapConfig.webMap?.portalUrl?.trim()) {
+      newErrors.portalUrl = 'Portal URL is required';
+    }
+
+    if (!mapConfig.webMap?.itemId?.trim()) {
+      newErrors.itemId = 'WebMap Item ID is required';
+    }
+
     if (!mapConfig.name?.trim()) {
       newErrors.name = 'Map name is required';
     }
-    
-    if (!mapConfig.endpoint?.trim()) {
+
+    if ((!mapConfig.dataSourceType || mapConfig.dataSourceType === 'featureService') && !mapConfig.endpoint?.trim()) {
       newErrors.endpoint = 'Feature service endpoint is required';
     }
-    
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       // Switch to the tab with the first error
-      if (newErrors.name) setActiveTab('basic');
-      else if (newErrors.endpoint) setActiveTab('data');
+      if (newErrors.portalUrl || newErrors.itemId || newErrors.name) setActiveTab('basic');
+      else if (newErrors.endpoint) setActiveTab('search');
       return;
     }
     
@@ -1122,7 +1140,6 @@ export default function MapEditor({
   // Tab definitions - now includes Feature Info, Layers, Data Exclusion, and Export tabs
   const tabs = [
     { id: 'basic', label: 'Basic', icon: Settings },
-    { id: 'data', label: 'Data Source', icon: Link2 },
     { id: 'search', label: 'Search', icon: Search },
     { id: 'table', label: 'Table', icon: Table2 },
     { id: 'geocoder', label: 'Geocoder', icon: MapPin },
@@ -1216,6 +1233,46 @@ export default function MapEditor({
           {/* Basic Settings Tab */}
           {activeTab === 'basic' && (
             <div className="space-y-6">
+              {/* WebMap Configuration */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                  <Globe className="w-4 h-4" />
+                  WebMap Configuration
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      Portal URL *
+                    </label>
+                    <input
+                      type="url"
+                      value={mapConfig.webMap?.portalUrl || ''}
+                      onChange={(e) => updateNestedField('webMap', 'portalUrl', e.target.value)}
+                      placeholder="https://www.arcgis.com"
+                      className={`w-full px-3 py-2 border rounded-lg text-sm ${
+                        errors.portalUrl ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
+                      }`}
+                    />
+                    {errors.portalUrl && <p className="text-xs text-red-500 mt-1">{errors.portalUrl}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      WebMap Item ID *
+                    </label>
+                    <input
+                      type="text"
+                      value={mapConfig.webMap?.itemId || ''}
+                      onChange={(e) => updateNestedField('webMap', 'itemId', e.target.value)}
+                      placeholder="abc123..."
+                      className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${
+                        errors.itemId ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
+                      }`}
+                    />
+                    {errors.itemId && <p className="text-xs text-red-500 mt-1">{errors.itemId}</p>}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -1345,74 +1402,87 @@ export default function MapEditor({
             </div>
           )}
 
-          {/* Data Source Tab */}
-          {activeTab === 'data' && (
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Feature Service Endpoint *
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={mapConfig.endpoint}
-                    onChange={(e) => updateField('endpoint', e.target.value)}
-                    placeholder="https://services.arcgis.com/.../FeatureServer/0"
-                    className={`flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-opacity-50 ${
-                      errors.endpoint ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
-                    }`}
-                  />
-                  {onOpenServiceFinder && (
-                    <button
-                      type="button"
-                      onClick={onOpenServiceFinder}
-                      className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600"
-                    >
-                      <Search className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-                {errors.endpoint && <p className="text-xs text-red-500 mt-1">{errors.endpoint}</p>}
-              </div>
-
-              <div className="p-4 bg-slate-50 rounded-lg">
-                <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-                  <Globe className="w-4 h-4" />
-                  WebMap Configuration (Optional)
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Portal URL
-                    </label>
-                    <input
-                      type="url"
-                      value={mapConfig.webMap?.portalUrl || ''}
-                      onChange={(e) => updateNestedField('webMap', 'portalUrl', e.target.value)}
-                      placeholder="https://www.arcgis.com"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      WebMap Item ID
-                    </label>
-                    <input
-                      type="text"
-                      value={mapConfig.webMap?.itemId || ''}
-                      onChange={(e) => updateNestedField('webMap', 'itemId', e.target.value)}
-                      placeholder="abc123..."
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Search Tab */}
           {activeTab === 'search' && (
             <div className="space-y-6">
+              {/* Data Source Selection */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                  <Link2 className="w-4 h-4" />
+                  Data Source
+                </h4>
+                <div className="flex gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => updateField('dataSourceType', 'webmapItem')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors text-sm ${
+                      mapConfig.dataSourceType === 'webmapItem'
+                        ? 'border-sky-500 bg-sky-50 text-sky-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Globe className="w-4 h-4" />
+                    WebMap Item
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateField('dataSourceType', 'featureService')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors text-sm ${
+                      (!mapConfig.dataSourceType || mapConfig.dataSourceType === 'featureService')
+                        ? 'border-sky-500 bg-sky-50 text-sky-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Link2 className="w-4 h-4" />
+                    Feature Service
+                  </button>
+                </div>
+
+                {mapConfig.dataSourceType === 'webmapItem' ? (
+                  <div>
+                    <p className="text-xs text-slate-500 mb-3">
+                      Search will use a layer from the WebMap configured in the Basic tab.
+                      {!mapConfig.webMap?.itemId && (
+                        <span className="text-amber-600 ml-1">Configure the WebMap Item ID in the Basic tab first.</span>
+                      )}
+                    </p>
+                    {mapConfig.webMap?.itemId && (
+                      <div className="flex items-center gap-2 text-xs text-emerald-600">
+                        <Check className="w-3 h-3" />
+                        Using WebMap item <span className="font-mono">{mapConfig.webMap.itemId}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      Feature Service Endpoint *
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={mapConfig.endpoint}
+                        onChange={(e) => updateField('endpoint', e.target.value)}
+                        placeholder="https://services.arcgis.com/.../FeatureServer/0"
+                        className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-opacity-50 ${
+                          errors.endpoint ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
+                        }`}
+                      />
+                      {onOpenServiceFinder && (
+                        <button
+                          type="button"
+                          onClick={onOpenServiceFinder}
+                          className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600"
+                        >
+                          <Search className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    {errors.endpoint && <p className="text-xs text-red-500 mt-1">{errors.endpoint}</p>}
+                  </div>
+                )}
+              </div>
+
               {/* Autocomplete */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -1990,7 +2060,7 @@ export default function MapEditor({
                     <div>
                       <h4 className="font-medium text-amber-800">WebMap Configuration Required</h4>
                       <p className="text-sm text-amber-700 mt-1">
-                        Configure a WebMap in the Data Source tab to load and manage layer visibility.
+                        Configure a WebMap in the Basic tab to load and manage layer visibility.
                         You need to set both the Portal URL and WebMap Item ID.
                       </p>
                     </div>
@@ -3024,7 +3094,7 @@ export default function MapEditor({
               {!mapConfig.endpoint && (
                 <p className="text-xs text-amber-600 flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" />
-                  Configure a feature service endpoint in the Data Source tab for better prompt generation
+                  Configure a feature service endpoint in the Search tab for better prompt generation
                 </p>
               )}
 
