@@ -39,6 +39,7 @@ import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
 import { exportFeatureToPDF } from '../utils/FeatureExportService';
 import { exportSearchResultsToShapefile } from '../utils/ShapefileExportService';
+import { applyDataExclusions } from '../utils/dataExclusion';
 import ChatMiniMap from './ChatMiniMap';
 
 /**
@@ -948,15 +949,18 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
         }
       }
 
-      const features = results?.features || [];
+      const rawFeatures = results?.features || [];
 
       if (results?.error) throw new Error(results.error.message || 'Query failed');
+
+      // Apply data exclusion rules to redact fields for matching records
+      const features = applyDataExclusions(rawFeatures, activeMap);
 
       updateSearchResults({ features });
       if (location) setSearchLocation?.(location);
       saveToHistory(trimmedQuery);
 
-      // Add to session memory
+      // Add to session memory (uses redacted features)
       addToSessionMemory(trimmedQuery, { features }, {
         whereClause: searchMetadata.whereClause,
         queryType: searchMetadata.queryType

@@ -1,6 +1,6 @@
 // src/admin/components/MapEditor.jsx
 // Modal for editing individual Atlas map configurations
-// Handles webmap settings, endpoint, columns, search fields, geocoder, export templates, and layer visibility
+// Handles webmap settings, endpoint, columns, search fields, geocoder, export templates, layer visibility, and data exclusion
 //
 // LICENSE ENFORCEMENT: Enforces public/private visibility based on organization license
 // - Professional: Private only (no public maps allowed)
@@ -11,6 +11,7 @@
 // - Feature Export Template selection (one per map)
 // - Layers tab for configuring which layers are hidden from the Atlas layer list
 //   (hidden layers remain functional but don't appear in the layers panel)
+// - Data Exclusion tab for configuring field-level redaction of records matching exclusion criteria
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -226,6 +227,16 @@ export default function MapEditor({
     featureExportTemplateId: null,
     // Hidden layers - array of layer IDs to hide from the layer list
     hiddenLayers: [],
+    // Data exclusion - redact fields for records matching exclusion criteria
+    dataExclusion: {
+      enabled: false,
+      mode: 'fieldValues',        // 'fieldValues' or 'definitionQuery'
+      identifierField: '',        // field to check for exclusion
+      identifierValues: [],       // values that trigger exclusion
+      definitionQuery: '',        // SQL WHERE clause for definitionQuery mode
+      excludedFields: [],         // [{ field, replacement }] - fields to redact
+      ...data?.dataExclusion
+    },
     // Custom feature info - per-map configuration for feature popup tabs
     customFeatureInfo: {
       layerId: '',
@@ -837,6 +848,68 @@ export default function MapEditor({
     }));
   };
 
+  // Data exclusion management
+  const updateDataExclusion = (field, value) => {
+    setMapConfig(prev => ({
+      ...prev,
+      dataExclusion: { ...prev.dataExclusion, [field]: value }
+    }));
+  };
+
+  const addIdentifierValue = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      dataExclusion: {
+        ...prev.dataExclusion,
+        identifierValues: [...(prev.dataExclusion?.identifierValues || []), '']
+      }
+    }));
+  };
+
+  const updateIdentifierValue = (index, value) => {
+    const updated = [...(mapConfig.dataExclusion?.identifierValues || [])];
+    updated[index] = value;
+    setMapConfig(prev => ({
+      ...prev,
+      dataExclusion: { ...prev.dataExclusion, identifierValues: updated }
+    }));
+  };
+
+  const removeIdentifierValue = (index) => {
+    const updated = (mapConfig.dataExclusion?.identifierValues || []).filter((_, i) => i !== index);
+    setMapConfig(prev => ({
+      ...prev,
+      dataExclusion: { ...prev.dataExclusion, identifierValues: updated }
+    }));
+  };
+
+  const addExcludedField = () => {
+    setMapConfig(prev => ({
+      ...prev,
+      dataExclusion: {
+        ...prev.dataExclusion,
+        excludedFields: [...(prev.dataExclusion?.excludedFields || []), { field: '', replacement: 'REDACTED' }]
+      }
+    }));
+  };
+
+  const updateExcludedField = (index, key, value) => {
+    const updated = [...(mapConfig.dataExclusion?.excludedFields || [])];
+    updated[index] = { ...updated[index], [key]: value };
+    setMapConfig(prev => ({
+      ...prev,
+      dataExclusion: { ...prev.dataExclusion, excludedFields: updated }
+    }));
+  };
+
+  const removeExcludedField = (index) => {
+    const updated = (mapConfig.dataExclusion?.excludedFields || []).filter((_, i) => i !== index);
+    setMapConfig(prev => ({
+      ...prev,
+      dataExclusion: { ...prev.dataExclusion, excludedFields: updated }
+    }));
+  };
+
   // Get page size display
   const getPageSizeDisplay = (template) => {
     if (template.pageSize === 'custom') {
@@ -1043,7 +1116,7 @@ export default function MapEditor({
     onSave(mapConfig);
   };
 
-  // Tab definitions - now includes Feature Info, Layers, and Export tabs
+  // Tab definitions - now includes Feature Info, Layers, Data Exclusion, and Export tabs
   const tabs = [
     { id: 'basic', label: 'Basic', icon: Settings },
     { id: 'data', label: 'Data Source', icon: Link2 },
@@ -1051,6 +1124,7 @@ export default function MapEditor({
     { id: 'table', label: 'Table', icon: Table2 },
     { id: 'geocoder', label: 'Geocoder', icon: MapPin },
     { id: 'layers', label: 'Layers', icon: Layers },
+    { id: 'dataExclusion', label: 'Data Exclusion', icon: ShieldOff },
     { id: 'featureInfo', label: 'Feature Info', icon: LayoutList },
     { id: 'export', label: 'Export', icon: Printer },
     { id: 'aiPrompt', label: 'AI Prompt', icon: Bot }
@@ -2099,6 +2173,311 @@ export default function MapEditor({
                         </div>
                       )}
                     </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Data Exclusion Tab */}
+          {activeTab === 'dataExclusion' && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-2 text-slate-800">
+                <ShieldOff className="w-5 h-5" />
+                <h3 className="font-semibold">Data Exclusion</h3>
+              </div>
+
+              <p className="text-sm text-slate-600">
+                Configure data exclusion to redact specific fields for records that match exclusion criteria.
+                This is commonly used for owner exclusion to protect personal information. Excluded field
+                values are replaced with a display value of your choice across chat, map, and table views.
+              </p>
+
+              {/* Enable/Disable Toggle */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={mapConfig.dataExclusion?.enabled || false}
+                    onChange={(e) => updateDataExclusion('enabled', e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-slate-700">Enable Data Exclusion</span>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      When enabled, matching records will have specified fields redacted in all views
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {mapConfig.dataExclusion?.enabled && (
+                <>
+                  {/* Exclusion Mode */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Exclusion Criteria Mode
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateDataExclusion('mode', 'fieldValues')}
+                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-colors ${
+                          mapConfig.dataExclusion?.mode === 'fieldValues'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Type className="w-4 h-4" />
+                        Field Values
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateDataExclusion('mode', 'definitionQuery')}
+                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-colors ${
+                          mapConfig.dataExclusion?.mode === 'definitionQuery'
+                            ? 'border-sky-500 bg-sky-50 text-sky-700'
+                            : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Code className="w-4 h-4" />
+                        Definition Query
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {mapConfig.dataExclusion?.mode === 'definitionQuery'
+                        ? 'Write a SQL WHERE clause to identify records that should be excluded'
+                        : 'Specify a field and a list of values that indicate a record should be excluded'}
+                    </p>
+                  </div>
+
+                  {/* Field Values Mode */}
+                  {mapConfig.dataExclusion?.mode !== 'definitionQuery' && (
+                    <div className="space-y-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                        <Search className="w-4 h-4 text-slate-400" />
+                        Exclusion Identifier
+                      </h4>
+
+                      {/* Identifier Field */}
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                          Identifier Field
+                        </label>
+                        {availableFields.length > 0 ? (
+                          <select
+                            value={mapConfig.dataExclusion?.identifierField || ''}
+                            onChange={(e) => updateDataExclusion('identifierField', e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                          >
+                            <option value="">-- Select Field --</option>
+                            {availableFields.map(field => (
+                              <option key={field.name} value={field.name}>
+                                {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
+                              </option>
+                            ))}
+                            {mapConfig.dataExclusion?.identifierField && !availableFields.find(f => f.name === mapConfig.dataExclusion.identifierField) && (
+                              <option value={mapConfig.dataExclusion.identifierField}>{mapConfig.dataExclusion.identifierField} (custom)</option>
+                            )}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={mapConfig.dataExclusion?.identifierField || ''}
+                            onChange={(e) => updateDataExclusion('identifierField', e.target.value)}
+                            placeholder="EXCLUSION_FLAG"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                          />
+                        )}
+                        <p className="text-xs text-slate-400 mt-1">
+                          The field in the data source that determines whether a record should be excluded
+                        </p>
+                      </div>
+
+                      {/* Identifier Values */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-medium text-slate-600">
+                            Exclusion Values
+                          </label>
+                          <button
+                            type="button"
+                            onClick={addIdentifierValue}
+                            className="text-xs flex items-center gap-1 hover:underline"
+                            style={{ color: accentColor }}
+                          >
+                            <Plus className="w-3 h-3" /> Add Value
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-400 mb-2">
+                          When the identifier field contains any of these values, the record's fields will be redacted
+                        </p>
+
+                        {(mapConfig.dataExclusion?.identifierValues || []).length === 0 ? (
+                          <p className="text-xs text-slate-400 italic py-2">No exclusion values defined</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {(mapConfig.dataExclusion?.identifierValues || []).map((val, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={val}
+                                  onChange={(e) => updateIdentifierValue(idx, e.target.value)}
+                                  placeholder="e.g., Y, YES, TRUE, EXCLUDED"
+                                  className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-sm"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeIdentifierValue(idx)}
+                                  className="p-1 text-slate-400 hover:text-red-500"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Definition Query Mode */}
+                  {mapConfig.dataExclusion?.mode === 'definitionQuery' && (
+                    <div className="space-y-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                        <Code className="w-4 h-4 text-slate-400" />
+                        Definition Query
+                      </h4>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                          SQL WHERE Clause
+                        </label>
+                        <textarea
+                          value={mapConfig.dataExclusion?.definitionQuery || ''}
+                          onChange={(e) => updateDataExclusion('definitionQuery', e.target.value)}
+                          placeholder="e.g., OWNER_EXCLUDED = 'Y' OR EXEMPT_CODE IN ('EX1', 'EX2')"
+                          rows={3}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                        />
+                        <p className="text-xs text-slate-400 mt-1">
+                          Records matching this clause will have their specified fields redacted.
+                          Supports: =, !=, &lt;&gt;, LIKE, IN, IS NULL, IS NOT NULL, AND, OR
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Excluded Fields Configuration */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-slate-700">
+                        Fields to Redact
+                      </label>
+                      <button
+                        type="button"
+                        onClick={addExcludedField}
+                        className="text-sm flex items-center gap-1 hover:underline"
+                        style={{ color: accentColor }}
+                      >
+                        <Plus className="w-4 h-4" /> Add Field
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-3">
+                      For each field, specify what replacement text to display in search results, chat,
+                      map popups, and table views when a record matches the exclusion criteria.
+                    </p>
+
+                    {(mapConfig.dataExclusion?.excludedFields || []).length === 0 ? (
+                      <div className="text-center py-4 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                        <ShieldOff className="w-6 h-6 mx-auto text-slate-300 mb-1" />
+                        <p className="text-sm text-slate-400">No fields configured for redaction</p>
+                        <p className="text-xs text-slate-400 mt-1">Add fields to specify which data should be hidden</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
+                          <div className="col-span-5">Field to Redact</div>
+                          <div className="col-span-6">Replacement Display Value</div>
+                          <div className="col-span-1"></div>
+                        </div>
+                        {(mapConfig.dataExclusion?.excludedFields || []).map((ef, idx) => (
+                          <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg border border-slate-200">
+                            <div className="col-span-5">
+                              {availableFields.length > 0 ? (
+                                <select
+                                  value={ef.field}
+                                  onChange={(e) => updateExcludedField(idx, 'field', e.target.value)}
+                                  className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded font-mono bg-white"
+                                >
+                                  <option value="">-- Select Field --</option>
+                                  {availableFields.map(field => (
+                                    <option key={field.name} value={field.name}>
+                                      {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
+                                    </option>
+                                  ))}
+                                  {ef.field && !availableFields.find(f => f.name === ef.field) && (
+                                    <option value={ef.field}>{ef.field} (custom)</option>
+                                  )}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={ef.field}
+                                  onChange={(e) => updateExcludedField(idx, 'field', e.target.value)}
+                                  placeholder="FIELD_NAME"
+                                  className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded font-mono"
+                                />
+                              )}
+                            </div>
+                            <div className="col-span-6">
+                              <input
+                                type="text"
+                                value={ef.replacement}
+                                onChange={(e) => updateExcludedField(idx, 'replacement', e.target.value)}
+                                placeholder="REDACTED"
+                                className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded"
+                              />
+                            </div>
+                            <div className="col-span-1 text-right">
+                              <button
+                                type="button"
+                                onClick={() => removeExcludedField(idx)}
+                                className="p-1 text-slate-400 hover:text-red-500"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Preview / Summary */}
+                  {(mapConfig.dataExclusion?.excludedFields || []).length > 0 && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="text-xs text-amber-800">
+                          <p className="font-medium mb-1">Exclusion Summary</p>
+                          <p>
+                            When a record matches the {mapConfig.dataExclusion?.mode === 'definitionQuery' ? 'definition query' : 'identifier criteria'}, the
+                            following fields will be replaced:
+                          </p>
+                          <ul className="mt-1 space-y-0.5">
+                            {(mapConfig.dataExclusion?.excludedFields || []).filter(ef => ef.field).map((ef, idx) => (
+                              <li key={idx}>
+                                <span className="font-mono">{ef.field}</span> → <span className="italic">"{ef.replacement || 'REDACTED'}"</span>
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="mt-2">
+                            This applies across all views: search results, chat responses, map feature popups, table data, and exports.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </>
               )}
