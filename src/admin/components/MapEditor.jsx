@@ -13,7 +13,7 @@
 //   (hidden layers remain functional but don't appear in the layers panel)
 // - Data Exclusion tab for configuring field-level redaction of records matching exclusion criteria
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   X,
   Save,
@@ -47,9 +47,9 @@ import {
   ArrowDown,
   Loader2,
   RefreshCw,
-  ShieldOff,
-  Type,
-  Code
+  Sparkles,
+  Bot,
+  Copy
 } from 'lucide-react';
 import {
   canHavePublicMaps,
@@ -61,6 +61,66 @@ import FeatureExportSettings from './FeatureExportSettings';
 
 // Configuration for the Proxy Service (for fetching feature service fields)
 const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
+
+// Extract popup element names from a WebMap popupInfo object
+const extractPopupElements = (popupInfo) => {
+  if (!popupInfo) return [];
+
+  const elements = [];
+
+  // Use popupElements if available (newer WebMap format)
+  if (popupInfo.popupElements && Array.isArray(popupInfo.popupElements)) {
+    popupInfo.popupElements.forEach((el, index) => {
+      let name = '';
+      if (el.type === 'fields') {
+        name = 'fields';
+      } else if (el.type === 'expression') {
+        const exprIdx = el.expressionInfoIndex;
+        if (exprIdx != null && popupInfo.expressionInfos?.[exprIdx]) {
+          name = popupInfo.expressionInfos[exprIdx].name ||
+                 popupInfo.expressionInfos[exprIdx].title ||
+                 `expression_${exprIdx}`;
+        } else {
+          name = `expression_${index}`;
+        }
+      } else if (el.type === 'text') {
+        name = el.title || `text_${index}`;
+      } else if (el.type === 'attachments') {
+        name = 'attachments';
+      } else if (el.type === 'media') {
+        name = el.title || 'media';
+      } else {
+        name = el.title || el.type || `element_${index}`;
+      }
+
+      if (name) {
+        elements.push({ name, type: el.type });
+      }
+    });
+  }
+
+  // Fallback: derive from expressionInfos and fieldInfos if no popupElements found
+  if (elements.length === 0) {
+    if (popupInfo.fieldInfos?.some(fi => fi.visible !== false)) {
+      elements.push({ name: 'fields', type: 'fields' });
+    }
+    if (popupInfo.expressionInfos && Array.isArray(popupInfo.expressionInfos)) {
+      popupInfo.expressionInfos.forEach(expr => {
+        if (expr.name || expr.title) {
+          elements.push({
+            name: expr.name || expr.title,
+            type: 'expression'
+          });
+        }
+      });
+    }
+    if (popupInfo.showAttachments) {
+      elements.push({ name: 'attachments', type: 'attachments' });
+    }
+  }
+
+  return elements;
+};
 
 // Page size display helper for export templates
 const PAGE_SIZES = {
@@ -191,6 +251,9 @@ export default function MapEditor({
     !canBePublic && data?.access === 'public'
   );
 
+  // AI prompt generation state
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+
   // Feature service fields state
   const [availableFields, setAvailableFields] = useState([]);
   const [fieldsLoading, setFieldsLoading] = useState(false);
@@ -314,7 +377,7 @@ export default function MapEditor({
       const extractedLayers = [];
 
       // Helper function to fetch sublayers from a MapServer
-      const fetchMapServerSublayers = async (url, parentId, depth) => {
+      const fetchMapServerSublayers = async (url, parentId, depth, webMapSublayers) => {
         try {
           // Fetch the MapServer metadata
           const mapServerUrl = `${url}?f=json`;
@@ -330,11 +393,14 @@ export default function MapEditor({
 
             layers.forEach(sublayer => {
               const sublayerId = `${parentLayerId}-${sublayer.id}`;
+              // Find popup info from the WebMap JSON for this sublayer
+              const webMapSublayer = webMapSublayers?.find(wsl => wsl.id === sublayer.id);
               extractedLayers.push({
                 id: sublayerId,
                 title: sublayer.name || `Sublayer ${sublayer.id}`,
                 type: 'MapServer Sublayer',
-                depth: currentDepth
+                depth: currentDepth,
+                popupElements: extractPopupElements(webMapSublayer?.popupInfo)
               });
 
               // Check for nested sublayers (group layers within MapServer)
@@ -361,7 +427,8 @@ export default function MapEditor({
             id: layer.id,
             title: layer.title || layer.name || 'Untitled Layer',
             type: layer.layerType || 'unknown',
-            depth
+            depth,
+            popupElements: extractPopupElements(layer.popupInfo)
           };
           extractedLayers.push(layerInfo);
 
@@ -370,7 +437,7 @@ export default function MapEditor({
                               (layer.url && layer.url.includes('/MapServer'));
 
           if (isMapServer && layer.url) {
-            await fetchMapServerSublayers(layer.url, layer.id, depth);
+            await fetchMapServerSublayers(layer.url, layer.id, depth, layer.layers);
           }
 
           // Process sublayers if present (for group layers)
@@ -409,6 +476,14 @@ export default function MapEditor({
       }
     }
   }, [mapConfig.webMap?.portalUrl, mapConfig.webMap?.itemId, lastFetchedWebMap, fetchWebMapLayers]);
+
+  // Get available popup elements for the currently selected feature info layer
+  const availablePopupElements = useMemo(() => {
+    const selectedLayerId = mapConfig.customFeatureInfo?.layerId;
+    if (!selectedLayerId || webMapLayers.length === 0) return [];
+    const selectedLayer = webMapLayers.find(l => l.id === selectedLayerId);
+    return selectedLayer?.popupElements || [];
+  }, [mapConfig.customFeatureInfo?.layerId, webMapLayers]);
 
   // Update field
   const updateField = (field, value) => {
@@ -831,6 +906,181 @@ export default function MapEditor({
     return PAGE_SIZES[template.pageSize] || template.pageSize;
   };
 
+  // Generate AI system prompt from map configuration
+  const generateSystemPrompt = useCallback(async () => {
+    setIsGeneratingPrompt(true);
+    try {
+      // Gather fields - use already-loaded availableFields, or fetch them
+      let fields = availableFields;
+      if (fields.length === 0 && mapConfig.endpoint) {
+        try {
+          const fetchUrl = mapConfig.endpoint.includes('?')
+            ? `${mapConfig.endpoint}&f=json`
+            : `${mapConfig.endpoint}?f=json`;
+          let json;
+          let response = await fetch(fetchUrl);
+          if (response.ok) {
+            json = await response.json();
+          } else {
+            const proxyResponse = await fetch(`${PROXY_BASE_URL}/arcgis/json`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: mapConfig.endpoint })
+            });
+            if (proxyResponse.ok) {
+              json = await proxyResponse.json();
+            }
+          }
+          if (json?.fields && Array.isArray(json.fields)) {
+            fields = json.fields;
+            setAvailableFields([...fields].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+            setLastFetchedEndpoint(mapConfig.endpoint);
+          }
+        } catch (err) {
+          console.warn('Could not fetch fields for prompt generation:', err);
+        }
+      }
+
+      // Build field schema description
+      const fieldLines = fields.map(f => {
+        const alias = f.alias && f.alias !== f.name ? ` (alias: "${f.alias}")` : '';
+        const type = f.type ? ` [${f.type.replace('esriFieldType', '')}]` : '';
+        return `   - ${f.name}${alias}${type}`;
+      });
+
+      // Identify key field types
+      const dateFields = fields.filter(f => f.type === 'esriFieldTypeDate');
+      const numericFields = fields.filter(f =>
+        f.type === 'esriFieldTypeDouble' ||
+        f.type === 'esriFieldTypeSingle' ||
+        f.type === 'esriFieldTypeInteger' ||
+        f.type === 'esriFieldTypeSmallInteger'
+      );
+      const textFields = fields.filter(f => f.type === 'esriFieldTypeString');
+      const oidField = fields.find(f => f.type === 'esriFieldTypeOID');
+
+      // Build search fields context
+      const searchFieldLines = (mapConfig.searchFields || []).map(sf =>
+        `   - ${sf.field} ("${sf.label || sf.field}", type: ${sf.type || 'text'})`
+      );
+
+      // Build table columns context
+      const tableColumnLines = (mapConfig.tableColumns || []).map(col =>
+        `   - ${col.field} ("${col.headerName || col.field}", display: ${col.fieldType || 'text'}${col.chatResults ? ', shown in chat' : ''})`
+      );
+
+      // Build autocomplete context
+      const autocompleteLines = (mapConfig.autocomplete || []).map(ac =>
+        `   - ${ac.type}: field=${ac.field}, label="${ac.label || ''}"${ac.pattern ? `, pattern=${ac.pattern}` : ''}`
+      );
+
+      // Detect potential address fields
+      const addressFields = fields.filter(f =>
+        /address|addr|street|location/i.test(f.name) ||
+        /address|addr|street|location/i.test(f.alias || '')
+      );
+
+      // Detect potential ID fields
+      const idFields = fields.filter(f =>
+        /parcel|pin|pid|folio|account|id$/i.test(f.name) && f.type !== 'esriFieldTypeOID'
+      );
+
+      // Generate the prompt
+      const mapName = mapConfig.name || 'this map';
+      let prompt = `You are a SQL translator for an ArcGIS Feature Service powering the "${mapName}" map.\n\n`;
+
+      // Special rules for detected patterns
+      if (idFields.length > 0) {
+        const idField = idFields[0];
+        const sampleLength = idField.length || 13;
+        prompt += `**SPECIAL RULE: ID DETECTION**\n`;
+        prompt += `If the user input appears to be a record ID or parcel number (a numeric or alphanumeric identifier), do NOT generate SQL.\n`;
+        prompt += `Instead, return JSON: { "parcelId": "The ID String" }\n`;
+        prompt += `Likely ID field: ${idField.name}${idField.alias ? ` ("${idField.alias}")` : ''}\n\n`;
+      }
+
+      if (addressFields.length > 0) {
+        prompt += `**SPECIAL RULE: ADDRESS DETECTION**\n`;
+        prompt += `If the user input is a specific street address (e.g. "306 Cedar Road", "123 Main St"), do NOT generate SQL.\n`;
+        prompt += `Instead, return JSON: { "address": "The Normalized Address String" }\n`;
+        prompt += `Address field(s): ${addressFields.map(f => f.name).join(', ')}\n\n`;
+      }
+
+      prompt += `**STANDARD RULE: SQL GENERATION**\n`;
+      prompt += `If the input is a question about data, convert English to a valid SQL 'WHERE' clause.\n\n`;
+
+      prompt += `CRITICAL SYNTAX RULES:\n`;
+      prompt += `1. **STRICT SCHEMA**: You MUST ONLY use fields from the schema below. Never invent field names.\n\n`;
+
+      if (dateFields.length > 0) {
+        prompt += `2. **DATES & TIMEZONES**:\n`;
+        prompt += `   - ArcGIS data is stored in GMT.\n`;
+        prompt += `   - SYNTAX: timestamp 'YYYY-MM-DD HH:MM:SS'\n`;
+        prompt += `   - For specific dates, create a range covering the full GMT window.\n`;
+        prompt += `   - Date fields: ${dateFields.map(f => f.name).join(', ')}\n\n`;
+      }
+
+      if (textFields.length > 0) {
+        prompt += `${dateFields.length > 0 ? '3' : '2'}. **TEXT MATCHING**:\n`;
+        prompt += `   - ALWAYS use 'LIKE' with wildcards (%) for text comparisons, never '='.\n`;
+        prompt += `   - Text fields are stored in UPPERCASE. Convert user input to uppercase.\n`;
+        prompt += `   - CORRECT: FIELDNAME LIKE '%SEARCH TERM%'\n`;
+        prompt += `   - WRONG: FIELDNAME = 'Search Term'\n\n`;
+      }
+
+      if (addressFields.length > 0) {
+        const ruleNum = 2 + (dateFields.length > 0 ? 1 : 0) + (textFields.length > 0 ? 1 : 0);
+        prompt += `${ruleNum}. **ADDRESS NORMALIZATION**:\n`;
+        prompt += `   - Use standard postal abbreviations in SQL strings:\n`;
+        prompt += `   - Boulevard -> BLVD, Street -> ST, Road -> RD, Avenue -> AVE\n`;
+        prompt += `   - Drive -> DR, Court -> CT, Lane -> LN, Parkway -> PKWY\n`;
+        prompt += `   - Highway -> HWY, Cove -> CV, Way -> WY\n\n`;
+      }
+
+      const nextRule = 2 + (dateFields.length > 0 ? 1 : 0) + (textFields.length > 0 ? 1 : 0) + (addressFields.length > 0 ? 1 : 0);
+
+      prompt += `${nextRule}. **LIMITS & SORTING**:\n`;
+      prompt += `   - If user asks for "Top 5", "10 most expensive", etc., extract that number as 'limit'.\n`;
+      prompt += `   - Ensure 'orderBy' matches the intent.\n`;
+      prompt += `   - If no limit is specified, set 'limit' to null.\n\n`;
+
+      prompt += `${nextRule + 1}. **SMART QUERYING**:\n`;
+      prompt += `   - Infer reasonable filters from context.\n`;
+      prompt += `   - If user implies a monetary transaction, consider filtering out zero/null amounts.\n\n`;
+
+      // Field schema
+      prompt += `AVAILABLE FIELDS SCHEMA:\n`;
+      if (fieldLines.length > 0) {
+        prompt += fieldLines.join('\n') + '\n\n';
+      } else {
+        prompt += `   (No fields loaded - configure the feature service endpoint first)\n\n`;
+      }
+
+      // Search fields context
+      if (searchFieldLines.length > 0) {
+        prompt += `CONFIGURED SEARCH FIELDS:\n`;
+        prompt += searchFieldLines.join('\n') + '\n\n';
+      }
+
+      // Output format
+      prompt += `OUTPUT FORMAT:\n`;
+      prompt += `Return JSON: { "where": "SQL_WHERE_CLAUSE", "orderBy": "FIELD_NAME ASC/DESC", "limit": INTEGER_OR_NULL }`;
+      if (addressFields.length > 0) {
+        prompt += ` OR { "address": "Address String" }`;
+      }
+      if (idFields.length > 0) {
+        prompt += ` OR { "parcelId": "ID String" }`;
+      }
+      prompt += `\n`;
+
+      updateField('systemPrompt', prompt);
+    } catch (err) {
+      console.error('Error generating system prompt:', err);
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  }, [mapConfig, availableFields, updateField]);
+
   // Validate and save
   const handleSave = () => {
     const newErrors = {};
@@ -864,7 +1114,8 @@ export default function MapEditor({
     { id: 'layers', label: 'Layers', icon: Layers },
     { id: 'dataExclusion', label: 'Data Exclusion', icon: ShieldOff },
     { id: 'featureInfo', label: 'Feature Info', icon: LayoutList },
-    { id: 'export', label: 'Export', icon: Printer }
+    { id: 'export', label: 'Export', icon: Printer },
+    { id: 'aiPrompt', label: 'AI Prompt', icon: Bot }
   ];
 
   // Mode options
@@ -2220,15 +2471,53 @@ export default function MapEditor({
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Layer ID
                 </label>
-                <input
-                  type="text"
-                  value={mapConfig.customFeatureInfo?.layerId || ''}
-                  onChange={(e) => updateCustomFeatureInfo('layerId', e.target.value)}
-                  placeholder="e.g., 194f67ad7e3-layer-42"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
-                />
+                {webMapLayersLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading layers from WebMap...
+                  </div>
+                ) : webMapLayers.length > 0 ? (
+                  <select
+                    value={mapConfig.customFeatureInfo?.layerId || ''}
+                    onChange={(e) => updateCustomFeatureInfo('layerId', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  >
+                    <option value="">-- Select a layer --</option>
+                    {webMapLayers.map(layer => (
+                      <option key={layer.id} value={layer.id}>
+                        {'\u00A0\u00A0'.repeat(layer.depth || 0)}{layer.title} ({layer.id})
+                      </option>
+                    ))}
+                    {/* Preserve existing value if not in list */}
+                    {mapConfig.customFeatureInfo?.layerId &&
+                     !webMapLayers.find(l => l.id === mapConfig.customFeatureInfo.layerId) && (
+                      <option value={mapConfig.customFeatureInfo.layerId}>
+                        {mapConfig.customFeatureInfo.layerId} (not found in WebMap)
+                      </option>
+                    )}
+                  </select>
+                ) : (
+                  <div>
+                    <input
+                      type="text"
+                      value={mapConfig.customFeatureInfo?.layerId || ''}
+                      onChange={(e) => updateCustomFeatureInfo('layerId', e.target.value)}
+                      placeholder="e.g., 194f67ad7e3-layer-42"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                    />
+                    {webMapLayersError ? (
+                      <p className="mt-1 text-xs text-amber-500">
+                        Could not load layers: {webMapLayersError}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-slate-400">
+                        Configure a WebMap to select from available layers
+                      </p>
+                    )}
+                  </div>
+                )}
                 <p className="mt-1 text-xs text-slate-400">
-                  The layer ID for features that should display custom tabs
+                  The layer for features that should display custom tabs
                 </p>
               </div>
 
@@ -2307,13 +2596,31 @@ export default function MapEditor({
                             <div className="space-y-1.5">
                               {(tab.elements || []).map((element, elIdx) => (
                                 <div key={elIdx} className="flex items-center gap-2">
-                                  <input
-                                    type="text"
-                                    value={element}
-                                    onChange={(e) => updateFeatureInfoTabElement(tabIdx, elIdx, e.target.value)}
-                                    placeholder="Element name"
-                                    className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
-                                  />
+                                  {availablePopupElements.length > 0 ? (
+                                    <select
+                                      value={element}
+                                      onChange={(e) => updateFeatureInfoTabElement(tabIdx, elIdx, e.target.value)}
+                                      className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
+                                    >
+                                      <option value="">-- Select element --</option>
+                                      {availablePopupElements.map(pe => (
+                                        <option key={pe.name} value={pe.name}>
+                                          {pe.name} ({pe.type})
+                                        </option>
+                                      ))}
+                                      {element && !availablePopupElements.find(pe => pe.name === element) && (
+                                        <option value={element}>{element} (custom)</option>
+                                      )}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={element}
+                                      onChange={(e) => updateFeatureInfoTabElement(tabIdx, elIdx, e.target.value)}
+                                      placeholder="Element name"
+                                      className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
+                                    />
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => removeFeatureInfoTabElement(tabIdx, elIdx)}
@@ -2414,13 +2721,31 @@ export default function MapEditor({
                             <span className="w-6 text-center text-xs text-slate-400 font-medium">
                               {idx + 1}
                             </span>
-                            <input
-                              type="text"
-                              value={element}
-                              onChange={(e) => updateFeatureInfoExportElement(idx, e.target.value)}
-                              placeholder="Element name"
-                              className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm"
-                            />
+                            {availablePopupElements.length > 0 ? (
+                              <select
+                                value={element}
+                                onChange={(e) => updateFeatureInfoExportElement(idx, e.target.value)}
+                                className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm"
+                              >
+                                <option value="">-- Select element --</option>
+                                {availablePopupElements.map(pe => (
+                                  <option key={pe.name} value={pe.name}>
+                                    {pe.name} ({pe.type})
+                                  </option>
+                                ))}
+                                {element && !availablePopupElements.find(pe => pe.name === element) && (
+                                  <option value={element}>{element} (custom)</option>
+                                )}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={element}
+                                onChange={(e) => updateFeatureInfoExportElement(idx, e.target.value)}
+                                placeholder="Element name"
+                                className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm"
+                              />
+                            )}
                             <button
                               type="button"
                               onClick={() => removeFeatureInfoExportElement(idx)}
@@ -2609,6 +2934,93 @@ export default function MapEditor({
                   onChange={setFeatureExportTemplate}
                   accentColor={accentColor}
                 />
+              </div>
+            </div>
+          )}
+
+          {/* AI Prompt Tab */}
+          {activeTab === 'aiPrompt' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-slate-800">
+                <Bot className="w-5 h-5" />
+                <h3 className="font-semibold">AI System Prompt</h3>
+              </div>
+
+              <p className="text-sm text-slate-600">
+                Configure the AI system prompt for this map. This prompt is used for AI query translation
+                to convert natural language queries into SQL.
+              </p>
+
+              {/* Auto-generate button */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={generateSystemPrompt}
+                  disabled={isGeneratingPrompt}
+                  className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-sm font-medium text-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGeneratingPrompt ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" style={{ color: accentColor }} />
+                  )}
+                  {isGeneratingPrompt ? 'Generating...' : 'Auto-Generate from Map Config'}
+                </button>
+                {mapConfig.systemPrompt && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(mapConfig.systemPrompt);
+                    }}
+                    className="flex items-center gap-1 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-sm text-slate-600"
+                    title="Copy prompt to clipboard"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy
+                  </button>
+                )}
+              </div>
+
+              {/* Prompt info when fields are available */}
+              {availableFields.length > 0 && (
+                <p className="text-xs text-emerald-600 flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  {availableFields.length} service fields available for prompt generation
+                </p>
+              )}
+              {!mapConfig.endpoint && (
+                <p className="text-xs text-amber-600 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Configure a feature service endpoint in the Data Source tab for better prompt generation
+                </p>
+              )}
+
+              {/* System prompt textarea */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  System Prompt (for AI Query Translation)
+                </label>
+                <textarea
+                  value={mapConfig.systemPrompt || ''}
+                  onChange={(e) => updateField('systemPrompt', e.target.value)}
+                  placeholder="Instructions for AI to translate natural language to SQL for this map's feature service..."
+                  rows={16}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm font-mono"
+                />
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-xs text-slate-400">
+                    {mapConfig.systemPrompt ? `${mapConfig.systemPrompt.length} characters` : 'No prompt configured'}
+                  </p>
+                  {mapConfig.systemPrompt && (
+                    <button
+                      type="button"
+                      onClick={() => updateField('systemPrompt', '')}
+                      className="text-xs text-red-500 hover:text-red-700 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}

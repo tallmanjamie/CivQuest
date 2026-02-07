@@ -75,7 +75,6 @@ const DEFAULT_CONFIG = {
   basemaps: [],
   data: {
     maps: [],
-    systemPrompt: '',
     maxRecordCount: 1000,
     timeZoneOffset: -5,
     defaultSort: ''

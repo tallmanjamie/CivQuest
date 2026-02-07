@@ -50,7 +50,7 @@ Modal for editing overall Atlas settings:
 - **UI Settings**: Title, header, theme color, logos, default mode
 - **Messages**: Welcome title/text, example questions, important notes
 - **Basemaps**: Configure available basemap options
-- **Advanced**: System prompt, record limits, timezone
+- **Advanced**: Record limits, timezone
 
 **Usage:**
 ```jsx
@@ -199,7 +199,6 @@ Stored at `organizations/{orgId}.atlasConfig` (live) and `organizations/{orgId}.
   
   // Data Configuration
   data: {
-    systemPrompt: "AI prompt for chat mode...",
     maxRecordCount: 10000,
     timeZoneOffset: -5,
     defaultSort: "FIELD_NAME DESC",

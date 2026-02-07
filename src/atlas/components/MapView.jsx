@@ -1904,6 +1904,22 @@ const MapView = forwardRef(function MapView(props, ref) {
   }, []);
 
   /**
+   * Handle markup deleted - clear highlight and close popup if the deleted markup was selected
+   */
+  const handleMarkupDeleted = useCallback((deletedGraphic) => {
+    if (!deletedGraphic) return;
+    const deletedId = deletedGraphic.attributes?.id;
+    if (selectedMarkup && selectedMarkup.attributes?.id === deletedId) {
+      setShowMarkupPopup(false);
+      setSelectedMarkup(null);
+      setIsEditingMarkup(false);
+      if (highlightLayerRef.current) {
+        highlightLayerRef.current.removeAll();
+      }
+    }
+  }, [selectedMarkup]);
+
+  /**
    * Handle zoom to markup
    */
   const handleZoomToMarkup = useCallback((markup) => {
@@ -2184,6 +2200,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                   isExpanded={true}
                   onToggle={() => setShowMarkupTool(false)}
                   onMarkupCreated={handleMarkupCreated}
+                  onMarkupDeleted={handleMarkupDeleted}
                   justification={mapToolsJustification}
                 />
               )}
@@ -2266,6 +2283,7 @@ const MapView = forwardRef(function MapView(props, ref) {
                   }
                 }}
                 onMarkupCreated={handleMarkupCreated}
+                onMarkupDeleted={handleMarkupDeleted}
                 justification={mapToolsJustification}
               />
 
