@@ -50,7 +50,9 @@ import {
   RefreshCw,
   Sparkles,
   Bot,
-  Copy
+  Copy,
+  Type,
+  Code
 } from 'lucide-react';
 import {
   canHavePublicMaps,
