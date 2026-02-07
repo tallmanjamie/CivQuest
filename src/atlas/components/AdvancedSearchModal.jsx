@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { getThemeColors } from '../utils/themeColors';
+import { applyDataExclusions } from '../utils/dataExclusion';
 
 // Module-level cache for filter state persistence across modal open/close
 // Keyed by endpoint to handle different maps
@@ -848,18 +849,21 @@ export default function AdvancedSearchModal({
       });
       console.log(`[AdvancedSearch] Found ${features.length} features with SR:`, responseSR);
 
+      // Apply data exclusion rules to redact fields for matching records
+      const redactedFeatures = applyDataExclusions(features, activeMap);
+
       // Update results in context
-      updateSearchResults?.({ features });
+      updateSearchResults?.({ features: redactedFeatures });
 
       // Save to history
       saveToHistory?.(searchLabel);
 
-      // Add results to chat
+      // Add results to chat (uses redacted features)
       if (chatViewRef?.current?.addMessage) {
-        if (features.length === 0) {
+        if (redactedFeatures.length === 0) {
           chatViewRef.current.addMessage('ai', 'No records found matching your filter criteria.');
-        } else if (features.length === 1) {
-          const feature = features[0];
+        } else if (redactedFeatures.length === 1) {
+          const feature = redactedFeatures[0];
           chatViewRef.current.addMessage('ai', `I found **${description}**. Here are the details:`, {
             feature,
             showDetails: true
@@ -871,20 +875,20 @@ export default function AdvancedSearchModal({
             mapViewRef.current.selectFeature?.(feature);
           }
         } else {
-          chatViewRef.current.addMessage('ai', `I found **${features.length}** records matching your filter criteria.`, {
-            features,
+          chatViewRef.current.addMessage('ai', `I found **${redactedFeatures.length}** records matching your filter criteria.`, {
+            features: redactedFeatures,
             showResultActions: true
           });
 
           // Render results on map
           if (mapViewRef?.current?.renderResults) {
-            mapViewRef.current.renderResults(features);
+            mapViewRef.current.renderResults(redactedFeatures);
           }
         }
       }
 
       // Call onSearch callback if provided
-      onSearch?.(features, whereClause);
+      onSearch?.(redactedFeatures, whereClause);
 
     } catch (err) {
       console.error('[AdvancedSearch] Error:', err);
@@ -900,7 +904,7 @@ export default function AdvancedSearchModal({
   }, [
     endpoint, filterStates, searchFields, onClose, onSearch,
     updateSearchResults, setIsSearching, chatViewRef, saveToHistory,
-    mapViewRef, enabledModes
+    mapViewRef, enabledModes, activeMap
   ]);
 
   // Count active filters

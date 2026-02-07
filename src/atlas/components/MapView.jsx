@@ -56,6 +56,7 @@ const NEARBY_BUFFER_LAYER_ID = 'atlas-nearby-buffer-layer';
 
 // Import Feature Export Service
 import { exportFeatureToPDF } from '../utils/FeatureExportService';
+import { applyDataExclusions } from '../utils/dataExclusion';
 
 /**
  * MapView Component
@@ -670,6 +671,14 @@ const MapView = forwardRef(function MapView(props, ref) {
       }
     }
 
+    // Apply data exclusion rules to redact fields for matching records
+    // This handles features from direct map clicks (operational layers)
+    // Search result features are already redacted via updateSearchResults
+    if (activeMap?.dataExclusion?.enabled && enrichedFeature?.attributes && !enrichedFeature._isExcluded) {
+      const [redacted] = applyDataExclusions([enrichedFeature], activeMap);
+      enrichedFeature = redacted;
+    }
+
     // Close any open markup popup
     setShowMarkupPopup(false);
     setSelectedMarkup(null);
@@ -685,7 +694,7 @@ const MapView = forwardRef(function MapView(props, ref) {
 
     // Query for related features if configured
     queryRelatedFeatures(feature, graphic);
-  }, [activeMap?.customFeatureInfo?.layerId]);
+  }, [activeMap]);
 
   /**
    * Query related features based on config
@@ -1620,21 +1629,24 @@ const MapView = forwardRef(function MapView(props, ref) {
   const handleNearbySearch = useCallback((features, bufferGeometry, searchInfo) => {
     console.log('[MapView] Nearby search completed:', features.length, 'features found');
 
+    // Apply data exclusion rules to redact fields for matching records
+    const redactedFeatures = applyDataExclusions(features, activeMap);
+
     // Store buffer geometry and search info for "Save as markup" functionality
     setNearbyBufferGeometry(bufferGeometry);
     setNearbySearchInfo(searchInfo);
 
     // Update search results context - this updates search results panel and table view
-    updateSearchResults({ features });
+    updateSearchResults({ features: redactedFeatures });
 
-    // Add message to chat
+    // Add message to chat (uses redacted features)
     if (chatViewRef?.current?.addMessage) {
       const { distance, unit, sourceName } = searchInfo || {};
-      if (features.length === 0) {
+      if (redactedFeatures.length === 0) {
         chatViewRef.current.addMessage('ai', `No features found within **${distance} ${unit}** of **${sourceName}**.`);
       } else {
-        chatViewRef.current.addMessage('ai', `Found **${features.length}** feature${features.length !== 1 ? 's' : ''} within **${distance} ${unit}** of **${sourceName}**.`, {
-          features,
+        chatViewRef.current.addMessage('ai', `Found **${redactedFeatures.length}** feature${redactedFeatures.length !== 1 ? 's' : ''} within **${distance} ${unit}** of **${sourceName}**.`, {
+          features: redactedFeatures,
           showResultActions: true,
           searchMetadata: {
             queryType: 'nearbySearch',

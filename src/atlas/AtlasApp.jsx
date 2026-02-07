@@ -90,6 +90,9 @@ import NearmapModal from './components/NearmapModal';
 // Theme utility for proper dynamic theming
 import { getThemeColors, getThemeCssVars } from './utils/themeColors';
 
+// Data exclusion utility
+import { applyDataExclusions } from './utils/dataExclusion';
+
 // Create context for sharing state across components
 export const AtlasContext = createContext(null);
 
@@ -1278,11 +1281,17 @@ export default function AtlasApp() {
   }, [activeMap]);
   
   // Update results from child components
+  // Applies data exclusion rules before storing results so all views receive redacted data
   const updateSearchResults = useCallback((results, location = null) => {
-    setSearchResults(results);
+    if (results?.features?.length > 0 && activeMap?.dataExclusion?.enabled) {
+      const redactedFeatures = applyDataExclusions(results.features, activeMap);
+      setSearchResults({ ...results, features: redactedFeatures });
+    } else {
+      setSearchResults(results);
+    }
     if (location) setSearchLocation(location);
     setIsSearching(false);
-  }, []);
+  }, [activeMap]);
   
   // Navigate to feature on map
   const zoomToFeature = useCallback((feature) => {
