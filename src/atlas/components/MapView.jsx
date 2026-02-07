@@ -1260,9 +1260,9 @@ const MapView = forwardRef(function MapView(props, ref) {
 
   /**
    * Select the nearest map feature to a geocoded point
-   * Queries popup-enabled operational layers at progressive distances,
+   * Always places a pushpin at the geocoded location, then queries
+   * popup-enabled operational layers at progressive distances,
    * selects the closest feature, and opens the feature info panel.
-   * Falls back to pushpin placement if no features are found.
    * Returns true if a feature was selected, false otherwise.
    */
   const selectNearestFeatureAtPoint = useCallback(async (lat, lng, zoomLevel = 17) => {
@@ -1278,6 +1278,34 @@ const MapView = forwardRef(function MapView(props, ref) {
     if (graphicsLayerRef.current) graphicsLayerRef.current.removeAll();
     if (highlightLayerRef.current) highlightLayerRef.current.removeAll();
     if (pushpinLayerRef.current) pushpinLayerRef.current.removeAll();
+
+    // Always place a pushpin at the geocoded location so the user can see
+    // where the address resolved to, even when a nearby feature is selected
+    if (pushpinLayerRef.current) {
+      const palette = COLOR_PALETTE[themeColor] || COLOR_PALETTE.sky;
+      const hex500 = palette[500];
+      const hexToRgb = (hex) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? [
+          parseInt(result[1], 16),
+          parseInt(result[2], 16),
+          parseInt(result[3], 16)
+        ] : [14, 165, 233];
+      };
+      const [r, g, b] = hexToRgb(hex500);
+
+      const pushpinSymbol = new SimpleMarkerSymbol({
+        style: 'circle',
+        color: [r, g, b],
+        size: 16,
+        outline: { color: [255, 255, 255], width: 2 }
+      });
+
+      pushpinLayerRef.current.add(new Graphic({
+        geometry: point,
+        symbol: pushpinSymbol
+      }));
+    }
 
     // Close any open panels
     setShowSearchResults(false);
@@ -1299,8 +1327,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     });
 
     if (queryableLayers.length === 0) {
-      console.log('[MapView] No queryable popup-enabled layers, falling back to pushpin');
-      zoomToCoordinate(lat, lng, zoomLevel);
+      console.log('[MapView] No queryable popup-enabled layers, pushpin already placed');
       return false;
     }
 
@@ -1375,11 +1402,10 @@ const MapView = forwardRef(function MapView(props, ref) {
       }
     }
 
-    // No features found at any distance, fall back to pushpin
-    console.log('[MapView] No nearby features found, falling back to pushpin');
-    zoomToCoordinate(lat, lng, zoomLevel);
+    // No features found at any distance, pushpin is already displayed
+    console.log('[MapView] No nearby features found, pushpin already placed');
     return false;
-  }, [handleFeatureSelect, zoomToCoordinate]);
+  }, [handleFeatureSelect, themeColor]);
 
   /**
    * Display GPS marker at the given coordinates
