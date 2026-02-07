@@ -956,13 +956,6 @@ export default function MapEditor({
         }
       }
 
-      // Build field schema description
-      const fieldLines = fields.map(f => {
-        const alias = f.alias && f.alias !== f.name ? ` (alias: "${f.alias}")` : '';
-        const type = f.type ? ` [${f.type.replace('esriFieldType', '')}]` : '';
-        return `   - ${f.name}${alias}${type}`;
-      });
-
       // Identify key field types
       const dateFields = fields.filter(f => f.type === 'esriFieldTypeDate');
       const numericFields = fields.filter(f =>
@@ -1025,7 +1018,7 @@ export default function MapEditor({
       prompt += `If the input is a question about data, convert English to a valid SQL 'WHERE' clause.\n\n`;
 
       prompt += `CRITICAL SYNTAX RULES:\n`;
-      prompt += `1. **STRICT SCHEMA**: You MUST ONLY use fields from the schema below. Never invent field names.\n\n`;
+      prompt += `1. **STRICT SCHEMA**: You MUST ONLY use fields from the configured search fields below. Never invent field names.\n\n`;
 
       if (dateFields.length > 0) {
         prompt += `2. **DATES & TIMEZONES**:\n`;
@@ -1062,14 +1055,6 @@ export default function MapEditor({
       prompt += `${nextRule + 1}. **SMART QUERYING**:\n`;
       prompt += `   - Infer reasonable filters from context.\n`;
       prompt += `   - If user implies a monetary transaction, consider filtering out zero/null amounts.\n\n`;
-
-      // Field schema
-      prompt += `AVAILABLE FIELDS SCHEMA:\n`;
-      if (fieldLines.length > 0) {
-        prompt += fieldLines.join('\n') + '\n\n';
-      } else {
-        prompt += `   (No fields loaded - configure the feature service endpoint first)\n\n`;
-      }
 
       // Search fields context
       if (searchFieldLines.length > 0) {
