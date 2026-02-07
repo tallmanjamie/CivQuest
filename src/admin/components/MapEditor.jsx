@@ -1398,6 +1398,12 @@ export default function MapEditor({
     { id: 'table', label: 'Table', icon: Table2 }
   ];
 
+  // When search source join is enabled, search/autocomplete fields bind to the source join layer
+  const sourceJoinEnabled = mapConfig.searchSourceJoin?.enabled || false;
+  const effectiveSearchFields = sourceJoinEnabled ? sourceJoinFields : availableFields;
+  const effectiveSearchFieldsLoading = sourceJoinEnabled ? sourceJoinFieldsLoading : fieldsLoading;
+  const effectiveSearchFieldsError = sourceJoinEnabled ? null : fieldsError;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
@@ -1646,438 +1652,8 @@ export default function MapEditor({
           {/* Search Tab */}
           {activeTab === 'search' && (
             <div className="space-y-6">
-              {/* Data Source Selection */}
-              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-                  <Link2 className="w-4 h-4" />
-                  Data Source
-                </h4>
-                <div className="flex gap-2 mb-4">
-                  <button
-                    type="button"
-                    onClick={() => updateField('dataSourceType', 'webmapItem')}
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors text-sm ${
-                      mapConfig.dataSourceType === 'webmapItem'
-                        ? 'border-sky-500 bg-sky-50 text-sky-700'
-                        : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Globe className="w-4 h-4" />
-                    WebMap Item
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateField('dataSourceType', 'featureService')}
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors text-sm ${
-                      (!mapConfig.dataSourceType || mapConfig.dataSourceType === 'featureService')
-                        ? 'border-sky-500 bg-sky-50 text-sky-700'
-                        : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Link2 className="w-4 h-4" />
-                    Feature Service
-                  </button>
-                </div>
-
-                {mapConfig.dataSourceType === 'webmapItem' ? (
-                  <div>
-                    {!mapConfig.webMap?.itemId ? (
-                      <p className="text-xs text-amber-600">
-                        Configure the WebMap Item ID in the Basic tab first.
-                      </p>
-                    ) : webMapLayersLoading ? (
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Loading layers from WebMap...
-                      </div>
-                    ) : webMapLayersError ? (
-                      <p className="text-xs text-red-500">
-                        Failed to load WebMap layers: {webMapLayersError}
-                      </p>
-                    ) : (
-                      <>
-                        <label className="block text-xs font-medium text-slate-600 mb-1">
-                          Select Layer *
-                        </label>
-                        <select
-                          value={mapConfig.webmapLayerId || ''}
-                          onChange={(e) => {
-                            const layerId = e.target.value;
-                            const selectedLayer = webMapLayers.find(l => l.id === layerId);
-                            setMapConfig(prev => ({
-                              ...prev,
-                              webmapLayerId: layerId,
-                              endpoint: selectedLayer?.url || ''
-                            }));
-                            // Clear errors if present
-                            if (errors.endpoint || errors.webmapLayerId) {
-                              setErrors(prev => {
-                                const updated = { ...prev };
-                                delete updated.endpoint;
-                                delete updated.webmapLayerId;
-                                return updated;
-                              });
-                            }
-                            // Fetch fields for the selected layer's URL
-                            if (selectedLayer?.url) {
-                              fetchServiceFields(selectedLayer.url);
-                            }
-                          }}
-                          className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-opacity-50 ${
-                            errors.webmapLayerId ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
-                          }`}
-                        >
-                          <option value="">-- Select a layer --</option>
-                          {webMapLayers.filter(l => l.url).map(layer => (
-                            <option key={layer.id} value={layer.id}>
-                              {'  '.repeat(layer.depth || 0)}{layer.title} ({layer.type})
-                            </option>
-                          ))}
-                        </select>
-                        {errors.webmapLayerId && <p className="text-xs text-red-500 mt-1">{errors.webmapLayerId}</p>}
-                        {mapConfig.webmapLayerId && mapConfig.endpoint && (
-                          <div className="flex items-center gap-2 text-xs text-emerald-600 mt-2">
-                            <Check className="w-3 h-3" />
-                            Endpoint: <span className="font-mono truncate">{mapConfig.endpoint}</span>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Feature Service Endpoint *
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="url"
-                        value={mapConfig.endpoint}
-                        onChange={(e) => updateField('endpoint', e.target.value)}
-                        placeholder="https://services.arcgis.com/.../FeatureServer/0"
-                        className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-opacity-50 ${
-                          errors.endpoint ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
-                        }`}
-                      />
-                      {onOpenServiceFinder && (
-                        <button
-                          type="button"
-                          onClick={onOpenServiceFinder}
-                          className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600"
-                        >
-                          <Search className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                    {errors.endpoint && <p className="text-xs text-red-500 mt-1">{errors.endpoint}</p>}
-                  </div>
-                )}
-              </div>
-
-              {/* Autocomplete */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-slate-700">
-                    Autocomplete Fields
-                  </label>
-                  <div className="flex items-center gap-2">
-                    {fieldsLoading && (
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Loading fields...
-                      </span>
-                    )}
-                    {!fieldsLoading && availableFields.length > 0 && (
-                      <span className="text-xs text-emerald-600 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> {availableFields.length} fields available
-                      </span>
-                    )}
-                    {!fieldsLoading && mapConfig.endpoint && availableFields.length === 0 && !fieldsError && (
-                      <button
-                        type="button"
-                        onClick={() => fetchServiceFields(mapConfig.endpoint)}
-                        className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
-                      >
-                        <RefreshCw className="w-3 h-3" /> Load fields
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={addAutocomplete}
-                      className="text-sm flex items-center gap-1 hover:underline"
-                      style={{ color: accentColor }}
-                    >
-                      <Plus className="w-4 h-4" /> Add Field
-                    </button>
-                  </div>
-                </div>
-                <p className="text-xs text-slate-500 mb-3">
-                  Configure autocomplete suggestions that appear as users type in the search bar.
-                  Use patterns to match specific input formats (e.g., parcel IDs, addresses).
-                  {availableFields.length > 0 && ' Select from available service fields or enter custom field names.'}
-                </p>
-                {fieldsError && (
-                  <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-xs text-amber-700">{fieldsError}</p>
-                      <p className="text-xs text-amber-600 mt-1">You can still type field names manually.</p>
-                    </div>
-                  </div>
-                )}
-                {(mapConfig.autocomplete || []).length === 0 ? (
-                  <p className="text-sm text-slate-500 italic">No autocomplete fields configured</p>
-                ) : (
-                  <div className="space-y-3">
-                    {mapConfig.autocomplete.map((ac, idx) => (
-                      <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                        {/* Row 1: Type, Icon, Label */}
-                        <div className="flex items-center gap-2 mb-2">
-                          <input
-                            type="text"
-                            value={ac.type || ''}
-                            onChange={(e) => updateAutocomplete(idx, 'type', e.target.value)}
-                            placeholder="type"
-                            title="Unique identifier for this autocomplete type (e.g., 'parcel', 'address')"
-                            className="w-24 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                          />
-                          <input
-                            type="text"
-                            value={ac.icon || ''}
-                            onChange={(e) => updateAutocomplete(idx, 'icon', e.target.value)}
-                            placeholder="Icon"
-                            title="Emoji or icon to display (e.g., '&#x1F3E0;' for house)"
-                            className="w-16 px-2 py-1 text-sm border border-slate-300 rounded text-center"
-                          />
-                          <input
-                            type="text"
-                            value={ac.label || ''}
-                            onChange={(e) => updateAutocomplete(idx, 'label', e.target.value)}
-                            placeholder="Display Label"
-                            title="Human-readable label shown in autocomplete dropdown"
-                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeAutocomplete(idx)}
-                            className="p-1 text-slate-400 hover:text-red-500"
-                            title="Remove this autocomplete field"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                        {/* Row 2: Field, Max Suggestions */}
-                        <div className="flex items-center gap-2 mb-2">
-                          {availableFields.length > 0 ? (
-                            <select
-                              value={ac.field || ''}
-                              onChange={(e) => {
-                                const selectedField = availableFields.find(f => f.name === e.target.value);
-                                updateAutocomplete(idx, 'field', e.target.value);
-                                // Auto-populate label with alias if available and label is empty
-                                if (selectedField && !ac.label) {
-                                  updateAutocomplete(idx, 'label', selectedField.alias || selectedField.name);
-                                }
-                              }}
-                              title="Feature service field to query for suggestions"
-                              className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono bg-white"
-                            >
-                              <option value="">-- Select Field --</option>
-                              {availableFields.map(field => (
-                                <option key={field.name} value={field.name}>
-                                  {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
-                                </option>
-                              ))}
-                              {ac.field && !availableFields.find(f => f.name === ac.field) && (
-                                <option value={ac.field}>{ac.field} (custom)</option>
-                              )}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={ac.field || ''}
-                              onChange={(e) => updateAutocomplete(idx, 'field', e.target.value)}
-                              placeholder="FIELD_NAME"
-                              title="Feature service field to query for suggestions"
-                              className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                            />
-                          )}
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-slate-500">Max:</span>
-                            <input
-                              type="number"
-                              value={ac.maxSuggestions || 10}
-                              onChange={(e) => updateAutocomplete(idx, 'maxSuggestions', parseInt(e.target.value) || 10)}
-                              title="Maximum number of suggestions to show"
-                              className="w-16 px-2 py-1 text-sm border border-slate-300 rounded"
-                              min="1"
-                              max="50"
-                            />
-                          </div>
-                        </div>
-                        {/* Row 3: Pattern */}
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs text-slate-500 w-14">Pattern:</span>
-                          <input
-                            type="text"
-                            value={ac.pattern || ''}
-                            onChange={(e) => updateAutocomplete(idx, 'pattern', e.target.value)}
-                            placeholder="(\\d{5,})$ — regex to match input"
-                            title="Regular expression pattern to match user input. Use $ for end of string."
-                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono text-xs"
-                          />
-                        </div>
-                        {/* Row 4: Description */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-500 w-14">Desc:</span>
-                          <input
-                            type="text"
-                            value={ac.description || ''}
-                            onChange={(e) => updateAutocomplete(idx, 'description', e.target.value)}
-                            placeholder="Description shown to users"
-                            title="Help text describing what this autocomplete matches"
-                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded text-xs"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Search Fields */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-slate-700">
-                    Search Fields
-                  </label>
-                  <div className="flex items-center gap-2">
-                    {fieldsLoading && (
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Loading fields...
-                      </span>
-                    )}
-                    {!fieldsLoading && availableFields.length > 0 && (
-                      <span className="text-xs text-emerald-600 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> {availableFields.length} fields available
-                      </span>
-                    )}
-                    {!fieldsLoading && mapConfig.endpoint && availableFields.length === 0 && !fieldsError && (
-                      <button
-                        type="button"
-                        onClick={() => fetchServiceFields(mapConfig.endpoint)}
-                        className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
-                      >
-                        <RefreshCw className="w-3 h-3" /> Load fields
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={addSearchField}
-                      className="text-sm flex items-center gap-1 hover:underline"
-                      style={{ color: accentColor }}
-                    >
-                      <Plus className="w-4 h-4" /> Add Field
-                    </button>
-                  </div>
-                </div>
-                <p className="text-xs text-slate-500 mb-3">
-                  Configure fields available for advanced search.
-                  {availableFields.length > 0 && ' Select from available service fields or enter custom field names.'}
-                </p>
-                {fieldsError && (
-                  <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-xs text-amber-700">{fieldsError}</p>
-                      <p className="text-xs text-amber-600 mt-1">You can still type field names manually.</p>
-                    </div>
-                  </div>
-                )}
-                {(mapConfig.searchFields || []).length === 0 ? (
-                  <p className="text-sm text-slate-500 italic">No search fields configured</p>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
-                      <div className="col-span-4">Field</div>
-                      <div className="col-span-4">Label</div>
-                      <div className="col-span-3">Type</div>
-                      <div className="col-span-1"></div>
-                    </div>
-                    {mapConfig.searchFields.map((sf, idx) => (
-                      <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg">
-                        <div className="col-span-4">
-                          {availableFields.length > 0 ? (
-                            <select
-                              value={sf.field}
-                              onChange={(e) => {
-                                const selectedField = availableFields.find(f => f.name === e.target.value);
-                                updateSearchField(idx, 'field', e.target.value);
-                                // Auto-populate label with alias if available and label is empty
-                                if (selectedField && !sf.label) {
-                                  updateSearchField(idx, 'label', selectedField.alias || selectedField.name);
-                                }
-                              }}
-                              className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono bg-white"
-                            >
-                              <option value="">-- Select Field --</option>
-                              {availableFields.map(field => (
-                                <option key={field.name} value={field.name}>
-                                  {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
-                                </option>
-                              ))}
-                              {sf.field && !availableFields.find(f => f.name === sf.field) && (
-                                <option value={sf.field}>{sf.field} (custom)</option>
-                              )}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={sf.field}
-                              onChange={(e) => updateSearchField(idx, 'field', e.target.value)}
-                              placeholder="FIELD"
-                              className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
-                            />
-                          )}
-                        </div>
-                        <div className="col-span-4">
-                          <input
-                            type="text"
-                            value={sf.label}
-                            onChange={(e) => updateSearchField(idx, 'label', e.target.value)}
-                            placeholder="Label"
-                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
-                          />
-                        </div>
-                        <div className="col-span-3">
-                          <select
-                            value={sf.type || 'text'}
-                            onChange={(e) => updateSearchField(idx, 'type', e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
-                          >
-                            <option value="text">Text</option>
-                            <option value="number">Number</option>
-                            <option value="date">Date</option>
-                            <option value="single-select">Single Select</option>
-                            <option value="multi-select">Multi Select</option>
-                          </select>
-                        </div>
-                        <div className="col-span-1 text-right">
-                          <button
-                            type="button"
-                            onClick={() => removeSearchField(idx)}
-                            className="p-1 text-slate-400 hover:text-red-500"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
               {/* Search Source Join */}
-              <div className="pt-4 border-t border-slate-200">
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Link2 className="w-5 h-5 text-slate-400" />
@@ -2096,8 +1672,8 @@ export default function MapEditor({
 
                 <p className="text-sm text-slate-500 mb-4">
                   When enabled, searches query attributes from a separate source (table or feature service)
-                  and join results to a spatial layer for map display. This supports M:1 or 1:1 relationships,
-                  allowing attribute data to be stored separately from spatial data.
+                  and join results to a spatial layer for map display. This overrides the default data source
+                  for search and autocomplete fields.
                 </p>
 
                 {mapConfig.searchSourceJoin?.enabled && (
@@ -2344,6 +1920,439 @@ export default function MapEditor({
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Data Source Selection */}
+              {!sourceJoinEnabled && (
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                  <Link2 className="w-4 h-4" />
+                  Data Source
+                </h4>
+                <div className="flex gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => updateField('dataSourceType', 'webmapItem')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors text-sm ${
+                      mapConfig.dataSourceType === 'webmapItem'
+                        ? 'border-sky-500 bg-sky-50 text-sky-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Globe className="w-4 h-4" />
+                    WebMap Item
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateField('dataSourceType', 'featureService')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors text-sm ${
+                      (!mapConfig.dataSourceType || mapConfig.dataSourceType === 'featureService')
+                        ? 'border-sky-500 bg-sky-50 text-sky-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Link2 className="w-4 h-4" />
+                    Feature Service
+                  </button>
+                </div>
+
+                {mapConfig.dataSourceType === 'webmapItem' ? (
+                  <div>
+                    {!mapConfig.webMap?.itemId ? (
+                      <p className="text-xs text-amber-600">
+                        Configure the WebMap Item ID in the Basic tab first.
+                      </p>
+                    ) : webMapLayersLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Loading layers from WebMap...
+                      </div>
+                    ) : webMapLayersError ? (
+                      <p className="text-xs text-red-500">
+                        Failed to load WebMap layers: {webMapLayersError}
+                      </p>
+                    ) : (
+                      <>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                          Select Layer *
+                        </label>
+                        <select
+                          value={mapConfig.webmapLayerId || ''}
+                          onChange={(e) => {
+                            const layerId = e.target.value;
+                            const selectedLayer = webMapLayers.find(l => l.id === layerId);
+                            setMapConfig(prev => ({
+                              ...prev,
+                              webmapLayerId: layerId,
+                              endpoint: selectedLayer?.url || ''
+                            }));
+                            // Clear errors if present
+                            if (errors.endpoint || errors.webmapLayerId) {
+                              setErrors(prev => {
+                                const updated = { ...prev };
+                                delete updated.endpoint;
+                                delete updated.webmapLayerId;
+                                return updated;
+                              });
+                            }
+                            // Fetch fields for the selected layer's URL
+                            if (selectedLayer?.url) {
+                              fetchServiceFields(selectedLayer.url);
+                            }
+                          }}
+                          className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-opacity-50 ${
+                            errors.webmapLayerId ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
+                          }`}
+                        >
+                          <option value="">-- Select a layer --</option>
+                          {webMapLayers.filter(l => l.url).map(layer => (
+                            <option key={layer.id} value={layer.id}>
+                              {'  '.repeat(layer.depth || 0)}{layer.title} ({layer.type})
+                            </option>
+                          ))}
+                        </select>
+                        {errors.webmapLayerId && <p className="text-xs text-red-500 mt-1">{errors.webmapLayerId}</p>}
+                        {mapConfig.webmapLayerId && mapConfig.endpoint && (
+                          <div className="flex items-center gap-2 text-xs text-emerald-600 mt-2">
+                            <Check className="w-3 h-3" />
+                            Endpoint: <span className="font-mono truncate">{mapConfig.endpoint}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      Feature Service Endpoint *
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={mapConfig.endpoint}
+                        onChange={(e) => updateField('endpoint', e.target.value)}
+                        placeholder="https://services.arcgis.com/.../FeatureServer/0"
+                        className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-opacity-50 ${
+                          errors.endpoint ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
+                        }`}
+                      />
+                      {onOpenServiceFinder && (
+                        <button
+                          type="button"
+                          onClick={onOpenServiceFinder}
+                          className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600"
+                        >
+                          <Search className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    {errors.endpoint && <p className="text-xs text-red-500 mt-1">{errors.endpoint}</p>}
+                  </div>
+                )}
+              </div>
+              )}
+
+              {/* Autocomplete */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    Autocomplete Fields
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {effectiveSearchFieldsLoading && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Loading fields...
+                      </span>
+                    )}
+                    {!effectiveSearchFieldsLoading && effectiveSearchFields.length > 0 && (
+                      <span className="text-xs text-emerald-600 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> {effectiveSearchFields.length} fields available
+                      </span>
+                    )}
+                    {!effectiveSearchFieldsLoading && !sourceJoinEnabled && mapConfig.endpoint && effectiveSearchFields.length === 0 && !effectiveSearchFieldsError && (
+                      <button
+                        type="button"
+                        onClick={() => fetchServiceFields(mapConfig.endpoint)}
+                        className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Load fields
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={addAutocomplete}
+                      className="text-sm flex items-center gap-1 hover:underline"
+                      style={{ color: accentColor }}
+                    >
+                      <Plus className="w-4 h-4" /> Add Field
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">
+                  Configure autocomplete suggestions that appear as users type in the search bar.
+                  Use patterns to match specific input formats (e.g., parcel IDs, addresses).
+                  {effectiveSearchFields.length > 0 && ' Select from available service fields or enter custom field names.'}
+                </p>
+                {effectiveSearchFieldsError && (
+                  <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs text-amber-700">{effectiveSearchFieldsError}</p>
+                      <p className="text-xs text-amber-600 mt-1">You can still type field names manually.</p>
+                    </div>
+                  </div>
+                )}
+                {(mapConfig.autocomplete || []).length === 0 ? (
+                  <p className="text-sm text-slate-500 italic">No autocomplete fields configured</p>
+                ) : (
+                  <div className="space-y-3">
+                    {mapConfig.autocomplete.map((ac, idx) => (
+                      <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        {/* Row 1: Type, Icon, Label */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <input
+                            type="text"
+                            value={ac.type || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'type', e.target.value)}
+                            placeholder="type"
+                            title="Unique identifier for this autocomplete type (e.g., 'parcel', 'address')"
+                            className="w-24 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                          />
+                          <input
+                            type="text"
+                            value={ac.icon || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'icon', e.target.value)}
+                            placeholder="Icon"
+                            title="Emoji or icon to display (e.g., '&#x1F3E0;' for house)"
+                            className="w-16 px-2 py-1 text-sm border border-slate-300 rounded text-center"
+                          />
+                          <input
+                            type="text"
+                            value={ac.label || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'label', e.target.value)}
+                            placeholder="Display Label"
+                            title="Human-readable label shown in autocomplete dropdown"
+                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeAutocomplete(idx)}
+                            className="p-1 text-slate-400 hover:text-red-500"
+                            title="Remove this autocomplete field"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        {/* Row 2: Field, Max Suggestions */}
+                        <div className="flex items-center gap-2 mb-2">
+                          {effectiveSearchFields.length > 0 ? (
+                            <select
+                              value={ac.field || ''}
+                              onChange={(e) => {
+                                const selectedField = effectiveSearchFields.find(f => f.name === e.target.value);
+                                updateAutocomplete(idx, 'field', e.target.value);
+                                // Auto-populate label with alias if available and label is empty
+                                if (selectedField && !ac.label) {
+                                  updateAutocomplete(idx, 'label', selectedField.alias || selectedField.name);
+                                }
+                              }}
+                              title="Feature service field to query for suggestions"
+                              className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono bg-white"
+                            >
+                              <option value="">-- Select Field --</option>
+                              {effectiveSearchFields.map(field => (
+                                <option key={field.name} value={field.name}>
+                                  {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
+                                </option>
+                              ))}
+                              {ac.field && !effectiveSearchFields.find(f => f.name === ac.field) && (
+                                <option value={ac.field}>{ac.field} (custom)</option>
+                              )}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={ac.field || ''}
+                              onChange={(e) => updateAutocomplete(idx, 'field', e.target.value)}
+                              placeholder="FIELD_NAME"
+                              title="Feature service field to query for suggestions"
+                              className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                            />
+                          )}
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-slate-500">Max:</span>
+                            <input
+                              type="number"
+                              value={ac.maxSuggestions || 10}
+                              onChange={(e) => updateAutocomplete(idx, 'maxSuggestions', parseInt(e.target.value) || 10)}
+                              title="Maximum number of suggestions to show"
+                              className="w-16 px-2 py-1 text-sm border border-slate-300 rounded"
+                              min="1"
+                              max="50"
+                            />
+                          </div>
+                        </div>
+                        {/* Row 3: Pattern */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs text-slate-500 w-14">Pattern:</span>
+                          <input
+                            type="text"
+                            value={ac.pattern || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'pattern', e.target.value)}
+                            placeholder="(\\d{5,})$ — regex to match input"
+                            title="Regular expression pattern to match user input. Use $ for end of string."
+                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded font-mono text-xs"
+                          />
+                        </div>
+                        {/* Row 4: Description */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500 w-14">Desc:</span>
+                          <input
+                            type="text"
+                            value={ac.description || ''}
+                            onChange={(e) => updateAutocomplete(idx, 'description', e.target.value)}
+                            placeholder="Description shown to users"
+                            title="Help text describing what this autocomplete matches"
+                            className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded text-xs"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Search Fields */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    Search Fields
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {effectiveSearchFieldsLoading && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Loading fields...
+                      </span>
+                    )}
+                    {!effectiveSearchFieldsLoading && effectiveSearchFields.length > 0 && (
+                      <span className="text-xs text-emerald-600 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> {effectiveSearchFields.length} fields available
+                      </span>
+                    )}
+                    {!effectiveSearchFieldsLoading && !sourceJoinEnabled && mapConfig.endpoint && effectiveSearchFields.length === 0 && !effectiveSearchFieldsError && (
+                      <button
+                        type="button"
+                        onClick={() => fetchServiceFields(mapConfig.endpoint)}
+                        className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Load fields
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={addSearchField}
+                      className="text-sm flex items-center gap-1 hover:underline"
+                      style={{ color: accentColor }}
+                    >
+                      <Plus className="w-4 h-4" /> Add Field
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">
+                  Configure fields available for advanced search.
+                  {effectiveSearchFields.length > 0 && ' Select from available service fields or enter custom field names.'}
+                  {sourceJoinEnabled && ' Fields are sourced from the search source join attribute layer.'}
+                </p>
+                {effectiveSearchFieldsError && (
+                  <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs text-amber-700">{effectiveSearchFieldsError}</p>
+                      <p className="text-xs text-amber-600 mt-1">You can still type field names manually.</p>
+                    </div>
+                  </div>
+                )}
+                {(mapConfig.searchFields || []).length === 0 ? (
+                  <p className="text-sm text-slate-500 italic">No search fields configured</p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
+                      <div className="col-span-4">Field</div>
+                      <div className="col-span-4">Label</div>
+                      <div className="col-span-3">Type</div>
+                      <div className="col-span-1"></div>
+                    </div>
+                    {mapConfig.searchFields.map((sf, idx) => (
+                      <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 bg-slate-50 rounded-lg">
+                        <div className="col-span-4">
+                          {effectiveSearchFields.length > 0 ? (
+                            <select
+                              value={sf.field}
+                              onChange={(e) => {
+                                const selectedField = effectiveSearchFields.find(f => f.name === e.target.value);
+                                updateSearchField(idx, 'field', e.target.value);
+                                // Auto-populate label with alias if available and label is empty
+                                if (selectedField && !sf.label) {
+                                  updateSearchField(idx, 'label', selectedField.alias || selectedField.name);
+                                }
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono bg-white"
+                            >
+                              <option value="">-- Select Field --</option>
+                              {effectiveSearchFields.map(field => (
+                                <option key={field.name} value={field.name}>
+                                  {field.name} {field.alias && field.alias !== field.name ? `(${field.alias})` : ''}
+                                </option>
+                              ))}
+                              {sf.field && !effectiveSearchFields.find(f => f.name === sf.field) && (
+                                <option value={sf.field}>{sf.field} (custom)</option>
+                              )}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={sf.field}
+                              onChange={(e) => updateSearchField(idx, 'field', e.target.value)}
+                              placeholder="FIELD"
+                              className="w-full px-2 py-1 text-sm border border-slate-300 rounded font-mono"
+                            />
+                          )}
+                        </div>
+                        <div className="col-span-4">
+                          <input
+                            type="text"
+                            value={sf.label}
+                            onChange={(e) => updateSearchField(idx, 'label', e.target.value)}
+                            placeholder="Label"
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          <select
+                            value={sf.type || 'text'}
+                            onChange={(e) => updateSearchField(idx, 'type', e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                          >
+                            <option value="text">Text</option>
+                            <option value="number">Number</option>
+                            <option value="date">Date</option>
+                            <option value="single-select">Single Select</option>
+                            <option value="multi-select">Multi Select</option>
+                          </select>
+                        </div>
+                        <div className="col-span-1 text-right">
+                          <button
+                            type="button"
+                            onClick={() => removeSearchField(idx)}
+                            className="p-1 text-slate-400 hover:text-red-500"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
