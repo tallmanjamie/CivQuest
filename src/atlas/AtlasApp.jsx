@@ -1376,8 +1376,13 @@ export default function AtlasApp() {
 
       // Handle based on current mode
       if (mode === 'map') {
-        // In map mode: Just zoom to the location without search results
-        if (mapViewRef.current?.zoomToCoordinate) {
+        // Check if select nearest feature mode is enabled
+        if (geocoderConfig?.selectNearestFeature && mapViewRef.current?.selectNearestFeatureAtPoint) {
+          // Select the nearest map feature to the geocoded location
+          console.log('[AtlasApp] Geocoder selectNearestFeature enabled, finding nearest feature...');
+          mapViewRef.current.selectNearestFeatureAtPoint(location.lat, location.lng, 17);
+        } else if (mapViewRef.current?.zoomToCoordinate) {
+          // Default: Just zoom to the location with a pushpin
           mapViewRef.current.zoomToCoordinate(location.lat, location.lng, 17);
         }
       } else {

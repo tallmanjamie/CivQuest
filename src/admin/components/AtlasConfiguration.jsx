@@ -145,7 +145,8 @@ export default function AtlasConfiguration({
     tableColumns: [],
     geocoder: {
       enabled: false,
-      url: ""
+      url: "",
+      selectNearestFeature: false
     },
     exportTemplates: [],
     customFeatureInfo: {
