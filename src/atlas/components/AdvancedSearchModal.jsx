@@ -704,7 +704,11 @@ export default function AdvancedSearchModal({
   const colors = contextColors || getThemeColors(themeColor);
 
   const searchFields = activeMap?.searchFields || [];
-  const endpoint = activeMap?.endpoint;
+  const sourceJoin = activeMap?.searchSourceJoin;
+  // When source join is enabled, search fields query the source endpoint
+  const endpoint = (sourceJoin?.enabled && sourceJoin?.sourceEndpoint)
+    ? sourceJoin.sourceEndpoint
+    : activeMap?.endpoint;
 
   // Generate a cache key for this map
   const cacheKey = endpoint || 'default';
@@ -841,13 +845,112 @@ export default function AdvancedSearchModal({
       const responseSR = data.spatialReference || { wkid: 4326 };
 
       // Ensure each feature's geometry has the spatial reference
-      const features = (data.features || []).map(feature => {
+      let features = (data.features || []).map(feature => {
         if (feature.geometry && !feature.geometry.spatialReference) {
           feature.geometry.spatialReference = responseSR;
         }
         return feature;
       });
       console.log(`[AdvancedSearch] Found ${features.length} features with SR:`, responseSR);
+
+      // Search Source Join: join attribute results to spatial target layer
+      if (sourceJoin?.enabled && sourceJoin?.joinKeySource && sourceJoin?.joinKeyTarget && features.length > 0) {
+        console.log('[AdvancedSearch] Performing source join to spatial target');
+
+        // Extract unique join key values from source results
+        const joinValues = [...new Set(
+          features.map(f => f.attributes?.[sourceJoin.joinKeySource]).filter(v => v !== undefined && v !== null)
+        )];
+
+        if (joinValues.length > 0) {
+          // Build WHERE clause for target query
+          const escapedValues = joinValues.map(v =>
+            typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : v
+          );
+
+          // Query target layer for spatial features - try via ArcGIS MapView first, then direct fetch
+          let targetFeatures = [];
+          const targetLayer = mapViewRef?.current?.map?.allLayers?.find(l => l.id === sourceJoin.targetLayerId);
+
+          if (targetLayer?.queryFeatures) {
+            // Use ArcGIS API query (works for secured layers)
+            const query = targetLayer.createQuery();
+            query.where = `${sourceJoin.joinKeyTarget} IN (${escapedValues.join(',')})`;
+            query.outFields = ['*'];
+            query.returnGeometry = true;
+            const targetResult = await targetLayer.queryFeatures(query);
+            targetFeatures = targetResult.features.map(f => ({
+              geometry: f.geometry?.toJSON?.() || f.geometry,
+              attributes: f.attributes
+            }));
+          } else if (targetLayer?.url || sourceJoin.targetLayerId) {
+            // Fallback: direct REST query to target layer URL
+            // Find URL from webmap layers
+            let targetUrl = targetLayer?.url;
+            if (!targetUrl) {
+              // Try to get URL from the webmap layer config
+              console.warn('[AdvancedSearch] Target layer not found in map, spatial join may be incomplete');
+            }
+            if (targetUrl) {
+              const targetParams = new URLSearchParams({
+                f: 'json',
+                where: `${sourceJoin.joinKeyTarget} IN (${escapedValues.join(',')})`,
+                outFields: '*',
+                returnGeometry: 'true',
+                outSR: '4326'
+              });
+              const targetResponse = await fetch(`${targetUrl}/query?${targetParams}`);
+              const targetData = await targetResponse.json();
+              if (!targetData.error) {
+                const targetSR = targetData.spatialReference || { wkid: 4326 };
+                targetFeatures = (targetData.features || []).map(f => {
+                  if (f.geometry && !f.geometry.spatialReference) {
+                    f.geometry.spatialReference = targetSR;
+                  }
+                  return f;
+                });
+              }
+            }
+          }
+
+          console.log(`[AdvancedSearch] Source join: ${features.length} source features, ${targetFeatures.length} target features`);
+
+          // Build lookup map from target join key to target feature(s)
+          const targetMap = new Map();
+          targetFeatures.forEach(tf => {
+            const key = String(tf.attributes?.[sourceJoin.joinKeyTarget] ?? '');
+            if (!targetMap.has(key)) targetMap.set(key, []);
+            targetMap.get(key).push(tf);
+          });
+
+          // Join: each source feature gets geometry from matching target feature
+          // Store source attributes and mark with _sourceJoin metadata
+          features = features.map(sourceFeature => {
+            const sourceKeyVal = String(sourceFeature.attributes?.[sourceJoin.joinKeySource] ?? '');
+            const matchingTargets = targetMap.get(sourceKeyVal);
+            const targetFeature = matchingTargets?.[0]; // Use first match (M:1 or 1:1)
+
+            return {
+              // Use target geometry for map display (or null if no match)
+              geometry: targetFeature?.geometry || sourceFeature.geometry || null,
+              // Keep source attributes for chat/table display
+              attributes: { ...sourceFeature.attributes },
+              // Store metadata for downstream components
+              _sourceJoin: {
+                enabled: true,
+                sourceAttributes: sourceFeature.attributes,
+                targetAttributes: targetFeature?.attributes || null,
+                targetGeometry: targetFeature?.geometry || null,
+                joinKeySource: sourceJoin.joinKeySource,
+                joinKeyTarget: sourceJoin.joinKeyTarget,
+                hasMatch: !!targetFeature
+              }
+            };
+          });
+
+          console.log(`[AdvancedSearch] Source join complete: ${features.filter(f => f._sourceJoin?.hasMatch).length}/${features.length} matched`);
+        }
+      }
 
       // Apply data exclusion rules to redact fields for matching records
       const redactedFeatures = applyDataExclusions(features, activeMap);
@@ -904,7 +1007,7 @@ export default function AdvancedSearchModal({
   }, [
     endpoint, filterStates, searchFields, onClose, onSearch,
     updateSearchResults, setIsSearching, chatViewRef, saveToHistory,
-    mapViewRef, enabledModes, activeMap
+    mapViewRef, enabledModes, activeMap, sourceJoin
   ]);
 
   // Count active filters
