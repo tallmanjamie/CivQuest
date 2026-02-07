@@ -438,6 +438,7 @@ export default function MapEditor({
                 id: sublayerId,
                 title: sublayer.name || `Sublayer ${sublayer.id}`,
                 type: 'MapServer Sublayer',
+                url: `${url}/${sublayer.id}`,
                 depth: currentDepth,
                 popupElements: extractPopupElements(webMapSublayer?.popupInfo)
               });
@@ -466,6 +467,7 @@ export default function MapEditor({
             id: layer.id,
             title: layer.title || layer.name || 'Untitled Layer',
             type: layer.layerType || 'unknown',
+            url: layer.url || null,
             depth,
             popupElements: extractPopupElements(layer.popupInfo)
           };
@@ -1134,11 +1136,15 @@ export default function MapEditor({
       newErrors.endpoint = 'Feature service endpoint is required';
     }
 
+    if (mapConfig.dataSourceType === 'webmapItem' && !mapConfig.webmapLayerId) {
+      newErrors.webmapLayerId = 'Please select a layer from the WebMap';
+    }
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       // Switch to the tab with the first error
       if (newErrors.portalUrl || newErrors.itemId || newErrors.name) setActiveTab('basic');
-      else if (newErrors.endpoint) setActiveTab('search');
+      else if (newErrors.endpoint || newErrors.webmapLayerId) setActiveTab('search');
       return;
     }
     
@@ -1448,17 +1454,67 @@ export default function MapEditor({
 
                 {mapConfig.dataSourceType === 'webmapItem' ? (
                   <div>
-                    <p className="text-xs text-slate-500 mb-3">
-                      Search will use a layer from the WebMap configured in the Basic tab.
-                      {!mapConfig.webMap?.itemId && (
-                        <span className="text-amber-600 ml-1">Configure the WebMap Item ID in the Basic tab first.</span>
-                      )}
-                    </p>
-                    {mapConfig.webMap?.itemId && (
-                      <div className="flex items-center gap-2 text-xs text-emerald-600">
-                        <Check className="w-3 h-3" />
-                        Using WebMap item <span className="font-mono">{mapConfig.webMap.itemId}</span>
+                    {!mapConfig.webMap?.itemId ? (
+                      <p className="text-xs text-amber-600">
+                        Configure the WebMap Item ID in the Basic tab first.
+                      </p>
+                    ) : webMapLayersLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Loading layers from WebMap...
                       </div>
+                    ) : webMapLayersError ? (
+                      <p className="text-xs text-red-500">
+                        Failed to load WebMap layers: {webMapLayersError}
+                      </p>
+                    ) : (
+                      <>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                          Select Layer *
+                        </label>
+                        <select
+                          value={mapConfig.webmapLayerId || ''}
+                          onChange={(e) => {
+                            const layerId = e.target.value;
+                            const selectedLayer = webMapLayers.find(l => l.id === layerId);
+                            setMapConfig(prev => ({
+                              ...prev,
+                              webmapLayerId: layerId,
+                              endpoint: selectedLayer?.url || ''
+                            }));
+                            // Clear errors if present
+                            if (errors.endpoint || errors.webmapLayerId) {
+                              setErrors(prev => {
+                                const updated = { ...prev };
+                                delete updated.endpoint;
+                                delete updated.webmapLayerId;
+                                return updated;
+                              });
+                            }
+                            // Fetch fields for the selected layer's URL
+                            if (selectedLayer?.url) {
+                              fetchServiceFields(selectedLayer.url);
+                            }
+                          }}
+                          className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-opacity-50 ${
+                            errors.webmapLayerId ? 'border-red-300 focus:ring-red-500' : 'border-slate-300 focus:ring-sky-500'
+                          }`}
+                        >
+                          <option value="">-- Select a layer --</option>
+                          {webMapLayers.filter(l => l.url).map(layer => (
+                            <option key={layer.id} value={layer.id}>
+                              {'  '.repeat(layer.depth || 0)}{layer.title} ({layer.type})
+                            </option>
+                          ))}
+                        </select>
+                        {errors.webmapLayerId && <p className="text-xs text-red-500 mt-1">{errors.webmapLayerId}</p>}
+                        {mapConfig.webmapLayerId && mapConfig.endpoint && (
+                          <div className="flex items-center gap-2 text-xs text-emerald-600 mt-2">
+                            <Check className="w-3 h-3" />
+                            Endpoint: <span className="font-mono truncate">{mapConfig.endpoint}</span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 ) : (
