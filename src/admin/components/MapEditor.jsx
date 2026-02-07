@@ -2568,18 +2568,9 @@ export default function MapEditor({
               </div>
 
               <p className="text-sm text-slate-600">
-                Configure a custom AI system prompt for this map. When set, this prompt will be used instead of the
-                organization-level system prompt for AI query translation on this map.
+                Configure the AI system prompt for this map. This prompt is used for AI query translation
+                to convert natural language queries into SQL.
               </p>
-
-              {/* Info about fallback */}
-              <div className="flex items-start gap-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
-                <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <p>
-                  If left empty, the organization-level system prompt from Atlas Settings → Advanced will be used.
-                  Setting a prompt here overrides the organization default for this map only.
-                </p>
-              </div>
 
               {/* Auto-generate button */}
               <div className="flex items-center gap-2">
@@ -2639,7 +2630,7 @@ export default function MapEditor({
                 />
                 <div className="flex items-center justify-between mt-1">
                   <p className="text-xs text-slate-400">
-                    {mapConfig.systemPrompt ? `${mapConfig.systemPrompt.length} characters` : 'No prompt configured (using organization default)'}
+                    {mapConfig.systemPrompt ? `${mapConfig.systemPrompt.length} characters` : 'No prompt configured'}
                   </p>
                   {mapConfig.systemPrompt && (
                     <button
@@ -2647,7 +2638,7 @@ export default function MapEditor({
                       onClick={() => updateField('systemPrompt', '')}
                       className="text-xs text-red-500 hover:text-red-700 hover:underline"
                     >
-                      Clear (use org default)
+                      Clear
                     </button>
                   )}
                 </div>

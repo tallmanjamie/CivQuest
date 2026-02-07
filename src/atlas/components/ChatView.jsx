@@ -665,17 +665,15 @@ Provide a clear, helpful answer. If you reference media (images/videos), note th
    * Includes conservative search instructions to avoid overly broad queries
    */
   const translateQueryWithAI = useCallback(async (query) => {
-    // Check multiple paths for the system prompt
-    // Priority: activeMap.systemPrompt > config.data.systemPrompt
-    const systemPrompt = activeMap?.systemPrompt || config?.data?.systemPrompt;
+    // Use the map-level system prompt for AI query translation
+    const systemPrompt = activeMap?.systemPrompt;
 
     console.log('[ChatView] translateQueryWithAI called');
     console.log('[ChatView] activeMap?.systemPrompt:', activeMap?.systemPrompt ? 'SET' : 'NOT SET');
-    console.log('[ChatView] config?.data?.systemPrompt:', config?.data?.systemPrompt ? 'SET' : 'NOT SET');
 
     if (!systemPrompt || systemPrompt.trim() === '') {
-      console.warn('[ChatView] No system prompt configured - AI translation disabled');
-      console.warn('[ChatView] To enable AI query translation, configure the "System Prompt (for AI Query Translation)" in Atlas Admin Settings');
+      console.warn('[ChatView] No system prompt configured on active map - AI translation disabled');
+      console.warn('[ChatView] To enable AI query translation, configure the AI System Prompt in the map editor');
       return null;
     }
 
@@ -771,7 +769,7 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
       console.error('[ChatView] Gemini AI translation failed:', err);
       return null;
     }
-  }, [activeMap?.systemPrompt, config?.data?.systemPrompt, callGeminiApi, buildSessionContext, buildAvailableFieldsContext]);
+  }, [activeMap?.systemPrompt, callGeminiApi, buildSessionContext, buildAvailableFieldsContext]);
 
   const handleSearch = useCallback(async (query) => {
     if (!query?.trim() || isLoading) return;
@@ -931,10 +929,9 @@ Remember to respond with ONLY a valid JSON object, no additional text or markdow
           // AI translation failed or not configured
           console.log('[ChatView] AI translation unavailable, falling back to text search');
 
-          // Check if system prompt is configured
-          const hasSystemPrompt = activeMap?.systemPrompt || config?.data?.systemPrompt;
-          if (!hasSystemPrompt) {
-            console.warn('[ChatView] No system prompt configured - complex queries will use basic text matching');
+          // Check if system prompt is configured on the map
+          if (!activeMap?.systemPrompt) {
+            console.warn('[ChatView] No system prompt configured on map - complex queries will use basic text matching');
           }
         }
 

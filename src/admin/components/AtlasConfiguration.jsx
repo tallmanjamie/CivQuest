@@ -120,7 +120,6 @@ export default function AtlasConfiguration({
       { label: "Default", id: "default", type: "esri" }
     ],
     data: {
-      systemPrompt: "",
       maxRecordCount: 1000,
       timeZoneOffset: -5,
       defaultSort: "",
