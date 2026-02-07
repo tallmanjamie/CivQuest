@@ -46,7 +46,12 @@ export default function FeatureInfoPanel({
   isMarkupFeature = false,
   onWidthChange,
   isExportingPDF = false,
-  exportPDFProgress = ''
+  exportPDFProgress = '',
+  // Display mapping props (one-to-many attribute join)
+  displayMappingFeatures = [],
+  currentDisplayIndex = 0,
+  onNavigateDisplay,
+  originalFeatureGeometry = null
 }) {
   const { config: atlasConfig, orgId, activeMap, isPictometryEnabled, openEagleView, isNearmapEnabled, openNearmap } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
@@ -90,11 +95,19 @@ export default function FeatureInfoPanel({
     setIsMinimized(false);
   }, [feature]);
 
+  // Whether display mapping is active (one-to-many attribute join)
+  const isDisplayMapping = displayMappingFeatures.length > 0;
+
   const useCustomTabs = useMemo(() => {
     if (!customFeatureInfo?.layerId || !customFeatureInfo?.tabs?.length) return false;
     const featureLayerId = feature?.sourceLayerId || sourceLayer?.id;
-    return featureLayerId === customFeatureInfo.layerId;
-  }, [customFeatureInfo, feature, sourceLayer]);
+    // Match against the configured layer ID, or the display mapping feature layer
+    if (featureLayerId === customFeatureInfo.layerId) return true;
+    if (isDisplayMapping && customFeatureInfo?.displayMapping?.featureLayerId) {
+      return featureLayerId === customFeatureInfo.displayMapping.featureLayerId;
+    }
+    return false;
+  }, [customFeatureInfo, feature, sourceLayer, isDisplayMapping]);
 
   const arcadeExpressions = useMemo(() => {
     const template = sourceLayer?.popupTemplate || feature?.popupTemplate;
@@ -522,25 +535,27 @@ export default function FeatureInfoPanel({
 
   // Handle EagleView button click
   const handleOpenEagleView = useCallback(() => {
-    if (!feature?.geometry) return;
+    const geom = (isDisplayMapping && originalFeatureGeometry) || feature?.geometry;
+    if (!geom) return;
 
     openEagleView({
-      geometry: feature.geometry,
+      geometry: geom,
       title: displayTitle,
       themeColor: colors.bg500
     });
-  }, [feature, displayTitle, colors.bg500, openEagleView]);
+  }, [feature, displayTitle, colors.bg500, openEagleView, isDisplayMapping, originalFeatureGeometry]);
 
   // Handle Nearmap button click
   const handleOpenNearmap = useCallback(() => {
-    if (!feature?.geometry) return;
+    const geom = (isDisplayMapping && originalFeatureGeometry) || feature?.geometry;
+    if (!geom) return;
 
     openNearmap({
-      geometry: feature.geometry,
+      geometry: geom,
       title: displayTitle,
       themeColor: colors.bg500
     });
-  }, [feature, displayTitle, colors.bg500, openNearmap]);
+  }, [feature, displayTitle, colors.bg500, openNearmap, isDisplayMapping, originalFeatureGeometry]);
 
   // Handle Nearby button click
   const handleNearbyClick = useCallback(() => {
@@ -571,17 +586,26 @@ export default function FeatureInfoPanel({
   // Get endpoint for nearby search
   const nearbyEndpoint = activeMap?.endpoint || config?.data?.endpoint;
 
+  // When display mapping is active, geometry-based operations should use the
+  // original search result geometry, not the display feature geometry
+  const geometryFeature = useMemo(() => {
+    if (isDisplayMapping && originalFeatureGeometry) {
+      return { ...feature, geometry: originalFeatureGeometry };
+    }
+    return feature;
+  }, [feature, isDisplayMapping, originalFeatureGeometry]);
+
   const ActionButtons = () => (
     <div className="flex items-center gap-2 p-3 bg-slate-50 border-b border-slate-200">
-      <ActionButton icon={Bookmark} label="Markup" onClick={() => onSaveAsMarkup?.(feature, displayTitle)} />
+      <ActionButton icon={Bookmark} label="Markup" onClick={() => onSaveAsMarkup?.(geometryFeature, displayTitle)} />
       <ActionButton
         icon={isExportingPDF ? Loader2 : Download}
         label={isExportingPDF ? (exportPDFProgress || 'Exporting...') : 'Export'}
-        onClick={() => !isExportingPDF && onExportPDF?.(feature, displayTitle)}
+        onClick={() => !isExportingPDF && onExportPDF?.(geometryFeature, displayTitle)}
         disabled={isExportingPDF}
         isLoading={isExportingPDF}
       />
-      <ActionButton icon={ZoomIn} label="Zoom" onClick={() => onZoomTo?.(feature)} />
+      <ActionButton icon={ZoomIn} label="Zoom" onClick={() => onZoomTo?.(geometryFeature)} />
       <ActionButton icon={Radar} label="Nearby" onClick={handleNearbyClick} />
       {isPictometryEnabled && (
         <ActionButton
@@ -599,6 +623,33 @@ export default function FeatureInfoPanel({
       )}
     </div>
   );
+
+  // Display mapping navigation bar (one-to-many record navigation)
+  const DisplayMappingNav = () => {
+    if (!isDisplayMapping || displayMappingFeatures.length <= 1) return null;
+
+    return (
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-100 border-b border-slate-200">
+        <button
+          onClick={() => onNavigateDisplay?.(Math.max(0, currentDisplayIndex - 1))}
+          disabled={currentDisplayIndex === 0}
+          className="p-1 rounded hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition"
+        >
+          <ChevronLeft className="w-4 h-4 text-slate-600" />
+        </button>
+        <span className="text-xs font-medium text-slate-600">
+          Record {currentDisplayIndex + 1} of {displayMappingFeatures.length}
+        </span>
+        <button
+          onClick={() => onNavigateDisplay?.(Math.min(displayMappingFeatures.length - 1, currentDisplayIndex + 1))}
+          disabled={currentDisplayIndex === displayMappingFeatures.length - 1}
+          className="p-1 rounded hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition"
+        >
+          <ChevronRight className="w-4 h-4 text-slate-600" />
+        </button>
+      </div>
+    );
+  };
 
   if (!feature) return null;
 
@@ -680,12 +731,13 @@ export default function FeatureInfoPanel({
           </div>
         </div>
         <ActionButtons />
+        <DisplayMappingNav />
 
         {/* Nearby Search Tool */}
         {showNearbyTool && (
           <div className="p-3 border-b border-slate-200">
             <NearbySearchTool
-              geometry={feature?.geometry}
+              geometry={geometryFeature?.geometry}
               endpoint={nearbyEndpoint}
               customFeatureInfo={customFeatureInfo}
               onResults={handleNearbyResults}
@@ -787,12 +839,13 @@ export default function FeatureInfoPanel({
       </div>
 
       <ActionButtons />
+      <DisplayMappingNav />
 
       {/* Nearby Search Tool */}
       {showNearbyTool && (
         <div className="p-3 border-b border-slate-200">
           <NearbySearchTool
-            geometry={feature?.geometry}
+            geometry={geometryFeature?.geometry}
             endpoint={nearbyEndpoint}
             customFeatureInfo={customFeatureInfo}
             onResults={handleNearbyResults}

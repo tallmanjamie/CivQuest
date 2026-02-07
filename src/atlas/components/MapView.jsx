@@ -106,6 +106,12 @@ const MapView = forwardRef(function MapView(props, ref) {
   const [currentRelatedIndex, setCurrentRelatedIndex] = useState(0);
   const [isMarkupFeature, setIsMarkupFeature] = useState(false);
 
+  // Display Mapping State - one-to-many attribute join for popup display
+  const [displayMappingFeatures, setDisplayMappingFeatures] = useState([]);
+  const [currentDisplayIndex, setCurrentDisplayIndex] = useState(0);
+  const [displayMappingLayer, setDisplayMappingLayer] = useState(null);
+  const [originalFeatureGeometry, setOriginalFeatureGeometry] = useState(null);
+
   // Markup Popup State
   const [selectedMarkup, setSelectedMarkup] = useState(null);
   const [showMarkupPopup, setShowMarkupPopup] = useState(false);
@@ -217,7 +223,21 @@ const MapView = forwardRef(function MapView(props, ref) {
     setCurrentRelatedIndex(0);
     setShowFeaturePanel(false);
     setIsMarkupFeature(false);
+    setDisplayMappingFeatures([]);
+    setCurrentDisplayIndex(0);
+    setDisplayMappingLayer(null);
+    setOriginalFeatureGeometry(null);
   }, [activeMap?.webMap?.itemId]);
+
+  // Update selected feature when navigating between display mapping features
+  useEffect(() => {
+    if (displayMappingFeatures.length > 0 && currentDisplayIndex < displayMappingFeatures.length) {
+      setSelectedFeature(displayMappingFeatures[currentDisplayIndex]);
+      if (displayMappingLayer) {
+        setSelectedFeatureLayer(displayMappingLayer);
+      }
+    }
+  }, [currentDisplayIndex, displayMappingFeatures, displayMappingLayer]);
 
   /**
    * Get storage key for persisting map extent
@@ -684,6 +704,24 @@ const MapView = forwardRef(function MapView(props, ref) {
     setSelectedMarkup(null);
     setIsEditingMarkup(false);
 
+    // Check for display mapping (one-to-many attribute join)
+    const displayMapping = activeMap?.customFeatureInfo?.displayMapping;
+    if (displayMapping?.enabled && displayMapping?.featureLayerId && displayMapping?.primaryKeyField && displayMapping?.foreignKeyField) {
+      // Save original geometry for highlighting/zoom (always the search result geometry)
+      setOriginalFeatureGeometry(feature.geometry);
+      // Highlight the original feature geometry
+      highlightFeature(feature, graphic);
+      // Query display mapping features - this will set selectedFeature, sourceLayer, etc.
+      queryDisplayMappingFeatures(enrichedFeature, feature.geometry);
+      return;
+    }
+
+    // Clear display mapping state when not using display mapping
+    setDisplayMappingFeatures([]);
+    setCurrentDisplayIndex(0);
+    setDisplayMappingLayer(null);
+    setOriginalFeatureGeometry(null);
+
     setSelectedFeature(enrichedFeature);
     setSelectedFeatureLayer(resolvedLayer);
     setIsMarkupFeature(false);
@@ -742,6 +780,107 @@ const MapView = forwardRef(function MapView(props, ref) {
     } catch (err) {
       console.warn('[MapView] Related features query error:', err);
       setRelatedFeatures([]);
+    }
+  }, [activeMap]);
+
+  /**
+   * Query display mapping features using attribute join (primary/foreign key)
+   * When display mapping is enabled, the popup shows data from a related feature layer
+   * while geometry remains from the original search result.
+   */
+  const queryDisplayMappingFeatures = useCallback(async (sourceFeature, originalGeometry) => {
+    const displayMapping = activeMap?.customFeatureInfo?.displayMapping;
+
+    if (!displayMapping?.enabled || !displayMapping?.featureLayerId || !mapRef.current) {
+      setDisplayMappingFeatures([]);
+      setCurrentDisplayIndex(0);
+      setDisplayMappingLayer(null);
+      return;
+    }
+
+    try {
+      // Find the display mapping layer in the webmap
+      const featureLayer = mapRef.current.allLayers?.find(l => l.id === displayMapping.featureLayerId);
+
+      if (!featureLayer?.queryFeatures) {
+        console.warn('[MapView] Display mapping layer not found or not queryable:', displayMapping.featureLayerId);
+        // Fall back to showing the original feature
+        setDisplayMappingFeatures([]);
+        setDisplayMappingLayer(null);
+        setSelectedFeature(sourceFeature);
+        setSelectedFeatureLayer(null);
+        setIsMarkupFeature(false);
+        setShowFeaturePanel(true);
+        return;
+      }
+
+      // Get the primary key value from the source feature
+      const primaryKeyValue = sourceFeature.attributes?.[displayMapping.primaryKeyField];
+
+      if (primaryKeyValue === undefined || primaryKeyValue === null) {
+        console.warn('[MapView] Primary key value not found in feature attributes:', displayMapping.primaryKeyField);
+        setDisplayMappingFeatures([]);
+        setDisplayMappingLayer(null);
+        setSelectedFeature(sourceFeature);
+        setSelectedFeatureLayer(null);
+        setIsMarkupFeature(false);
+        setShowFeaturePanel(true);
+        return;
+      }
+
+      console.log('[MapView] Querying display mapping layer:', displayMapping.featureLayerId,
+        'where', displayMapping.foreignKeyField, '=', primaryKeyValue);
+
+      // Query the feature layer using attribute join
+      const query = featureLayer.createQuery();
+      // Build WHERE clause - handle both string and numeric values
+      const escapedValue = typeof primaryKeyValue === 'string'
+        ? `'${primaryKeyValue.replace(/'/g, "''")}'`
+        : primaryKeyValue;
+      query.where = `${displayMapping.foreignKeyField} = ${escapedValue}`;
+      query.outFields = ['*'];
+      query.returnGeometry = true;
+
+      const results = await featureLayer.queryFeatures(query);
+
+      const mappedFeatures = results.features.map(f => ({
+        // Use the original search result geometry for map display
+        geometry: originalGeometry,
+        // Use the display layer's attributes for popup content
+        attributes: f.attributes,
+        // Store original display feature geometry if needed
+        _displayGeometry: f.geometry?.toJSON?.() || f.geometry,
+        sourceLayerId: displayMapping.featureLayerId
+      }));
+
+      console.log('[MapView] Display mapping found', mappedFeatures.length, 'features');
+
+      setDisplayMappingFeatures(mappedFeatures);
+      setCurrentDisplayIndex(0);
+      setDisplayMappingLayer(featureLayer);
+
+      if (mappedFeatures.length > 0) {
+        // Show the first display mapping feature in the popup
+        setSelectedFeature(mappedFeatures[0]);
+        setSelectedFeatureLayer(featureLayer);
+      } else {
+        // No matching records found - show the original feature
+        setSelectedFeature(sourceFeature);
+        setSelectedFeatureLayer(null);
+      }
+
+      setIsMarkupFeature(false);
+      setShowFeaturePanel(true);
+
+    } catch (err) {
+      console.warn('[MapView] Display mapping query error:', err);
+      setDisplayMappingFeatures([]);
+      setDisplayMappingLayer(null);
+      // Fall back to showing the original feature
+      setSelectedFeature(sourceFeature);
+      setSelectedFeatureLayer(null);
+      setIsMarkupFeature(false);
+      setShowFeaturePanel(true);
     }
   }, [activeMap]);
 
@@ -1161,6 +1300,10 @@ const MapView = forwardRef(function MapView(props, ref) {
     setShowFeaturePanel(false);
     setShowSearchResults(false);
     setRelatedFeatures([]);
+    setDisplayMappingFeatures([]);
+    setCurrentDisplayIndex(0);
+    setDisplayMappingLayer(null);
+    setOriginalFeatureGeometry(null);
 
     // Clear search results in context
     if (updateSearchResults) {
@@ -1760,6 +1903,11 @@ const MapView = forwardRef(function MapView(props, ref) {
     setSelectedFeatureLayer(null);
     setRelatedFeatures([]);
     setIsMarkupFeature(false);
+    // Clear display mapping state
+    setDisplayMappingFeatures([]);
+    setCurrentDisplayIndex(0);
+    setDisplayMappingLayer(null);
+    setOriginalFeatureGeometry(null);
     // Clear nearby buffer state and graphic
     setNearbyBufferGeometry(null);
     setNearbySearchInfo(null);
@@ -2676,6 +2824,10 @@ const MapView = forwardRef(function MapView(props, ref) {
           onWidthChange={setFeaturePanelWidth}
           isExportingPDF={isExportingPDF}
           exportPDFProgress={exportPDFProgress}
+          displayMappingFeatures={displayMappingFeatures}
+          currentDisplayIndex={currentDisplayIndex}
+          onNavigateDisplay={setCurrentDisplayIndex}
+          originalFeatureGeometry={originalFeatureGeometry}
         />
       )}
 
