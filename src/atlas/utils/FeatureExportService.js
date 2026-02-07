@@ -161,7 +161,7 @@ function getPopupElementsFromWebmap(feature, sourceLayer, customFeatureInfo = nu
     // Get element name for matching
     let name = '';
     if (el.type === 'expression' && el.expressionInfo) {
-      name = el.expressionInfo.name || el.expressionInfo.title || `expression_${index}`;
+      name = el.expressionInfo.title || el.expressionInfo.name || `expression_${index}`;
     } else if (el.type === 'fields') {
       name = el.title || 'fields';
     } else if (el.type === 'text') {

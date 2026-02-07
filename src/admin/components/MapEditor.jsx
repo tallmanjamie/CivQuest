@@ -83,24 +83,38 @@ const extractPopupElements = (popupInfo) => {
         id = 'fields';
         displayName = 'Fields';
       } else if (el.type === 'expression') {
+        // Handle two ArcGIS WebMap formats for expression elements:
+        // 1. Indexed: el.expressionInfoIndex references popupInfo.expressionInfos[index]
+        // 2. Inline: el.expressionInfo contains the expression info directly (Arcade content elements)
         const exprIdx = el.expressionInfoIndex;
-        if (exprIdx != null && popupInfo.expressionInfos?.[exprIdx]) {
-          const exprInfo = popupInfo.expressionInfos[exprIdx];
-          id = exprInfo.name || `expression_${exprIdx}`;
+        const indexedExprInfo = (exprIdx != null && popupInfo.expressionInfos?.[exprIdx])
+          ? popupInfo.expressionInfos[exprIdx]
+          : null;
+        const inlineExprInfo = el.expressionInfo || null;
+
+        if (indexedExprInfo || inlineExprInfo) {
+          const sysName = indexedExprInfo?.name || inlineExprInfo?.name || '';
           // Resolve human-readable display name from multiple sources:
-          // 1. expressionInfo.title (primary), 2. popup element title/description,
-          // 3. strip "expression/" prefix if the remainder is a meaningful name
-          let resolvedName = exprInfo.title || el.title || el.description || '';
-          if (!resolvedName && exprInfo.name) {
-            const slashIdx = exprInfo.name.indexOf('/');
+          // 1. Indexed expressionInfo.title, 2. Inline expressionInfo.title,
+          // 3. Popup element title/description,
+          // 4. Strip "expression/" prefix if the remainder is a meaningful name
+          let resolvedName = indexedExprInfo?.title || inlineExprInfo?.title ||
+                             el.title || el.description || '';
+          if (!resolvedName && sysName) {
+            const slashIdx = sysName.indexOf('/');
             if (slashIdx !== -1) {
-              const suffix = exprInfo.name.substring(slashIdx + 1);
+              const suffix = sysName.substring(slashIdx + 1);
               if (suffix && !/^\d+$/.test(suffix)) {
                 resolvedName = suffix;
               }
             }
           }
-          displayName = resolvedName || exprInfo.name || `Expression ${exprIdx}`;
+          // Use expression title as primary ID since the ArcGIS JS API's
+          // ElementExpressionInfo.title is the reliable matching property at runtime.
+          // Fall back to system name or generated name when no title is available.
+          const exprTitle = indexedExprInfo?.title || inlineExprInfo?.title || '';
+          id = exprTitle || sysName || `expression_${exprIdx ?? index}`;
+          displayName = resolvedName || sysName || `Expression ${exprIdx ?? index}`;
         } else {
           id = `expression_${index}`;
           displayName = el.title || el.description || `Expression ${index}`;
@@ -132,18 +146,20 @@ const extractPopupElements = (popupInfo) => {
     }
     if (popupInfo.expressionInfos && Array.isArray(popupInfo.expressionInfos)) {
       popupInfo.expressionInfos.forEach(expr => {
-        const id = expr.name || expr.title;
-        if (id) {
-          let resolvedName = expr.title || '';
-          if (!resolvedName && expr.name) {
-            const slashIdx = expr.name.indexOf('/');
-            if (slashIdx !== -1) {
-              const suffix = expr.name.substring(slashIdx + 1);
-              if (suffix && !/^\d+$/.test(suffix)) {
-                resolvedName = suffix;
-              }
+        let resolvedName = expr.title || '';
+        if (!resolvedName && expr.name) {
+          const slashIdx = expr.name.indexOf('/');
+          if (slashIdx !== -1) {
+            const suffix = expr.name.substring(slashIdx + 1);
+            if (suffix && !/^\d+$/.test(suffix)) {
+              resolvedName = suffix;
             }
           }
+        }
+        // Use title as primary ID (matches runtime ElementExpressionInfo.title),
+        // fall back to system name
+        const id = resolvedName || expr.name || expr.title;
+        if (id) {
           elements.push({
             id,
             displayName: resolvedName || expr.name,

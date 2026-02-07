@@ -102,9 +102,9 @@ export default function FeatureInfoPanel({
     return template.content
       .filter(el => el.type === 'expression' && el.expressionInfo)
       .map(el => {
-        // Get name from expressionInfo properties
-        // Note: expressionInfo.expression may contain "expression/name" format reference
-        const name = el.expressionInfo?.name || el.expressionInfo?.title || '';
+        // Get display name from expressionInfo properties, preferring title
+        // (the human-readable name set in the webmap popup configuration)
+        const name = el.expressionInfo?.title || el.expressionInfo?.name || '';
         if (name) return name;
         // Fallback: extract name from expression reference (e.g., "expression/Summary" -> "Summary")
         const exprRef = el.expressionInfo?.expression || '';
