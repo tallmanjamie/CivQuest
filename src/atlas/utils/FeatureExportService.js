@@ -194,12 +194,18 @@ function getPopupElementsFromWebmap(feature, sourceLayer, customFeatureInfo = nu
   if (shouldUseExportOrder) {
     // Filter and order elements by the export elements configuration
     const orderedElements = [];
-    for (const exportElementName of exportElements) {
-      // Find matching element by name (case-insensitive partial match)
-      const match = elements.find(el =>
-        el.name.toLowerCase().includes(exportElementName.toLowerCase()) ||
-        exportElementName.toLowerCase().includes(el.name.toLowerCase())
-      );
+    for (const storedId of exportElements) {
+      const idLower = storedId.toLowerCase();
+      // Find matching element: exact match on type, name, or expressionInfo; fallback to partial
+      const match = elements.find(el => {
+        if (el.type === storedId) return true;
+        if (el.name.toLowerCase() === idLower) return true;
+        if (el.expressionInfo?.name?.toLowerCase() === idLower) return true;
+        if (el.expressionInfo?.title?.toLowerCase() === idLower) return true;
+        // Fallback: partial match for backward compatibility
+        return el.name.toLowerCase().includes(idLower) ||
+               idLower.includes(el.name.toLowerCase());
+      });
       if (match && !orderedElements.includes(match)) {
         orderedElements.push(match);
       }

@@ -61,7 +61,10 @@ import FeatureExportSettings from './FeatureExportSettings';
 // Configuration for the Proxy Service (for fetching feature service fields)
 const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
 
-// Extract popup element names from a WebMap popupInfo object
+// Extract popup elements from a WebMap popupInfo object
+// Returns { id, displayName, type } for each element:
+//   id: stable identifier for storage (won't break if element is renamed)
+//   displayName: human-readable name for admin UI display
 const extractPopupElements = (popupInfo) => {
   if (!popupInfo) return [];
 
@@ -70,30 +73,37 @@ const extractPopupElements = (popupInfo) => {
   // Use popupElements if available (newer WebMap format)
   if (popupInfo.popupElements && Array.isArray(popupInfo.popupElements)) {
     popupInfo.popupElements.forEach((el, index) => {
-      let name = '';
+      let id = '';
+      let displayName = '';
       if (el.type === 'fields') {
-        name = 'fields';
+        id = 'fields';
+        displayName = 'Fields';
       } else if (el.type === 'expression') {
         const exprIdx = el.expressionInfoIndex;
         if (exprIdx != null && popupInfo.expressionInfos?.[exprIdx]) {
-          name = popupInfo.expressionInfos[exprIdx].name ||
-                 popupInfo.expressionInfos[exprIdx].title ||
-                 `expression_${exprIdx}`;
+          const exprInfo = popupInfo.expressionInfos[exprIdx];
+          id = exprInfo.name || `expression_${exprIdx}`;
+          displayName = exprInfo.title || exprInfo.name || `Expression ${exprIdx}`;
         } else {
-          name = `expression_${index}`;
+          id = `expression_${index}`;
+          displayName = `Expression ${index}`;
         }
       } else if (el.type === 'text') {
-        name = el.title || `text_${index}`;
+        id = el.title || `text_${index}`;
+        displayName = el.title || `Text ${index}`;
       } else if (el.type === 'attachments') {
-        name = 'attachments';
+        id = 'attachments';
+        displayName = 'Attachments';
       } else if (el.type === 'media') {
-        name = el.title || 'media';
+        id = el.title || 'media';
+        displayName = el.title || 'Media';
       } else {
-        name = el.title || el.type || `element_${index}`;
+        id = el.title || el.type || `element_${index}`;
+        displayName = el.title || el.type || `Element ${index}`;
       }
 
-      if (name) {
-        elements.push({ name, type: el.type });
+      if (id) {
+        elements.push({ id, displayName, type: el.type });
       }
     });
   }
@@ -101,20 +111,22 @@ const extractPopupElements = (popupInfo) => {
   // Fallback: derive from expressionInfos and fieldInfos if no popupElements found
   if (elements.length === 0) {
     if (popupInfo.fieldInfos?.some(fi => fi.visible !== false)) {
-      elements.push({ name: 'fields', type: 'fields' });
+      elements.push({ id: 'fields', displayName: 'Fields', type: 'fields' });
     }
     if (popupInfo.expressionInfos && Array.isArray(popupInfo.expressionInfos)) {
       popupInfo.expressionInfos.forEach(expr => {
-        if (expr.name || expr.title) {
+        const id = expr.name || expr.title;
+        if (id) {
           elements.push({
-            name: expr.name || expr.title,
+            id,
+            displayName: expr.title || expr.name,
             type: 'expression'
           });
         }
       });
     }
     if (popupInfo.showAttachments) {
-      elements.push({ name: 'attachments', type: 'attachments' });
+      elements.push({ id: 'attachments', displayName: 'Attachments', type: 'attachments' });
     }
   }
 
@@ -2225,11 +2237,11 @@ export default function MapEditor({
                                     >
                                       <option value="">-- Select element --</option>
                                       {availablePopupElements.map(pe => (
-                                        <option key={pe.name} value={pe.name}>
-                                          {pe.name} ({pe.type})
+                                        <option key={pe.id} value={pe.id}>
+                                          {pe.displayName} ({pe.type})
                                         </option>
                                       ))}
-                                      {element && !availablePopupElements.find(pe => pe.name === element) && (
+                                      {element && !availablePopupElements.find(pe => pe.id === element) && (
                                         <option value={element}>{element} (custom)</option>
                                       )}
                                     </select>
@@ -2350,11 +2362,11 @@ export default function MapEditor({
                               >
                                 <option value="">-- Select element --</option>
                                 {availablePopupElements.map(pe => (
-                                  <option key={pe.name} value={pe.name}>
-                                    {pe.name} ({pe.type})
+                                  <option key={pe.id} value={pe.id}>
+                                    {pe.displayName} ({pe.type})
                                   </option>
                                 ))}
-                                {element && !availablePopupElements.find(pe => pe.name === element) && (
+                                {element && !availablePopupElements.find(pe => pe.id === element) && (
                                   <option value={element}>{element} (custom)</option>
                                 )}
                               </select>
