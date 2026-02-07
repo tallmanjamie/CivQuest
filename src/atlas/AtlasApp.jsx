@@ -1234,8 +1234,8 @@ export default function AtlasApp() {
   // Determine enabled modes from config
   const enabledModes = activeMap?.enabledModes || ['chat', 'map', 'table'];
   
-  // Determine search bar position from config (default: 'top')
-  const searchBarPosition = config?.ui?.searchBarPosition || 'top';
+  // Determine search bar position: user preference > org config > default 'top'
+  const searchBarPosition = firebaseUserData?.preferences?.searchBarPosition || config?.ui?.searchBarPosition || 'top';
   
   // Get theme colors
   const themeColor = config?.ui?.themeColor || 'sky';

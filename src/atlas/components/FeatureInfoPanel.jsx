@@ -53,7 +53,7 @@ export default function FeatureInfoPanel({
   onNavigateDisplay,
   originalFeatureGeometry = null
 }) {
-  const { config: atlasConfig, orgId, activeMap, isPictometryEnabled, openEagleView, isNearmapEnabled, openNearmap } = useAtlas();
+  const { config: atlasConfig, orgId, activeMap, isPictometryEnabled, openEagleView, isNearmapEnabled, openNearmap, userData } = useAtlas();
   const themeColor = config?.ui?.themeColor || atlasConfig?.ui?.themeColor || 'sky';
   const colors = getThemeColors(themeColor);
 
@@ -653,8 +653,8 @@ export default function FeatureInfoPanel({
 
   if (!feature) return null;
 
-  // Get search bar position from config
-  const searchBarPosition = atlasConfig?.ui?.searchBarPosition || 'top';
+  // Get search bar position: user preference > org config > default
+  const searchBarPosition = userData?.preferences?.searchBarPosition || atlasConfig?.ui?.searchBarPosition || 'top';
   const searchBarHeight = searchBarPosition === 'bottom' ? 60 : 0; // Approximate height of search toolbar
 
   if (isMobile) {

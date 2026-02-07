@@ -143,7 +143,6 @@ export default function AtlasSettingsEditor({
       searchBarPosition: 'top',
       searchPlaceholder: '',
       defaultSearchBarSize: 'medium',  // Default search bar size for org users
-      chatWindowPlacement: 'bottom',  // Chat window placement (top or bottom)
       // Map tools position and layout
       mapToolsPosition: 'upper-left',
       mapToolsLayout: 'stacked',
@@ -880,35 +879,6 @@ export default function AtlasSettingsEditor({
                 </div>
               </div>
 
-              {/* Chat Window Placement */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Chat Window Placement
-                </label>
-                <p className="text-xs text-slate-500 mb-2">
-                  Position the chat interface at the top or bottom of the screen. Logged-in users can override this in their settings.
-                </p>
-                <div className="flex gap-2">
-                  {[
-                    { id: 'top', label: 'Top', icon: ArrowUpFromLine },
-                    { id: 'bottom', label: 'Bottom', icon: ArrowDownToLine }
-                  ].map(placement => (
-                    <button
-                      key={placement.id}
-                      type="button"
-                      onClick={() => updateUI('chatWindowPlacement', placement.id)}
-                      className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
-                        (config.ui.chatWindowPlacement || 'bottom') === placement.id
-                          ? 'border-sky-500 bg-sky-50 text-sky-700'
-                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
-                      }`}
-                    >
-                      <placement.icon className="w-5 h-5" />
-                      <span className="text-sm font-medium">{placement.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
 
             {/* Map Tools Configuration */}

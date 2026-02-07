@@ -12,7 +12,9 @@ import {
   Check,
   Unlink,
   AlertTriangle,
-  Monitor
+  Monitor,
+  ArrowUpFromLine,
+  ArrowDownToLine
 } from 'lucide-react';
 import { useAtlas } from '../AtlasApp';
 import { updateUserProfile, unlinkArcGISAccount, updateUserPreferences } from '@shared/services/users';
@@ -34,6 +36,7 @@ export default function AccountSettings({ isOpen, onClose }) {
 
   // Display preferences
   const [searchBarSize, setSearchBarSize] = useState('medium');
+  const [searchBarPosition, setSearchBarPosition] = useState(null);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [savedPreferences, setSavedPreferences] = useState(false);
 
@@ -43,6 +46,7 @@ export default function AccountSettings({ isOpen, onClose }) {
       setFirstName(userData.firstName || '');
       setLastName(userData.lastName || '');
       setSearchBarSize(userData.preferences?.searchBarSize || 'medium');
+      setSearchBarPosition(userData.preferences?.searchBarPosition || null);
     }
   }, [userData, config?.ui?.defaultSearchBarSize]);
 
@@ -119,7 +123,8 @@ export default function AccountSettings({ isOpen, onClose }) {
     setSavingPreferences(true);
     try {
       await updateUserPreferences(user.uid, {
-        searchBarSize
+        searchBarSize,
+        searchBarPosition
       });
       setSavedPreferences(true);
     } catch (error) {
@@ -255,6 +260,41 @@ export default function AccountSettings({ isOpen, onClose }) {
                     style={searchBarSize === option.id ? { backgroundColor: colors.bg600 } : {}}
                   >
                     {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Search Bar Position
+              </label>
+              <p className="text-xs text-slate-500 mb-3">
+                Position the search bar at the top or bottom of the screen. This applies to search, chat, and table views.
+                {config?.ui?.searchBarPosition && (
+                  <span className="block mt-1">
+                    Organization default: <span className="font-medium capitalize">{config.ui.searchBarPosition}</span>
+                  </span>
+                )}
+              </p>
+              <div className="flex gap-2">
+                {[
+                  { id: 'top', label: 'Top', icon: ArrowUpFromLine },
+                  { id: 'bottom', label: 'Bottom', icon: ArrowDownToLine }
+                ].map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setSearchBarPosition(option.id)}
+                    className={`flex-1 p-3 border rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                      (searchBarPosition || config?.ui?.searchBarPosition || 'top') === option.id
+                        ? 'border-transparent text-white'
+                        : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                    }`}
+                    style={(searchBarPosition || config?.ui?.searchBarPosition || 'top') === option.id ? { backgroundColor: colors.bg600 } : {}}
+                  >
+                    <option.icon className="w-5 h-5" />
+                    <span className="text-sm font-medium">{option.label}</span>
                   </button>
                 ))}
               </div>
