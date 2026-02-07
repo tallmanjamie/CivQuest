@@ -12,7 +12,7 @@
 // - Layers tab for configuring which layers are hidden from the Atlas layer list
 //   (hidden layers remain functional but don't appear in the layers panel)
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   X,
   Save,
@@ -57,6 +57,66 @@ import FeatureExportSettings from './FeatureExportSettings';
 
 // Configuration for the Proxy Service (for fetching feature service fields)
 const PROXY_BASE_URL = window.ARCGIS_PROXY_URL || 'https://api.civ.quest';
+
+// Extract popup element names from a WebMap popupInfo object
+const extractPopupElements = (popupInfo) => {
+  if (!popupInfo) return [];
+
+  const elements = [];
+
+  // Use popupElements if available (newer WebMap format)
+  if (popupInfo.popupElements && Array.isArray(popupInfo.popupElements)) {
+    popupInfo.popupElements.forEach((el, index) => {
+      let name = '';
+      if (el.type === 'fields') {
+        name = 'fields';
+      } else if (el.type === 'expression') {
+        const exprIdx = el.expressionInfoIndex;
+        if (exprIdx != null && popupInfo.expressionInfos?.[exprIdx]) {
+          name = popupInfo.expressionInfos[exprIdx].name ||
+                 popupInfo.expressionInfos[exprIdx].title ||
+                 `expression_${exprIdx}`;
+        } else {
+          name = `expression_${index}`;
+        }
+      } else if (el.type === 'text') {
+        name = el.title || `text_${index}`;
+      } else if (el.type === 'attachments') {
+        name = 'attachments';
+      } else if (el.type === 'media') {
+        name = el.title || 'media';
+      } else {
+        name = el.title || el.type || `element_${index}`;
+      }
+
+      if (name) {
+        elements.push({ name, type: el.type });
+      }
+    });
+  }
+
+  // Fallback: derive from expressionInfos and fieldInfos if no popupElements found
+  if (elements.length === 0) {
+    if (popupInfo.fieldInfos?.some(fi => fi.visible !== false)) {
+      elements.push({ name: 'fields', type: 'fields' });
+    }
+    if (popupInfo.expressionInfos && Array.isArray(popupInfo.expressionInfos)) {
+      popupInfo.expressionInfos.forEach(expr => {
+        if (expr.name || expr.title) {
+          elements.push({
+            name: expr.name || expr.title,
+            type: 'expression'
+          });
+        }
+      });
+    }
+    if (popupInfo.showAttachments) {
+      elements.push({ name: 'attachments', type: 'attachments' });
+    }
+  }
+
+  return elements;
+};
 
 // Page size display helper for export templates
 const PAGE_SIZES = {
@@ -300,7 +360,7 @@ export default function MapEditor({
       const extractedLayers = [];
 
       // Helper function to fetch sublayers from a MapServer
-      const fetchMapServerSublayers = async (url, parentId, depth) => {
+      const fetchMapServerSublayers = async (url, parentId, depth, webMapSublayers) => {
         try {
           // Fetch the MapServer metadata
           const mapServerUrl = `${url}?f=json`;
@@ -316,11 +376,14 @@ export default function MapEditor({
 
             layers.forEach(sublayer => {
               const sublayerId = `${parentLayerId}-${sublayer.id}`;
+              // Find popup info from the WebMap JSON for this sublayer
+              const webMapSublayer = webMapSublayers?.find(wsl => wsl.id === sublayer.id);
               extractedLayers.push({
                 id: sublayerId,
                 title: sublayer.name || `Sublayer ${sublayer.id}`,
                 type: 'MapServer Sublayer',
-                depth: currentDepth
+                depth: currentDepth,
+                popupElements: extractPopupElements(webMapSublayer?.popupInfo)
               });
 
               // Check for nested sublayers (group layers within MapServer)
@@ -347,7 +410,8 @@ export default function MapEditor({
             id: layer.id,
             title: layer.title || layer.name || 'Untitled Layer',
             type: layer.layerType || 'unknown',
-            depth
+            depth,
+            popupElements: extractPopupElements(layer.popupInfo)
           };
           extractedLayers.push(layerInfo);
 
@@ -356,7 +420,7 @@ export default function MapEditor({
                               (layer.url && layer.url.includes('/MapServer'));
 
           if (isMapServer && layer.url) {
-            await fetchMapServerSublayers(layer.url, layer.id, depth);
+            await fetchMapServerSublayers(layer.url, layer.id, depth, layer.layers);
           }
 
           // Process sublayers if present (for group layers)
@@ -395,6 +459,14 @@ export default function MapEditor({
       }
     }
   }, [mapConfig.webMap?.portalUrl, mapConfig.webMap?.itemId, lastFetchedWebMap, fetchWebMapLayers]);
+
+  // Get available popup elements for the currently selected feature info layer
+  const availablePopupElements = useMemo(() => {
+    const selectedLayerId = mapConfig.customFeatureInfo?.layerId;
+    if (!selectedLayerId || webMapLayers.length === 0) return [];
+    const selectedLayer = webMapLayers.find(l => l.id === selectedLayerId);
+    return selectedLayer?.popupElements || [];
+  }, [mapConfig.customFeatureInfo?.layerId, webMapLayers]);
 
   // Update field
   const updateField = (field, value) => {
@@ -1838,15 +1910,53 @@ export default function MapEditor({
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Layer ID
                 </label>
-                <input
-                  type="text"
-                  value={mapConfig.customFeatureInfo?.layerId || ''}
-                  onChange={(e) => updateCustomFeatureInfo('layerId', e.target.value)}
-                  placeholder="e.g., 194f67ad7e3-layer-42"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
-                />
+                {webMapLayersLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading layers from WebMap...
+                  </div>
+                ) : webMapLayers.length > 0 ? (
+                  <select
+                    value={mapConfig.customFeatureInfo?.layerId || ''}
+                    onChange={(e) => updateCustomFeatureInfo('layerId', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 text-sm"
+                  >
+                    <option value="">-- Select a layer --</option>
+                    {webMapLayers.map(layer => (
+                      <option key={layer.id} value={layer.id}>
+                        {'\u00A0\u00A0'.repeat(layer.depth || 0)}{layer.title} ({layer.id})
+                      </option>
+                    ))}
+                    {/* Preserve existing value if not in list */}
+                    {mapConfig.customFeatureInfo?.layerId &&
+                     !webMapLayers.find(l => l.id === mapConfig.customFeatureInfo.layerId) && (
+                      <option value={mapConfig.customFeatureInfo.layerId}>
+                        {mapConfig.customFeatureInfo.layerId} (not found in WebMap)
+                      </option>
+                    )}
+                  </select>
+                ) : (
+                  <div>
+                    <input
+                      type="text"
+                      value={mapConfig.customFeatureInfo?.layerId || ''}
+                      onChange={(e) => updateCustomFeatureInfo('layerId', e.target.value)}
+                      placeholder="e.g., 194f67ad7e3-layer-42"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 font-mono text-sm"
+                    />
+                    {webMapLayersError ? (
+                      <p className="mt-1 text-xs text-amber-500">
+                        Could not load layers: {webMapLayersError}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-slate-400">
+                        Configure a WebMap to select from available layers
+                      </p>
+                    )}
+                  </div>
+                )}
                 <p className="mt-1 text-xs text-slate-400">
-                  The layer ID for features that should display custom tabs
+                  The layer for features that should display custom tabs
                 </p>
               </div>
 
@@ -1925,13 +2035,31 @@ export default function MapEditor({
                             <div className="space-y-1.5">
                               {(tab.elements || []).map((element, elIdx) => (
                                 <div key={elIdx} className="flex items-center gap-2">
-                                  <input
-                                    type="text"
-                                    value={element}
-                                    onChange={(e) => updateFeatureInfoTabElement(tabIdx, elIdx, e.target.value)}
-                                    placeholder="Element name"
-                                    className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
-                                  />
+                                  {availablePopupElements.length > 0 ? (
+                                    <select
+                                      value={element}
+                                      onChange={(e) => updateFeatureInfoTabElement(tabIdx, elIdx, e.target.value)}
+                                      className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
+                                    >
+                                      <option value="">-- Select element --</option>
+                                      {availablePopupElements.map(pe => (
+                                        <option key={pe.name} value={pe.name}>
+                                          {pe.name} ({pe.type})
+                                        </option>
+                                      ))}
+                                      {element && !availablePopupElements.find(pe => pe.name === element) && (
+                                        <option value={element}>{element} (custom)</option>
+                                      )}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={element}
+                                      onChange={(e) => updateFeatureInfoTabElement(tabIdx, elIdx, e.target.value)}
+                                      placeholder="Element name"
+                                      className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm"
+                                    />
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => removeFeatureInfoTabElement(tabIdx, elIdx)}
@@ -2032,13 +2160,31 @@ export default function MapEditor({
                             <span className="w-6 text-center text-xs text-slate-400 font-medium">
                               {idx + 1}
                             </span>
-                            <input
-                              type="text"
-                              value={element}
-                              onChange={(e) => updateFeatureInfoExportElement(idx, e.target.value)}
-                              placeholder="Element name"
-                              className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm"
-                            />
+                            {availablePopupElements.length > 0 ? (
+                              <select
+                                value={element}
+                                onChange={(e) => updateFeatureInfoExportElement(idx, e.target.value)}
+                                className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm"
+                              >
+                                <option value="">-- Select element --</option>
+                                {availablePopupElements.map(pe => (
+                                  <option key={pe.name} value={pe.name}>
+                                    {pe.name} ({pe.type})
+                                  </option>
+                                ))}
+                                {element && !availablePopupElements.find(pe => pe.name === element) && (
+                                  <option value={element}>{element} (custom)</option>
+                                )}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={element}
+                                onChange={(e) => updateFeatureInfoExportElement(idx, e.target.value)}
+                                placeholder="Element name"
+                                className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm"
+                              />
+                            )}
                             <button
                               type="button"
                               onClick={() => removeFeatureInfoExportElement(idx)}
