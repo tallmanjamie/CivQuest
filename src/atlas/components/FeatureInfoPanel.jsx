@@ -294,16 +294,23 @@ export default function FeatureInfoPanel({
 
             const filteredContent = contentArray.filter(el => {
               if (!el) return false;
+              const elType = el.type || '';
               const titleText = el.title || el.description || el.text || '';
-              // Also check el.expressionInfo?.expression which may contain "expression/name" format
-              const exprName = el.expressionInfo?.name || el.expressionInfo?.title || '';
-              const exprRef = el.expressionInfo?.expression || '';
+              const exprName = el.expressionInfo?.name || '';
+              const exprTitle = el.expressionInfo?.title || '';
 
-              return currentTab.elements.some(name => {
-                const nameLower = name.toLowerCase();
-                return titleText.toLowerCase().includes(nameLower) ||
-                       exprName.toLowerCase().includes(nameLower) ||
-                       exprRef.toLowerCase().includes(nameLower);
+              return currentTab.elements.some(storedId => {
+                if (!storedId) return false;
+                const idLower = storedId.toLowerCase();
+                // Exact match on element type (e.g., stored "fields" matches el.type "fields")
+                if (elType === storedId) return true;
+                // Exact match on expressionInfo.name (the stable ID)
+                if (exprName && exprName.toLowerCase() === idLower) return true;
+                // Exact match on expressionInfo.title (backward compat with custom entries)
+                if (exprTitle && exprTitle.toLowerCase() === idLower) return true;
+                // Fallback: partial match for backward compatibility with older configs
+                return titleText.toLowerCase().includes(idLower) ||
+                       exprName.toLowerCase().includes(idLower);
               });
             });
 
