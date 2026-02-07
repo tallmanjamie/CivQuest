@@ -766,9 +766,20 @@ const MarkupTool = forwardRef(function MarkupTool({
     const id = graphic.attributes?.id;
     const layer = layerRef.current;
     if (!layer || !id) return;
-    
+
     const toRemove = layer.graphics.items.filter(g => g === graphic || g.attributes?.parentId === id);
     layer.removeMany(toRemove);
+
+    // If this markup was saved from a nearby search, also clear the nearby buffer layer
+    // which holds a duplicate visualization graphic
+    const savedFrom = graphic.attributes?.savedFrom;
+    if (savedFrom === 'nearby-search' || savedFrom === 'nearby-search-popup') {
+      const nearbyBufferLayer = view?.map?.findLayerById('atlas-nearby-buffer-layer');
+      if (nearbyBufferLayer) {
+        nearbyBufferLayer.removeAll();
+      }
+    }
+
     setMarkups(prev => prev.filter(m => m !== graphic));
   };
 
