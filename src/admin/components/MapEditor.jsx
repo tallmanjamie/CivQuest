@@ -85,10 +85,23 @@ const extractPopupElements = (popupInfo) => {
         if (exprIdx != null && popupInfo.expressionInfos?.[exprIdx]) {
           const exprInfo = popupInfo.expressionInfos[exprIdx];
           id = exprInfo.name || `expression_${exprIdx}`;
-          displayName = exprInfo.title || exprInfo.name || `Expression ${exprIdx}`;
+          // Resolve human-readable display name from multiple sources:
+          // 1. expressionInfo.title (primary), 2. popup element title/description,
+          // 3. strip "expression/" prefix if the remainder is a meaningful name
+          let resolvedName = exprInfo.title || el.title || el.description || '';
+          if (!resolvedName && exprInfo.name) {
+            const slashIdx = exprInfo.name.indexOf('/');
+            if (slashIdx !== -1) {
+              const suffix = exprInfo.name.substring(slashIdx + 1);
+              if (suffix && !/^\d+$/.test(suffix)) {
+                resolvedName = suffix;
+              }
+            }
+          }
+          displayName = resolvedName || exprInfo.name || `Expression ${exprIdx}`;
         } else {
           id = `expression_${index}`;
-          displayName = `Expression ${index}`;
+          displayName = el.title || el.description || `Expression ${index}`;
         }
       } else if (el.type === 'text') {
         id = el.title || `text_${index}`;
@@ -119,9 +132,19 @@ const extractPopupElements = (popupInfo) => {
       popupInfo.expressionInfos.forEach(expr => {
         const id = expr.name || expr.title;
         if (id) {
+          let resolvedName = expr.title || '';
+          if (!resolvedName && expr.name) {
+            const slashIdx = expr.name.indexOf('/');
+            if (slashIdx !== -1) {
+              const suffix = expr.name.substring(slashIdx + 1);
+              if (suffix && !/^\d+$/.test(suffix)) {
+                resolvedName = suffix;
+              }
+            }
+          }
           elements.push({
             id,
-            displayName: expr.title || expr.name,
+            displayName: resolvedName || expr.name,
             type: 'expression'
           });
         }
