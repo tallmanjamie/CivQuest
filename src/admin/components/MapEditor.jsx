@@ -39,6 +39,7 @@ import {
   HelpCircle,
   Check,
   Shield,
+  ShieldOff,
   Printer,
   Info,
   LayoutList,
