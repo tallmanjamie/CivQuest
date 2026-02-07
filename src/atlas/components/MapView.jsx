@@ -1250,6 +1250,129 @@ const MapView = forwardRef(function MapView(props, ref) {
   }, [themeColor]);
 
   /**
+   * Select the nearest map feature to a geocoded point
+   * Queries popup-enabled operational layers at progressive distances,
+   * selects the closest feature, and opens the feature info panel.
+   * Falls back to pushpin placement if no features are found.
+   * Returns true if a feature was selected, false otherwise.
+   */
+  const selectNearestFeatureAtPoint = useCallback(async (lat, lng, zoomLevel = 17) => {
+    if (!viewRef.current || !mapRef.current) return false;
+
+    const point = new Point({
+      longitude: lng,
+      latitude: lat,
+      spatialReference: { wkid: 4326 }
+    });
+
+    // Clear previous graphics
+    if (graphicsLayerRef.current) graphicsLayerRef.current.removeAll();
+    if (highlightLayerRef.current) highlightLayerRef.current.removeAll();
+    if (pushpinLayerRef.current) pushpinLayerRef.current.removeAll();
+
+    // Close any open panels
+    setShowSearchResults(false);
+    setShowFeaturePanel(false);
+
+    // Zoom to the location
+    await viewRef.current.goTo(
+      { target: point, zoom: zoomLevel },
+      { duration: 500 }
+    );
+
+    // Find popup-enabled layers that support queryFeatures
+    const queryableLayers = [];
+    mapRef.current.allLayers.forEach(layer => {
+      const originalPopupEnabled = originalPopupEnabledRef.current.get(layer.id);
+      if (originalPopupEnabled && typeof layer.queryFeatures === 'function') {
+        queryableLayers.push(layer);
+      }
+    });
+
+    if (queryableLayers.length === 0) {
+      console.log('[MapView] No queryable popup-enabled layers, falling back to pushpin');
+      zoomToCoordinate(lat, lng, zoomLevel);
+      return false;
+    }
+
+    // Query at progressive distances until we find features
+    const searchDistances = [100, 500, 2000, 5000];
+
+    for (const distance of searchDistances) {
+      console.log(`[MapView] Querying nearest feature within ${distance}m...`);
+
+      // Query all layers in parallel at this distance
+      const layerPromises = queryableLayers.map(async (layer) => {
+        try {
+          const query = layer.createQuery();
+          query.geometry = point;
+          query.distance = distance;
+          query.units = 'meters';
+          query.outFields = ['*'];
+          query.returnGeometry = true;
+          query.num = 10;
+
+          const results = await layer.queryFeatures(query);
+          return (results.features || []).map(f => ({ feature: f, layer }));
+        } catch (err) {
+          console.warn(`[MapView] Query error for layer ${layer.id}:`, err);
+          return [];
+        }
+      });
+
+      const layerResults = await Promise.all(layerPromises);
+      const allCandidates = layerResults.flat();
+
+      if (allCandidates.length > 0) {
+        // Find the closest feature by approximate geographic distance
+        let closestCandidate = null;
+        let closestDist = Infinity;
+
+        for (const candidate of allCandidates) {
+          const f = candidate.feature;
+          if (!f.geometry) continue;
+
+          let featurePoint;
+          if (f.geometry.type === 'point') {
+            featurePoint = f.geometry;
+          } else if (f.geometry.extent) {
+            featurePoint = f.geometry.extent.center;
+          } else {
+            continue;
+          }
+
+          const dx = featurePoint.longitude - lng;
+          const dy = featurePoint.latitude - lat;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestCandidate = candidate;
+          }
+        }
+
+        if (closestCandidate) {
+          const { feature: esriFeature, layer } = closestCandidate;
+          const selectedFeatureData = {
+            geometry: esriFeature.geometry?.toJSON?.() || esriFeature.geometry,
+            attributes: esriFeature.attributes || {},
+            sourceLayerId: layer.id
+          };
+
+          console.log('[MapView] Selected nearest feature from layer:', layer.title, selectedFeatureData.attributes);
+          handleFeatureSelect(selectedFeatureData, esriFeature, layer);
+          return true;
+        }
+      }
+    }
+
+    // No features found at any distance, fall back to pushpin
+    console.log('[MapView] No nearby features found, falling back to pushpin');
+    zoomToCoordinate(lat, lng, zoomLevel);
+    return false;
+  }, [handleFeatureSelect, zoomToCoordinate]);
+
+  /**
    * Display GPS marker at the given coordinates
    */
   const displayGpsMarker = useCallback((latitude, longitude, accuracy) => {
@@ -1984,6 +2107,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     highlightFeature,
     zoomToFeature,
     zoomToCoordinate,
+    selectNearestFeatureAtPoint,
     zoomToAllResults,
     clearResults,
     selectFeature: handleFeatureSelect,
@@ -1991,7 +2115,7 @@ const MapView = forwardRef(function MapView(props, ref) {
     get view() { return viewRef.current; },
     get map() { return mapRef.current; },
     get markupLayer() { return markupLayerRef.current; }
-  }), [renderResults, highlightFeature, zoomToFeature, zoomToCoordinate, zoomToAllResults, clearResults, handleFeatureSelect, handleCloseFeaturePanel]);
+  }), [renderResults, highlightFeature, zoomToFeature, zoomToCoordinate, selectNearestFeatureAtPoint, zoomToAllResults, clearResults, handleFeatureSelect, handleCloseFeaturePanel]);
 
   // Update results when searchResults change
   useEffect(() => {

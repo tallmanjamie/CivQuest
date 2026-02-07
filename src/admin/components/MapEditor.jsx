@@ -1846,18 +1846,36 @@ export default function MapEditor({
               </div>
 
               {mapConfig.geocoder?.enabled && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Geocoder URL
-                  </label>
-                  <input
-                    type="url"
-                    value={mapConfig.geocoder?.url || ''}
-                    onChange={(e) => updateNestedField('geocoder', 'url', e.target.value)}
-                    placeholder="https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                  />
-                </div>
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Geocoder URL
+                    </label>
+                    <input
+                      type="url"
+                      value={mapConfig.geocoder?.url || ''}
+                      onChange={(e) => updateNestedField('geocoder', 'url', e.target.value)}
+                      placeholder="https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mapConfig.geocoder?.selectNearestFeature || false}
+                        onChange={(e) => updateNestedField('geocoder', 'selectNearestFeature', e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      <span className="text-sm font-medium text-slate-700">Select Nearest Feature</span>
+                    </label>
+                    <p className="text-xs text-slate-500 mt-1 ml-7">
+                      When a geocoding result is selected, automatically find and select the nearest map feature
+                      instead of placing a pushpin. Opens the feature info panel for the closest feature.
+                    </p>
+                  </div>
+                </>
               )}
             </div>
           )}
