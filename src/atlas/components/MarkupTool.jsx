@@ -208,6 +208,7 @@ const MarkupTool = forwardRef(function MarkupTool({
   isExpanded = false,
   onToggle,
   onMarkupCreated,
+  onMarkupDeleted,
   className = '',
   justification = 'left'
 }, ref) {
@@ -781,6 +782,9 @@ const MarkupTool = forwardRef(function MarkupTool({
     }
 
     setMarkups(prev => prev.filter(m => m !== graphic));
+
+    // Notify parent so it can clear highlight and close popup if this markup was selected
+    onMarkupDeleted?.(graphic);
   };
 
   const zoomTo = (graphic) => {
