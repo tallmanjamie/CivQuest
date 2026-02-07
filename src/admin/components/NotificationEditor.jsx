@@ -341,6 +341,11 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
 
   /**
    * Validate endpoint and fetch fields (via proxy)
+   *
+   * Flow:
+   * 1. If credentials provided, generate a token via /arcgis/token
+   * 2. Fetch metadata (fields) via /arcgis/metadata
+   * 3. Fetch record count via /arcgis/query with multiple fallback approaches
    */
   const validateAndFetchFields = async (endpoint = formData.source?.endpoint, username = formData.source?.username, password = formData.source?.password) => {
     if (!endpoint) {
@@ -351,25 +356,66 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     setIsValidating(true);
     setValidationResult(null);
 
+    const baseUrl = endpoint.replace(/\/$/, '');
+    console.log('[TestConnection] Starting validation for:', baseUrl);
+    console.log('[TestConnection] Credentials provided:', username ? 'yes' : 'no');
+
     try {
-      const requestBody = {
-        serviceUrl: endpoint,
+      // Step 1: Generate a token if credentials are provided
+      // The /arcgis/query endpoint works best with a pre-generated token
+      let token = null;
+      if (username && password) {
+        console.log('[TestConnection] Generating token via /arcgis/token...');
+        try {
+          const tokenRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serviceUrl: baseUrl, username, password })
+          });
+          if (tokenRes.ok) {
+            const tokenData = await tokenRes.json();
+            if (tokenData.token) {
+              token = tokenData.token;
+              console.log('[TestConnection] Token generated successfully (length:', token.length, ')');
+            } else {
+              console.warn('[TestConnection] Token response had no token:', JSON.stringify(tokenData));
+            }
+          } else {
+            const errText = await tokenRes.text();
+            console.warn('[TestConnection] Token generation failed:', tokenRes.status, errText);
+          }
+        } catch (tokenErr) {
+          console.warn('[TestConnection] Token generation error:', tokenErr.message);
+        }
+      }
+
+      // Step 2: Fetch metadata (fields)
+      // Include both token and username/password — proxy uses whichever it supports
+      const metadataBody = {
+        serviceUrl: baseUrl,
+        ...(token ? { token } : {}),
         ...(username && password ? { username, password } : {})
       };
+      console.log('[TestConnection] Fetching metadata from:', `${ARCGIS_PROXY_URL}/arcgis/metadata`);
+      console.log('[TestConnection] Metadata request body keys:', Object.keys(metadataBody));
 
       const res = await fetch(`${ARCGIS_PROXY_URL}/arcgis/metadata`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(metadataBody)
       });
 
       if (!res.ok) {
         const errText = await res.text();
+        console.error('[TestConnection] Metadata fetch failed:', res.status, errText);
         throw new Error(errText || 'Failed to fetch metadata');
       }
 
       const metadata = await res.json();
-      
+      console.log('[TestConnection] Metadata response keys:', Object.keys(metadata));
+      console.log('[TestConnection] Fields count:', metadata.fields?.length || 0);
+      console.log('[TestConnection] Geometry type:', metadata.geometryType || metadata.type || 'none');
+
       if (!metadata.fields || metadata.fields.length === 0) {
         throw new Error('No fields found in this service');
       }
@@ -390,45 +436,211 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       ).map(f => ({ name: f.name, alias: f.alias || f.name }));
       setAvailableDateFields(dateFields);
 
-      // Fetch record count
+      // Step 3: Fetch record count with multiple approaches
       let recordCount = null;
       let recordCountFailed = false;
       let recordCountAuthError = false;
+
+      // Build the auth params — prefer token, fallback to username/password
+      const authParams = token
+        ? { token }
+        : (username && password ? { username, password } : {});
+      console.log('[TestConnection] Auth strategy for query:', token ? 'token' : (username ? 'username/password' : 'anonymous'));
+
+      // Approach 1: returnCountOnly via proxy
+      console.log('[TestConnection] Approach 1: /arcgis/query with returnCountOnly=true');
       try {
+        const countBody = {
+          serviceUrl: baseUrl,
+          where: '1=1',
+          returnCountOnly: true,
+          f: 'json',
+          ...authParams
+        };
+        console.log('[TestConnection] Query request body:', JSON.stringify(countBody, null, 2));
+
         const countRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            serviceUrl: endpoint.replace(/\/$/, ''),
-            where: '1=1',
-            returnCountOnly: true,
-            ...(username && password ? { username, password } : {})
-          })
+          body: JSON.stringify(countBody)
         });
+
+        console.log('[TestConnection] Query response status:', countRes.status);
+
         if (countRes.ok) {
           const countData = await countRes.json();
+          console.log('[TestConnection] Query response data:', JSON.stringify(countData));
+
           if (countData.error) {
             const code = countData.error.code;
+            console.warn('[TestConnection] Approach 1 ArcGIS error:', code, countData.error.message);
             if (code === 401 || code === 403 || code === 498 || code === 499) {
               recordCountAuthError = true;
             }
             recordCountFailed = true;
+          } else if (countData.count !== undefined && countData.count !== null) {
+            recordCount = countData.count;
+            console.log('[TestConnection] Approach 1 SUCCESS: count =', recordCount);
           } else {
-            recordCount = countData.count ?? null;
-            if (recordCount === null) {
-              recordCountFailed = true;
-            }
+            console.warn('[TestConnection] Approach 1: response has no count field. Keys:', Object.keys(countData));
+            recordCountFailed = true;
           }
         } else {
+          const errText = await countRes.text();
+          console.warn('[TestConnection] Approach 1 HTTP error:', countRes.status, errText);
           if (countRes.status === 401 || countRes.status === 403) {
             recordCountAuthError = true;
           }
           recordCountFailed = true;
         }
       } catch (e) {
-        // Record count is supplementary; don't fail the whole validation
+        console.warn('[TestConnection] Approach 1 exception:', e.message);
         recordCountFailed = true;
       }
+
+      // Approach 2: If credentials were provided but no token was generated, try with token from username/password
+      if (recordCountFailed && !recordCountAuthError && username && password && !token) {
+        console.log('[TestConnection] Approach 2: Retrying query after explicit token generation...');
+        recordCountFailed = false;
+        try {
+          // Try generating token using the service URL directly
+          const tokenRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              serviceUrl: baseUrl,
+              username,
+              password
+            })
+          });
+          if (tokenRes.ok) {
+            const tokenData = await tokenRes.json();
+            if (tokenData.token) {
+              token = tokenData.token;
+              console.log('[TestConnection] Approach 2: Token acquired, retrying query...');
+              const retryRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  serviceUrl: baseUrl,
+                  where: '1=1',
+                  returnCountOnly: true,
+                  f: 'json',
+                  token
+                })
+              });
+              if (retryRes.ok) {
+                const retryData = await retryRes.json();
+                console.log('[TestConnection] Approach 2 response:', JSON.stringify(retryData));
+                if (retryData.count !== undefined && retryData.count !== null && !retryData.error) {
+                  recordCount = retryData.count;
+                  console.log('[TestConnection] Approach 2 SUCCESS: count =', recordCount);
+                } else {
+                  recordCountFailed = true;
+                }
+              } else {
+                recordCountFailed = true;
+              }
+            } else {
+              recordCountFailed = true;
+            }
+          } else {
+            recordCountFailed = true;
+          }
+        } catch (e) {
+          console.warn('[TestConnection] Approach 2 exception:', e.message);
+          recordCountFailed = true;
+        }
+      }
+
+      // Approach 3: Try returnIdsOnly as fallback (some services don't support returnCountOnly)
+      if (recordCountFailed && !recordCountAuthError) {
+        console.log('[TestConnection] Approach 3: Trying returnIdsOnly=true fallback...');
+        recordCountFailed = false;
+        try {
+          const idsBody = {
+            serviceUrl: baseUrl,
+            where: '1=1',
+            returnIdsOnly: true,
+            f: 'json',
+            ...authParams
+          };
+          const idsRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(idsBody)
+          });
+          if (idsRes.ok) {
+            const idsData = await idsRes.json();
+            console.log('[TestConnection] Approach 3 response keys:', Object.keys(idsData));
+            if (idsData.objectIds && Array.isArray(idsData.objectIds)) {
+              recordCount = idsData.objectIds.length;
+              console.log('[TestConnection] Approach 3 SUCCESS: count from IDs =', recordCount);
+            } else if (idsData.error) {
+              console.warn('[TestConnection] Approach 3 ArcGIS error:', idsData.error.code, idsData.error.message);
+              recordCountFailed = true;
+            } else {
+              console.warn('[TestConnection] Approach 3: no objectIds in response');
+              recordCountFailed = true;
+            }
+          } else {
+            console.warn('[TestConnection] Approach 3 HTTP error:', idsRes.status);
+            recordCountFailed = true;
+          }
+        } catch (e) {
+          console.warn('[TestConnection] Approach 3 exception:', e.message);
+          recordCountFailed = true;
+        }
+      }
+
+      // Approach 4: Try fetching a small result set to confirm query capability
+      if (recordCountFailed && !recordCountAuthError) {
+        console.log('[TestConnection] Approach 4: Trying small result fetch (resultRecordCount=1)...');
+        recordCountFailed = false;
+        try {
+          const smallBody = {
+            serviceUrl: baseUrl,
+            where: '1=1',
+            outFields: fields[0] || '*',
+            resultRecordCount: 1,
+            f: 'json',
+            ...authParams
+          };
+          const smallRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(smallBody)
+          });
+          if (smallRes.ok) {
+            const smallData = await smallRes.json();
+            console.log('[TestConnection] Approach 4 response keys:', Object.keys(smallData));
+            if (smallData.features && !smallData.error) {
+              // We can query, but don't know the total count
+              // Use exceededTransferLimit or features length as hint
+              console.log('[TestConnection] Approach 4: Query works, features returned:', smallData.features.length);
+              if (smallData.exceededTransferLimit) {
+                console.log('[TestConnection] Approach 4: exceededTransferLimit=true (more records exist)');
+              }
+              // Don't set recordCount since we only got 1 record — but mark as not failed
+              // so we can show "query works but count unavailable" instead of a scary warning
+              recordCount = null;
+              recordCountFailed = false;
+            } else if (smallData.error) {
+              console.warn('[TestConnection] Approach 4 ArcGIS error:', smallData.error.code, smallData.error.message);
+              recordCountFailed = true;
+            } else {
+              recordCountFailed = true;
+            }
+          } else {
+            recordCountFailed = true;
+          }
+        } catch (e) {
+          console.warn('[TestConnection] Approach 4 exception:', e.message);
+          recordCountFailed = true;
+        }
+      }
+
+      console.log('[TestConnection] Final result — recordCount:', recordCount, 'failed:', recordCountFailed, 'authError:', recordCountAuthError);
 
       const successMessage = getPlainEnglishMessage('success', '', fields.length, recordCount);
       let countWarning = null;
@@ -448,7 +660,7 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       });
 
     } catch (err) {
-      console.error('Validation error:', err);
+      console.error('[TestConnection] Validation error:', err);
       const errorMessage = getPlainEnglishMessage('error', err.message);
       setValidationResult({ type: 'error', message: errorMessage });
     } finally {
@@ -611,6 +823,10 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
   /**
    * Test the generated query against the endpoint
    * Reports the number of display fields configured and the record count
+   *
+   * Uses the same auth strategy as validateAndFetchFields:
+   * 1. Generate a token if credentials are provided
+   * 2. Use token for the query request
    */
   const validateQuery = async () => {
     const endpoint = formData.source?.endpoint;
@@ -630,9 +846,42 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
     setIsQueryValidating(true);
     setQueryValidationResult(null);
 
+    const baseUrl = endpoint.replace(/\/$/, '');
+    const username = formData.source?.username;
+    const password = formData.source?.password;
+
+    console.log('[TestQuery] Starting query validation...');
+    console.log('[TestQuery] Endpoint:', baseUrl);
+    console.log('[TestQuery] WHERE:', whereClause);
+    console.log('[TestQuery] Display fields:', fieldNames.join(', ') || '(none)');
+
     try {
-      // Build query URL
-      const baseUrl = endpoint.replace(/\/$/, '');
+      // Generate token if credentials provided
+      let token = null;
+      if (username && password) {
+        console.log('[TestQuery] Generating token for authenticated query...');
+        try {
+          const tokenRes = await fetch(`${ARCGIS_PROXY_URL}/arcgis/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serviceUrl: baseUrl, username, password })
+          });
+          if (tokenRes.ok) {
+            const tokenData = await tokenRes.json();
+            if (tokenData.token) {
+              token = tokenData.token;
+              console.log('[TestQuery] Token generated successfully');
+            }
+          }
+        } catch (tokenErr) {
+          console.warn('[TestQuery] Token generation failed:', tokenErr.message);
+        }
+      }
+
+      // Build auth params — prefer token, fallback to username/password
+      const authParams = token
+        ? { token }
+        : (username && password ? { username, password } : {});
 
       // Use query endpoint for the query, include outFields to validate field names
       const queryBody = {
@@ -641,10 +890,10 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
         returnCountOnly: true,
         f: 'json',
         ...(fieldNames.length > 0 ? { outFields: fieldNames.join(',') } : {}),
-        ...(formData.source?.username && formData.source?.password
-          ? { username: formData.source.username, password: formData.source.password }
-          : {})
+        ...authParams
       };
+
+      console.log('[TestQuery] Query request body:', JSON.stringify(queryBody, null, 2));
 
       const res = await fetch(`${ARCGIS_PROXY_URL}/arcgis/query`, {
         method: 'POST',
@@ -652,7 +901,11 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
         body: JSON.stringify(queryBody)
       });
 
+      console.log('[TestQuery] Response status:', res.status);
+
       if (!res.ok) {
+        const errText = await res.text();
+        console.error('[TestQuery] HTTP error:', res.status, errText);
         if (res.status === 401 || res.status === 403) {
           throw new Error('auth_denied');
         }
@@ -660,9 +913,11 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       }
 
       const data = await res.json();
+      console.log('[TestQuery] Response data:', JSON.stringify(data));
 
       if (data.error) {
         const code = data.error.code;
+        console.error('[TestQuery] ArcGIS error:', code, data.error.message);
         if (code === 401 || code === 403 || code === 498 || code === 499) {
           throw new Error('auth_denied');
         }
@@ -670,6 +925,8 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       }
 
       const count = data.count ?? data.features?.length ?? 0;
+      console.log('[TestQuery] Record count:', count);
+
       const fieldText = fieldCount === 1 ? '1 field' : `${fieldCount} fields`;
       const recordText = count === 1 ? '1 record' : `${count.toLocaleString()} records`;
 
@@ -695,10 +952,10 @@ export default function NotificationEditModal({ data, orgData, onClose, onSave }
       }
 
     } catch (err) {
-      console.error('Query validation error:', err);
+      console.error('[TestQuery] Validation error:', err);
       let message;
       if (err.message === 'auth_denied') {
-        const hasCreds = formData.source?.username && formData.source?.password;
+        const hasCreds = username && password;
         message = hasCreds
           ? 'Access denied. Check that your username and password are correct and that you have permission to query this layer.'
           : 'This service requires authentication. Enter your ArcGIS username and password in the Data Source section above.';
