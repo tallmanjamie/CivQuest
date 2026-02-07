@@ -238,6 +238,9 @@ const MarkupTool = forwardRef(function MarkupTool({
   const [dropPosition, setDropPosition] = useState(null); // 'before' | 'after' relative to display order
   const [renamingMarkupId, setRenamingMarkupId] = useState(null); // markup being renamed inline
   const [renamingMarkupName, setRenamingMarkupName] = useState('');
+  const [draggedFolder, setDraggedFolder] = useState(null); // folder being dragged for reordering
+  const [dragOverFolderReorderId, setDragOverFolderReorderId] = useState(null); // folder being hovered for reorder
+  const [folderDropPosition, setFolderDropPosition] = useState(null); // 'before' | 'after' for folder reorder
 
   const [settings, setSettings] = useState({
     pointType: 'circle',
@@ -1282,6 +1285,71 @@ const MarkupTool = forwardRef(function MarkupTool({
     setDragOverFolderId(null);
   }, [draggedMarkup, dropPosition]);
 
+  // Folder drag-and-drop handlers (reordering folders)
+  const handleFolderDragStart = useCallback((e, folder) => {
+    e.stopPropagation();
+    setDraggedFolder(folder);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', folder.id);
+  }, []);
+
+  const handleFolderDragEnd = useCallback(() => {
+    setDraggedFolder(null);
+    setDragOverFolderReorderId(null);
+    setFolderDropPosition(null);
+  }, []);
+
+  const handleFolderReorderDragOver = useCallback((e, folderId) => {
+    if (!draggedFolder) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const position = e.clientY < midY ? 'before' : 'after';
+
+    setDragOverFolderReorderId(folderId);
+    setFolderDropPosition(position);
+  }, [draggedFolder]);
+
+  const handleFolderReorderDrop = useCallback((e, targetFolderId) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!draggedFolder || draggedFolder.id === targetFolderId) {
+      setDraggedFolder(null);
+      setDragOverFolderReorderId(null);
+      setFolderDropPosition(null);
+      return;
+    }
+
+    setFolders(prev => {
+      const newFolders = [...prev];
+      const draggedIndex = newFolders.findIndex(f => f.id === draggedFolder.id);
+      if (draggedIndex === -1) return prev;
+      const [draggedItem] = newFolders.splice(draggedIndex, 1);
+
+      const targetIndex = newFolders.findIndex(f => f.id === targetFolderId);
+      if (targetIndex === -1) {
+        newFolders.push(draggedItem);
+        return newFolders;
+      }
+
+      if (folderDropPosition === 'before') {
+        newFolders.splice(targetIndex, 0, draggedItem);
+      } else {
+        newFolders.splice(targetIndex + 1, 0, draggedItem);
+      }
+
+      return newFolders;
+    });
+
+    setDraggedFolder(null);
+    setDragOverFolderReorderId(null);
+    setFolderDropPosition(null);
+  }, [draggedFolder, folderDropPosition]);
+
   const getMarkupsInFolder = useCallback((folderId) => {
     return markups.filter(m => m.attributes?.folderId === folderId);
   }, [markups]);
@@ -1691,20 +1759,54 @@ const MarkupTool = forwardRef(function MarkupTool({
             const isDropTarget = draggedMarkup && dragOverFolderId === folder.id && draggedMarkup.attributes?.folderId !== folder.id;
             const isDefaultFolder = folder.id === DEFAULT_FOLDER_ID;
             const isSelected = selectedFolderId === folder.id;
+            const isFolderDragging = draggedFolder?.id === folder.id;
+            const isFolderReorderTarget = draggedFolder && dragOverFolderReorderId === folder.id && draggedFolder.id !== folder.id;
 
             return (
               <div
                 key={folder.id}
-                onDragOver={(e) => handleFolderDragOver(e, folder.id)}
-                onDragLeave={handleFolderDragLeave}
-                onDrop={(e) => handleFolderDrop(e, folder.id)}
+                className="relative"
+                onDragOver={(e) => {
+                  if (draggedFolder) {
+                    handleFolderReorderDragOver(e, folder.id);
+                  } else {
+                    handleFolderDragOver(e, folder.id);
+                  }
+                }}
+                onDragLeave={(e) => {
+                  if (draggedFolder) {
+                    setDragOverFolderReorderId(null);
+                    setFolderDropPosition(null);
+                  } else {
+                    handleFolderDragLeave();
+                  }
+                }}
+                onDrop={(e) => {
+                  if (draggedFolder) {
+                    handleFolderReorderDrop(e, folder.id);
+                  } else {
+                    handleFolderDrop(e, folder.id);
+                  }
+                }}
               >
+                {isFolderReorderTarget && folderDropPosition === 'before' && (
+                  <div className="absolute -top-[3px] left-1 right-1 h-[2px] bg-blue-500 rounded-full z-10 pointer-events-none">
+                    <div className="absolute -left-[3px] -top-[3px] w-2 h-2 rounded-full bg-blue-500" />
+                  </div>
+                )}
                 {/* Folder header */}
                 <div
-                  className={`group flex items-center gap-1 py-1.5 px-1.5 rounded-lg transition-colors
+                  draggable
+                  onDragStart={(e) => handleFolderDragStart(e, folder)}
+                  onDragEnd={handleFolderDragEnd}
+                  className={`group flex items-center gap-1 py-1.5 px-1.5 rounded-lg transition-colors cursor-grab active:cursor-grabbing
+                    ${isFolderDragging ? 'opacity-40 border-dashed border border-blue-300 bg-blue-50/50' : ''}
                     ${isDropTarget ? 'bg-blue-100 ring-2 ring-blue-300 ring-inset' : isSelected ? 'ring-1 ring-inset' : 'hover:bg-slate-100'}`}
                   style={isSelected && !isDropTarget ? { backgroundColor: colors.bg50, ringColor: colors.border200, '--tw-ring-color': colors.border200 } : undefined}
                 >
+                  <div className="flex-shrink-0 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab">
+                    <GripVertical className="w-3 h-3" />
+                  </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); toggleFolderExpanded(folder.id); }}
                     className="flex-shrink-0 p-0.5 rounded hover:bg-slate-200/50"
@@ -1791,6 +1893,11 @@ const MarkupTool = forwardRef(function MarkupTool({
                     ) : (
                       folderMarkups.slice().reverse().map(m => renderMarkupRow(m, true, folder.id))
                     )}
+                  </div>
+                )}
+                {isFolderReorderTarget && folderDropPosition === 'after' && (
+                  <div className="absolute -bottom-[3px] left-1 right-1 h-[2px] bg-blue-500 rounded-full z-10 pointer-events-none">
+                    <div className="absolute -left-[3px] -top-[3px] w-2 h-2 rounded-full bg-blue-500" />
                   </div>
                 )}
               </div>
